@@ -21,6 +21,7 @@ from narration.contracts.models import (
     Anchor,
     AudioRef,
     BenchmarkRef,
+    CalibrationTake,
     CanaryPin,
     CanaryRecord,
     Candidate,
@@ -34,6 +35,8 @@ from narration.contracts.models import (
     ErrorStats,
     GpuStatus,
     JobRecord,
+    LadderRung,
+    LadderSeed,
     Licence,
     LintResult,
     Loudness,
@@ -62,7 +65,7 @@ from narration.store import NarrationStore
 
 ENGINE_HASH = "sha256:" + "9e" * 32
 CLIP_SHA = "5b" * 32
-TOOLS = DeliveryTools(resampler="soxr 0.5.0", loudness_meter="pyloudnorm 0.1.1")
+TOOLS = DeliveryTools(resampler="soxr 0.5.0", loudness_meter="pyloudnorm 0.1.1", post=names.POST_RULES)
 VOICE_HASH = keys.voice_hash(
     model=names.MODEL_QWEN_BASE,
     clip_sha256=CLIP_SHA,
@@ -71,6 +74,8 @@ VOICE_HASH = keys.voice_hash(
     x_vector_only_mode=False,
 )
 T0 = "2026-09-26T12:00:00.000Z"
+METHOD_ID = "ctc-snap/wav2vec2@abc"
+"""The aligner method the test store is configured with (``alignment_method_id``)."""
 
 
 def sha(data: bytes) -> str:
@@ -197,7 +202,14 @@ def analysis_record(take: TakeRecord, *, qa_profile: str = names.QA_PROFILE) -> 
     )
 
 
-def measurement_record(*, corpus_hex: str = "c0" * 32, engine_id: str = names.ENGINE_PROFILE_BASE) -> MeasurementRecord:
+def measurement_record(
+    *,
+    corpus_hex: str = "c0" * 32,
+    engine_id: str = names.ENGINE_PROFILE_BASE,
+    calibration_takes: tuple[str, ...] = (),
+    ladder_takes: tuple[str | None, ...] = (),
+) -> MeasurementRecord:
+    """A measurement; ``calibration_takes`` and ``ladder_takes`` are the take ids it names."""
     engine_hash = ENGINE_HASH if engine_id == names.ENGINE_PROFILE_BASE else keys.hash_key({"schema": engine_id})
     key = keys.measurement_key(
         voice_hash=VOICE_HASH,
@@ -216,9 +228,25 @@ def measurement_record(*, corpus_hex: str = "c0" * 32, engine_id: str = names.EN
         pace=Pace(trend=PaceTrend(intercept_wpm=118.0, per_100_chars=12.5, band_max_chars=300), tol=0.17, curve=()),
         max_segment_chars=450,
         max_segment_seconds=31.5,
-        ladder=(),
+        ladder=(
+            (
+                LadderRung(
+                    chars=80,
+                    seeds=tuple(
+                        LadderSeed(seed=i, attempt=0, take_id=t, wpm=150.0, wer_adj=0.0, sim=0.98, verdict="pass")
+                        for i, t in enumerate(ladder_takes)
+                    ),
+                    passes=True,
+                ),
+            )
+            if ladder_takes
+            else ()
+        ),
         anchor=Anchor(model=names.MODEL_SV, dim=3, embedding=(0.1, 0.2, 0.3)),
-        calibration=(),
+        calibration=tuple(
+            CalibrationTake(paragraph_id=f"cal-{i}", seed=i, attempt=0, take_id=t)
+            for i, t in enumerate(calibration_takes)
+        ),
         measured_at=T0,
     )
 
@@ -331,7 +359,7 @@ def canary_pin(clip: AudioRef) -> CanaryPin:
     )
 
 
-def alignment_benchmark(method_id: str = "ctc-snap/wav2vec2@abc", *, p50: float = 0.03) -> AlignmentBenchmark:
+def alignment_benchmark(method_id: str = METHOD_ID, *, p50: float = 0.03) -> AlignmentBenchmark:
     return AlignmentBenchmark(
         method_id=method_id,
         model=names.MODEL_ALIGNER,

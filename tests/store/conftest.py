@@ -10,6 +10,7 @@ import pytest
 
 from narration.store import NarrationStore
 
+from .factories import METHOD_ID
 from .standin import StandInPlatform
 
 
@@ -34,5 +35,5 @@ def clock() -> FakeClock:
 
 @pytest.fixture
 def store(tmp_path: Path, clock: FakeClock) -> Iterator[NarrationStore]:
-    with NarrationStore(tmp_path / "store", StandInPlatform(), clock=clock) as s:
+    with NarrationStore(tmp_path / "store", StandInPlatform(), alignment_method_id=METHOD_ID, clock=clock) as s:
         yield s

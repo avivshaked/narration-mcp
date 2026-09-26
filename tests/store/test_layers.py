@@ -5,15 +5,25 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 import pytest
 
+from narration.contracts import names
 from narration.contracts.interfaces import Store
 from narration.store import NarrationStore, StoreError, StoreIntegrityError, StorePathError
 from narration.store import files as store_files
 
-from .factories import analysis_record, audio_bytes, render_record, scratch_file, sha, take_record
+from .factories import (
+    analysis_record,
+    audio_bytes,
+    profile_record,
+    render_record,
+    scratch_file,
+    sha,
+    take_record,
+)
 
 
 def publish_render(store: NarrationStore, text: str = "Before dawn, the reef belongs to the shrimp."):
@@ -131,3 +141,125 @@ def test_a_crash_leftover_at_the_final_path_is_replaced(store: NarrationStore) -
     assert Path(published.raw.path).read_bytes() == b"the real render"
     assert not any(p.name.startswith(".trash-") for p in folder.parent.iterdir())
     assert os.listdir(folder) == ["raw.wav", "render.json"]
+
+
+# ---------------------------------------------------------------- failed publishes (review fixes)
+def _refuse_folder_renames(monkeypatch: pytest.MonkeyPatch, *, times: int | None = None) -> dict[str, int]:
+    """Make renaming a ``.staging-`` folder fail as Windows does while a file in it is open: ``times``
+    times, or always. The files inside can still be moved."""
+    real = os.rename
+    state = {"refused": 0}
+
+    def rename(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        if Path(src).name.startswith(".staging-") and (times is None or state["refused"] < times):
+            state["refused"] += 1
+            raise PermissionError(13, "the folder is in use", os.fspath(src))
+        real(src, dst)
+
+    monkeypatch.setattr(os, "rename", rename)
+    monkeypatch.setattr(store_files, "_retry_sleep", lambda attempt: None)
+    return state
+
+
+def _temp_names(store: NarrationStore) -> list[str]:
+    return [p.name for p in store.root.rglob("*") if p.name.startswith((".tmp-", ".staging-", ".trash-"))]
+
+
+def test_a_folder_rename_refused_for_a_moment_is_retried(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = _refuse_folder_renames(monkeypatch, times=2)
+    published, data = publish_render(store)
+    assert state["refused"] == 2
+    assert Path(published.raw.path).read_bytes() == data
+
+
+def test_a_failed_publish_gives_the_audio_back(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A render is GPU work: if its folder cannot be put in place, the raw audio goes back where it was.
+    _refuse_folder_renames(monkeypatch)
+    record = render_record()
+    src = scratch_file(store, "raw.wav", audio_bytes("gpu output"))
+    with pytest.raises(PermissionError):
+        store.put_render(record, src)
+    assert src.read_bytes() == audio_bytes("gpu output")
+    assert not store_files.is_readonly(src)  # as the caller had it
+    assert store.get_render(record.render_key) is None
+    assert _temp_names(store) == []
+
+
+def test_a_failed_replace_keeps_the_published_profile(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    audio = sha(b"clip")
+    old = store.put_profile(profile_record(audio, pictures=False), None)
+    _refuse_folder_renames(monkeypatch)
+    with pytest.raises(PermissionError):
+        store.put_profile(profile_record(audio, version="profile-2", pictures=False), None)
+    assert store.get_profile(audio, names.PROFILE_VERSION) == old
+    assert os.listdir(store.profile_dir(audio)) == ["profile.json"]
+    assert _temp_names(store) == []
+
+
+def test_a_failed_index_write_puts_everything_back(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    audio = sha(b"clip")
+    old = store.put_profile(profile_record(audio, pictures=False), None)
+    pictures = store.scratch_path("p2", "spectrogram.png").parent
+    (pictures / "spectrogram.png").write_bytes(b"spectrogram")
+    (pictures / "pitch.png").write_bytes(b"pitch")
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("the database is full")
+
+    monkeypatch.setattr(store, "_index_files", fail)
+    with pytest.raises(RuntimeError):
+        store.put_profile(profile_record(audio, version="profile-2"), pictures)
+    assert store.get_profile(audio, names.PROFILE_VERSION) == old
+    assert os.listdir(store.profile_dir(audio)) == ["profile.json"]
+    assert (pictures / "spectrogram.png").read_bytes() == b"spectrogram"
+    assert (pictures / "pitch.png").read_bytes() == b"pitch"
+    assert _temp_names(store) == []
+
+
+def test_a_published_file_is_never_consumed_or_moved_s17_2(store: NarrationStore) -> None:
+    first, data = publish_render(store)
+    published_raw = Path(first.raw.path)
+    # The key exists, so the store would discard a duplicate source; a published file is not one.
+    assert store.put_render(render_record(), published_raw) == first
+    assert published_raw.read_bytes() == data
+    with pytest.raises(StorePathError, match="scratch"):
+        store.put_render(render_record("Another line."), published_raw)
+    assert published_raw.read_bytes() == data
+    assert store.get_render(first.render_key) == first
+
+
+def test_audio_is_moved_in_only_from_scratch_s17_2(store: NarrationStore) -> None:
+    stray = store.root / "logs" / "raw.wav"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_bytes(b"audio")
+    with pytest.raises(StorePathError, match="scratch"):
+        store.put_render(render_record(), stray)
+    assert stray.read_bytes() == b"audio"
+
+
+def test_an_analysis_is_refused_if_its_take_goes_meanwhile(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The take is checked again under the write lock, so no analysis row can outlive its take.
+    render, _ = publish_render(store)
+    take = store.put_take(take_record(render.raw.sha256, render.render_id), scratch_file(store, "d.wav", b"delivery"))
+    real = store_files.write_temp
+
+    def write_then_lose_the_take(path: Path, data: bytes, **kwargs: bool) -> tuple[Path, str, int]:
+        out = real(path, data, **kwargs)
+        conn = sqlite3.connect(str(store.root / "narration.sqlite"))
+        try:
+            with conn:
+                conn.execute("DELETE FROM takes WHERE take_id = ?", (take.take_id,))
+        finally:
+            conn.close()
+        return out
+
+    monkeypatch.setattr(store_files, "write_temp", write_then_lose_the_take)
+    record = analysis_record(take)
+    with pytest.raises(StoreError, match="no longer in the store"):
+        store.put_analysis(record)
+    assert store.get_analysis(record.analysis_key) is None
+    assert _temp_names(store) == []

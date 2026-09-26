@@ -5,19 +5,29 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import sqlite3
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from narration.config import Config
 from narration.contracts import names
 from narration.contracts.models import ProvenanceEntry
 from narration.keys import Keys
-from narration.store import NarrationStore, NotFoundError, StoreError, StoreIntegrityError
+from narration.store import (
+    InvalidIdError,
+    NarrationStore,
+    NotFoundError,
+    StoreError,
+    StoreIntegrityError,
+)
 from narration.store import files as store_files
 
 from .factories import (
     CLIP_SHA,
+    METHOD_ID,
     VOICE_HASH,
     alignment_benchmark,
     audio_bytes,
@@ -160,6 +170,37 @@ def test_a_pinned_profile_never_changes_its_hash_s10_1(store: NarrationStore) ->
     assert not [p for p in (store.root / "engines").iterdir() if p.name.startswith(".tmp-")]
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"dtype": "float16"},
+        {"model_revision": "1" * 40},
+        {"packages": {"qwen-tts": "0.1.2"}},
+        {"settings": {"non_streaming_mode": True}},
+        {"vram_need_mb": 8000},
+    ],
+)
+def test_a_pinned_profile_never_changes_a_hashed_field_s10_1(store: NarrationStore, change: dict[str, Any]) -> None:
+    # The same id and the same hash string with a different hashed field is still a changed pin.
+    pinned = store.put_engine_profile(engine_profile())
+    with pytest.raises(StoreIntegrityError, match="new pin"):
+        store.put_engine_profile(dataclasses.replace(engine_profile(), **change))
+    assert store.get_engine_profile(pinned.engine_profile_id) == pinned
+
+
+def test_the_fields_the_hash_leaves_out_may_change_after_the_pin_s10_1(store: NarrationStore) -> None:
+    store.put_engine_profile(engine_profile())
+    clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, scratch_file(store, "canary.wav", b"canary"))
+    later = dataclasses.replace(
+        engine_profile(),
+        snapshot_dir="<models_root>/elsewhere",
+        observed={"gpu": "a GPU", "driver": "1.0"},
+        tier="bit_exact",
+        canary=canary_pin(clip),
+    )
+    assert store.put_engine_profile(later) == later
+
+
 def test_the_canary_clip_is_kept_with_its_profile_dc_3(store: NarrationStore) -> None:
     clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, scratch_file(store, "canary.wav", b"canary"))
     assert clip.path == str(store.root / "engines" / names.ENGINE_PROFILE_BASE / "canary.wav")
@@ -178,13 +219,29 @@ def test_the_canary_clip_is_kept_with_its_profile_dc_3(store: NarrationStore) ->
 # ---------------------------------------------------------------- the alignment benchmark (section 11.2)
 
 
-def test_the_latest_alignment_benchmark_is_current_s11_2(store: NarrationStore) -> None:
+def test_the_configured_aligners_benchmark_is_current_s11_2(store: NarrationStore) -> None:
+    # The store fixture is configured with METHOD_ID.
     assert store.current_alignment_benchmark() is None
     small = store.put_alignment_benchmark(alignment_benchmark(p50=0.04))
     assert store.current_alignment_benchmark() == small
     assert (store.root / "alignment" / "ctc-snap%2Fwav2vec2%40abc.json").is_file()
     full = store.put_alignment_benchmark(alignment_benchmark(p50=0.03))
     assert store.get_alignment_benchmark(full.method_id) == full == store.current_alignment_benchmark()
+    # Another aligner's benchmark, published later, is not the one in use.
+    other = store.put_alignment_benchmark(alignment_benchmark("qwen-forced-aligner@def", p50=0.02))
+    assert store.get_alignment_benchmark(other.method_id) == other
+    assert store.current_alignment_benchmark() == full
+
+
+def test_without_a_configured_aligner_no_benchmark_is_current_s11_2(tmp_path: Path) -> None:
+    with NarrationStore(tmp_path / "store", StandInPlatform()) as bare:
+        bare.put_alignment_benchmark(alignment_benchmark())
+        assert bare.current_alignment_benchmark() is None
+    config = Config.for_tests(tmp_path / "store")
+    with NarrationStore.from_config(config, StandInPlatform(), alignment_method_id=METHOD_ID) as configured:
+        assert configured.current_alignment_benchmark() == alignment_benchmark()
+    with pytest.raises(InvalidIdError):
+        NarrationStore(tmp_path / "store", StandInPlatform(), alignment_method_id="")
 
 
 # ---------------------------------------------------------------- the daemon's status and commands (4.1, 7.6)
@@ -217,3 +274,35 @@ def test_commands_reach_the_daemon_through_the_store_s4(store: NarrationStore) -
         store.complete_command("01JBYQ7Z3M8V4T2R9K6N5P0W1C", None)
     with pytest.raises(ValueError):
         store.post_command("reboot")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------- dropping rows whose files are gone
+
+
+def _profile_row(store: NarrationStore, audio: str) -> tuple[str, str] | None:
+    conn = sqlite3.connect(str(store.root / "narration.sqlite"))
+    try:
+        row = conn.execute("SELECT record, rel_dir FROM profiles WHERE audio_sha256 = ?", (audio,)).fetchone()
+    finally:
+        conn.close()
+    return (str(row[0]), str(row[1])) if row else None
+
+
+def test_a_row_replaced_meanwhile_is_never_dropped_as_missing(store: NarrationStore) -> None:
+    # A reader that found a row's file missing drops the row only if, under the write lock, the row is still
+    # the one it read and its file is still missing.
+    audio = sha(b"clip")
+    store.put_profile(profile_record(audio, pictures=False), None)
+    old = _profile_row(store, audio)
+    assert old is not None
+    newer = store.put_profile(profile_record(audio, version="profile-2", pictures=False), None)
+    rel = f"{old[1]}/profile.json"
+    store._drop("profile", audio, old[0], rel)  # a stale reader of the old version
+    assert store.get_profile(audio, "profile-2") == newer
+    current = _profile_row(store, audio)
+    assert current is not None
+    store._drop("profile", audio, current[0], rel)  # the same row, but its file is there
+    assert store.get_profile(audio, "profile-2") == newer
+    store_files.discard(store.root / rel)
+    store._drop("profile", audio, current[0], rel)  # the same row, its file still missing: dropped
+    assert _profile_row(store, audio) is None

@@ -17,7 +17,24 @@ cache first, in the same transaction.
 
 **Retention (section 15).** Every item has a last-used time (``touch``); ``gc`` removes what is older than
 the retention period, and is a dry run unless told otherwise. It never removes provenance, engine profiles,
-the canary, alignment benchmarks, or an active job.
+the canary, alignment benchmarks, or an active job. A live item keeps what it names alive with it:
+
+- A measurement keeps every take named in its calibration or ladder, with the take's render and analyses,
+  for ``measurement_retention_days``.
+- A design keeps its candidates' voice profiles, and using a design (``touch("design", …)``) uses them
+  too.
+
+**Where measurement audio lives (a deviation from section 15's folder layout).** Section 15 draws
+``measurements/<voice_hash>/<engine_profile_id>/`` with ``calibration/`` and ``ladder/`` folders. Here a
+measurement's calibration and ladder takes stay where every take lives, ``takes/<ab>/tk_…/``, and the
+measurement's folder holds ``measurement.json`` only. The measurement names its takes by id, and ``gc``
+keeps those takes as long as the measurement (above), so section 15's promise holds: measurement audio is
+kept for ``measurement_retention_days``. Copying each take into the measurement's folder would store the
+same audio twice under two retention rules.
+
+**Concurrent collection.** ``gc`` takes the write lock, renames every victim to a ``.trash-`` sibling and
+deletes its rows in the same transaction, and only after the commit removes those trash names. A key
+published again meanwhile goes to a fresh folder that ``gc`` never touches.
 """
 
 from __future__ import annotations
@@ -26,6 +43,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 import json
+import logging
 import math
 import os
 import sqlite3
@@ -86,6 +104,7 @@ from .layout import (
     InvalidIdError,
     StoreLayout,
     StorePathError,
+    method_file_stem,
 )
 from .records import (
     map_candidate,
@@ -118,6 +137,18 @@ _GC_KINDS: Final = {
     "measurements": "measurement",
     "jobs": "job",
 }
+_DROP_ROWS: Final = {
+    "render": ("renders", "render_id"),
+    "take": ("takes", "take_id"),
+    "analysis": ("analyses", "analysis_id"),
+    "measurement": ("measurements", "measurement_key"),
+    "profile": ("profiles", "audio_sha256"),
+}
+"""For ``_drop``: the table and id column of each kind whose row is dropped when its file is gone."""
+_ENGINE_UNHASHED: Final = frozenset({"hash", "snapshot_dir", "observed", "tier", "canary"})
+"""The ``EngineProfile`` fields its ``hash`` leaves out; every other field is pinned with the id."""
+DC6_HINT: Final = "Use a new key for a different request."
+_log = logging.getLogger(__name__)
 _DAY: Final = 86_400.0
 DEFAULT_GRACE_S: Final = _DAY
 """How old a temporary, staging or unindexed entry must be before ``gc`` treats it as left over by a crash
@@ -202,8 +233,10 @@ class NarrationStore:
     """The service's ``Store`` (``narration.contracts.interfaces``): see the module docstring.
 
     ``platform`` supplies the OS-specific path checks (``narration.platform``). ``retention`` sets what
-    ``gc`` keeps. ``clock`` (Unix seconds) can be replaced for tests. One instance may be used from many
-    threads; each thread gets its own database connection. Call ``close`` when done.
+    ``gc`` keeps. ``alignment_method_id`` is the method id of the configured aligner (model, pinned
+    revision and snap parameters, section 11.2): ``current_alignment_benchmark`` returns its benchmark, and
+    None when it is not given. ``clock`` (Unix seconds) can be replaced for tests. One instance may be used
+    from many threads; each thread gets its own database connection. Call ``close`` when done.
     """
 
     def __init__(
@@ -212,10 +245,14 @@ class NarrationStore:
         platform: Platform,
         *,
         retention: RetentionConfig | None = None,
+        alignment_method_id: str | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
+        if alignment_method_id is not None:
+            method_file_stem(alignment_method_id)  # checks it names a method
         self._layout = StoreLayout(root, platform)
         self._retention = retention or RetentionConfig()
+        self._alignment_method_id = alignment_method_id
         self._clock: Callable[[], float] = clock or time.time
         self._ulids = UlidGenerator()
         self._local = threading.local()
@@ -226,9 +263,21 @@ class NarrationStore:
         self._reconcile_provenance()
 
     @classmethod
-    def from_config(cls, config: Config, platform: Platform) -> NarrationStore:
-        """The store at ``[server] store_root`` with ``[retention]``."""
-        return cls(config.server.store_root, platform, retention=config.retention)
+    def from_config(
+        cls, config: Config, platform: Platform, *, alignment_method_id: str | None = None
+    ) -> NarrationStore:
+        """The store at ``[server] store_root`` with ``[retention]``.
+
+        ``alignment_method_id`` is the configured aligner's method id. The configuration names the aligner
+        model (``[alignment] model``) but not its pinned revision or snap parameters, which the method id
+        also covers, so the caller that pinned the aligner passes it here.
+        """
+        return cls(
+            config.server.store_root,
+            platform,
+            retention=config.retention,
+            alignment_method_id=alignment_method_id,
+        )
 
     # ================================================================ plumbing
     def close(self) -> None:
@@ -281,29 +330,49 @@ class NarrationStore:
         return os.path.isfile(self._layout.abs(rel))
 
     def _source(self, path: Path, what: str) -> Path:
-        """A file the caller hands the store to move into place: a regular file inside the store (usually
-        under ``scratch/``), since moving it away is a write."""
+        """A file the caller hands the store to move into place. It must be a regular file under
+        ``scratch/``: moving it away is a write, and a published file must never be consumed or moved."""
         p = Path(os.path.abspath(path))
         if os.path.islink(p) or os.path.isjunction(p) or not p.is_file():
             raise StorePathError(f"{what} {p} is not a regular file")
         self._layout.confine(p)
+        scratch = Path(os.path.realpath(self._layout.tree(SCRATCH)))
+        if scratch not in Path(os.path.realpath(p)).parents:
+            raise StorePathError(
+                f"{what} {p} is not under the store's {SCRATCH} folder; the store moves in only files written "
+                "there for it (scratch_path)"
+            )
         return p
 
     def _consume(self, path: Path | None) -> None:
-        """Remove a source file the store did not need (its key was already published)."""
+        """Remove a source file the store did not need (its key was already published). Only a file under
+        ``scratch/`` is ever removed."""
         if path is not None:
             with contextlib.suppress(StorePathError):
                 files.discard(self._source(path, "source"))
 
     @contextlib.contextmanager
-    def _staging(self, final: Path) -> Iterator[Path]:
+    def _staging(self, final: Path) -> Iterator[_Staging]:
+        """A ``.staging-`` folder beside ``final``, removed on the way out. If the publish fails, every
+        file the caller handed in is moved back to where it came from first: a failed publish never
+        destroys a render or a design (GPU work)."""
         final.parent.mkdir(parents=True, exist_ok=True)
-        staging = self._layout.confine(final.with_name(f".staging-{files.token()}-{final.name}"))
-        staging.mkdir()
+        staging = _Staging(self._layout.confine(final.with_name(f".staging-{files.token()}-{final.name}")))
+        staging.path.mkdir()
+        all_returned = True
         try:
             yield staging
+        except BaseException:
+            all_returned = staging.return_sources()
+            raise
         finally:
-            files.remove_tree(staging)
+            if all_returned:
+                files.remove_tree(staging.path)
+            else:
+                _log.error(
+                    "kept %s: it holds files that could not be moved back to where the caller had them",
+                    staging.path,
+                )
 
     def _publish_dir(
         self,
@@ -313,23 +382,27 @@ class NarrationStore:
         commit: Callable[[sqlite3.Connection], None],
     ) -> bool:
         """Rename a staged folder into place and index it, in one write transaction. Anything already at
-        ``final`` without an index row is a leftover of a crash, and is replaced."""
+        ``final`` (an older profile version, or a crash's leftover without an index row) is renamed aside
+        first and removed after the commit. If a rename or the commit fails, what was at ``final`` is put
+        back, so a failed replace never loses the published folder."""
         trash: Path | None = None
         with self._write() as conn:
             if decide(conn) == "keep":
                 return False
             if os.path.lexists(final):
                 trash = final.with_name(f".trash-{files.token()}-{final.name}")
-                os.rename(final, trash)
-            os.rename(staging, final)
+                files.rename_retrying(final, trash)
+            try:
+                files.rename_retrying(staging, final)
+            except BaseException:
+                if trash is not None:
+                    _put_back(trash, final)
+                raise
             try:
                 commit(conn)
             except BaseException:
-                with contextlib.suppress(OSError):
-                    os.rename(final, staging)
-                    if trash is not None:
-                        os.rename(trash, final)
-                        trash = None
+                if _put_back(final, staging) and trash is not None:
+                    _put_back(trash, final)
                 raise
         files.fsync_dir(final.parent)
         if trash is not None:
@@ -417,7 +490,7 @@ class NarrationStore:
             return None
         record = from_json(RenderRecord, json.loads(row["record"]))
         if not self._present(record.raw.path):
-            self._drop("render", record.render_id)
+            self._drop("render", record.render_id, row["record"], record.raw.path)
             return None
         return map_render(record, self._to_abs)
 
@@ -442,8 +515,8 @@ class NarrationStore:
         )
         now = self._clock()
         with self._staging(final) as staging:
-            files.move_into(src, staging / RAW_WAV, readonly=True)
-            jsha, jsize = files.write_atomic(staging / RENDER_JSON, sidecar_bytes(stored), readonly=True)
+            staging.move_in(src, RAW_WAV)
+            jsha, jsize = files.write_atomic(staging.path / RENDER_JSON, sidecar_bytes(stored), readonly=True)
 
             def decide(conn: sqlite3.Connection) -> _Decision:
                 found = conn.execute("SELECT 1 FROM renders WHERE render_key = ?", (record.render_key,)).fetchone()
@@ -462,7 +535,7 @@ class NarrationStore:
                     [(f"{rel_dir}/{RAW_WAV}", sha, size), (f"{rel_dir}/{RENDER_JSON}", jsha, jsize)],
                 )
 
-            self._publish_dir(staging, final, decide, commit)
+            self._publish_dir(staging.path, final, decide, commit)
         return self._must(self.get_render(record.render_key), "render", record.render_key)
 
     # ================================================================ takes (the delivery layer)
@@ -479,7 +552,7 @@ class NarrationStore:
             return None
         record = from_json(TakeRecord, json.loads(row["record"]))
         if not self._present(record.delivery.path):
-            self._drop("take", record.take_id)
+            self._drop("take", record.take_id, row["record"], record.delivery.path)
             return None
         return map_take(record, self._to_abs)
 
@@ -503,8 +576,8 @@ class NarrationStore:
         )
         now = self._clock()
         with self._staging(final) as staging:
-            files.move_into(src, staging / DELIVERY_WAV, readonly=True)
-            jsha, jsize = files.write_atomic(staging / TAKE_JSON, sidecar_bytes(stored), readonly=True)
+            staging.move_in(src, DELIVERY_WAV)
+            jsha, jsize = files.write_atomic(staging.path / TAKE_JSON, sidecar_bytes(stored), readonly=True)
 
             def decide(conn: sqlite3.Connection) -> _Decision:
                 found = conn.execute("SELECT 1 FROM takes WHERE delivery_key = ?", (record.delivery_key,)).fetchone()
@@ -523,7 +596,7 @@ class NarrationStore:
                     [(f"{rel_dir}/{DELIVERY_WAV}", sha, size), (f"{rel_dir}/{TAKE_JSON}", jsha, jsize)],
                 )
 
-            self._publish_dir(staging, final, decide, commit)
+            self._publish_dir(staging.path, final, decide, commit)
         return self._must(self.get_take(record.delivery_key), "take", record.delivery_key)
 
     # ================================================================ analyses (the analysis layer)
@@ -559,7 +632,7 @@ class NarrationStore:
             return None
         record = from_json(AnalysisRecord, json.loads(row["record"]))
         if not self._present(row["rel_path"]):
-            self._drop("analysis", record.analysis_id)
+            self._drop("analysis", record.analysis_id, row["record"], row["rel_path"])
             return None
         return record
 
@@ -582,6 +655,9 @@ class NarrationStore:
         tmp, sha, size = files.write_temp(final, sidecar_bytes(record), readonly=True)
 
         def decide(conn: sqlite3.Connection) -> _Decision:
+            # Checked again under the write lock: gc may have collected the take since the check above.
+            if conn.execute("SELECT 1 FROM takes WHERE take_id = ?", (record.take_id,)).fetchone() is None:
+                raise StoreError(f"take {record.take_id} is no longer in the store; publish the take again first")
             found = conn.execute("SELECT 1 FROM analyses WHERE analysis_key = ?", (record.analysis_key,)).fetchone()
             return "keep" if found else "new"
 
@@ -627,15 +703,16 @@ class NarrationStore:
         if row is None:
             return None
         record = from_json(MeasurementRecord, json.loads(row["record"]))
-        if not self._present(f"{row['rel_dir']}/{MEASUREMENT_JSON}"):
-            self._drop("measurement", record.measurement_key)
+        rel = f"{row['rel_dir']}/{MEASUREMENT_JSON}"
+        if not self._present(rel):
+            self._drop("measurement", record.measurement_key, row["record"], rel)
             return None
         return record
 
     def put_measurement(self, record: MeasurementRecord) -> MeasurementRecord:
         """Publish ``measurement.json`` for (voice, engine profile). The same measurement key again is a
         no-op; a different one (a new corpus or ladder settings) replaces the old measurement."""
-        if not keys.KEY_PATTERN.match(record.measurement_key):
+        if not keys.KEY_PATTERN.fullmatch(record.measurement_key):
             raise InvalidIdError("measurement_key", record.measurement_key)
         folder = self._layout.measurement_dir(record.voice_hash, record.engine_profile.id)
         folder.mkdir(parents=True, exist_ok=True)
@@ -697,8 +774,9 @@ class NarrationStore:
         if row is None:
             return None
         record = from_json(ProfileRecord, json.loads(row["record"]))
-        if not self._present(f"{row['rel_dir']}/{PROFILE_JSON}"):
-            self._drop("profile", audio_sha256)
+        rel = f"{row['rel_dir']}/{PROFILE_JSON}"
+        if not self._present(rel):
+            self._drop("profile", audio_sha256, row["record"], rel)
             return None
         return map_profile(record, self._to_abs)
 
@@ -726,9 +804,9 @@ class NarrationStore:
             for field, name in (("spectrogram", SPECTROGRAM_PNG), ("pitch", PITCH_PNG)):
                 if field in sources:
                     psha, psize = files.sha256_file(sources[field])
-                    files.move_into(sources[field], staging / name, readonly=True)
+                    staging.move_in(sources[field], name)
                     entries.append((f"{rel_dir}/{name}", psha, psize))
-            jsha, jsize = files.write_atomic(staging / PROFILE_JSON, sidecar_bytes(stored), readonly=True)
+            jsha, jsize = files.write_atomic(staging.path / PROFILE_JSON, sidecar_bytes(stored), readonly=True)
             entries.append((f"{rel_dir}/{PROFILE_JSON}", jsha, jsize))
 
             def decide(conn: sqlite3.Connection) -> _Decision:
@@ -748,7 +826,7 @@ class NarrationStore:
                 )
                 self._index_files(conn, "profile", record.audio_sha256, entries)
 
-            self._publish_dir(staging, final, decide, commit)
+            self._publish_dir(staging.path, final, decide, commit)
         return self._must(self.get_profile(record.audio_sha256, record.profile_version), "profile", record.audio_sha256)
 
     def _picture_sources(self, pictures: ProfilePictures, pictures_dir: Path | None) -> dict[str, Path]:
@@ -764,7 +842,7 @@ class NarrationStore:
         """Move the designed clip into ``designs/<design_id>/<cand>/clip.wav`` (read-only) and publish
         ``candidate.json``; returns the candidate with ``clip.path`` and ``clip.sha256`` filled in. The
         candidate's profile, if any, keeps the picture paths ``put_profile`` gave it."""
-        if not DESIGN_ID_PATTERN.match(candidate.design_id):
+        if not DESIGN_ID_PATTERN.fullmatch(candidate.design_id):
             raise InvalidIdError("design_id", candidate.design_id)
         existing = self._get_candidate(candidate.design_id, candidate.index)
         if existing is not None:
@@ -783,8 +861,8 @@ class NarrationStore:
         now = self._clock()
         owner = f"{candidate.design_id}/{candidate.index}"
         with self._staging(final) as staging:
-            files.move_into(src, staging / CLIP_WAV, readonly=True)
-            jsha, jsize = files.write_atomic(staging / CANDIDATE_JSON, sidecar_bytes(stored), readonly=True)
+            staging.move_in(src, CLIP_WAV)
+            jsha, jsize = files.write_atomic(staging.path / CANDIDATE_JSON, sidecar_bytes(stored), readonly=True)
 
             def decide(conn: sqlite3.Connection) -> _Decision:
                 found = conn.execute(
@@ -805,7 +883,7 @@ class NarrationStore:
                     [(f"{rel_dir}/{CLIP_WAV}", sha, size), (f"{rel_dir}/{CANDIDATE_JSON}", jsha, jsize)],
                 )
 
-            self._publish_dir(staging, final, decide, commit)
+            self._publish_dir(staging.path, final, decide, commit)
         return self._must(self._get_candidate(candidate.design_id, candidate.index), "candidate", owner)
 
     def _get_candidate(self, design_id: str, index: int) -> Candidate | None:
@@ -837,9 +915,9 @@ class NarrationStore:
     def add_provenance(self, entry: ProvenanceEntry) -> None:
         """Append to ``provenance.jsonl`` (append-only, never pruned) and index it. Adding the same entry
         again changes nothing."""
-        if not keys.HEX64_PATTERN.match(entry.clip_sha256):
+        if not keys.HEX64_PATTERN.fullmatch(entry.clip_sha256):
             raise InvalidIdError("clip_sha256", entry.clip_sha256)
-        if not DESIGN_ID_PATTERN.match(entry.design_id):
+        if not DESIGN_ID_PATTERN.fullmatch(entry.design_id):
             raise InvalidIdError("design_id", entry.design_id)
         line = (row_json(entry) + "\n").encode("utf-8")
         path = self._layout.provenance_path
@@ -899,8 +977,9 @@ class NarrationStore:
 
     def put_engine_profile(self, profile: EngineProfile) -> EngineProfile:
         """Write ``engines/<engine_profile_id>.json``. A pinned profile's hashed fields never change: the same
-        id with another ``hash`` is refused (a new pin is a new id). The unhashed parts (``observed``, ``tier``,
-        the canary) may be updated."""
+        id with another ``hash``, or with any other field the hash covers changed, is refused with
+        ``StoreIntegrityError`` (a new pin is a new id). The fields the hash leaves out (``snapshot_dir``,
+        ``observed``, ``tier``, the canary) may be updated."""
         path = self._layout.engine_path(profile.engine_profile_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         stored = map_engine_profile(profile, self._to_rel)
@@ -915,9 +994,12 @@ class NarrationStore:
             ).fetchone()
             if row is None:
                 return "new"
-            if row["hash"] != profile.hash:
+            pinned, offered = _hashed_fields(json.loads(row["record"])), _hashed_fields(json.loads(text))
+            changed = sorted(k for k in pinned.keys() | offered.keys() if pinned.get(k) != offered.get(k))
+            if row["hash"] != profile.hash or changed:
+                what = f"hash {profile.hash}" if row["hash"] != profile.hash else f"a different {', '.join(changed)}"
                 raise StoreIntegrityError(
-                    f"engine profile {profile.engine_profile_id} is pinned with hash {row['hash']}; a changed "
+                    f"engine profile {profile.engine_profile_id} is pinned; this one has {what}. A changed "
                     "profile is a new pin with a new id (design section 10.1)"
                 )
             return "keep" if row["record"] == text and os.path.isfile(path) else "replace"
@@ -994,8 +1076,9 @@ class NarrationStore:
         return from_json(AlignmentBenchmark, json.loads(row["record"])) if row else None
 
     def put_alignment_benchmark(self, record: AlignmentBenchmark) -> AlignmentBenchmark:
-        """Write ``alignment/<method_id>.json`` and make it the current benchmark. A later benchmark of the
-        same method (e.g. the full-size one after the Phase 0 one) replaces it."""
+        """Write ``alignment/<method_id>.json``. A later benchmark of the same method (e.g. the full-size one
+        after the Phase 0 one) replaces it. Publishing a benchmark does not make its method the one in use:
+        that is the configured aligner's (``current_alignment_benchmark``)."""
         path = self._layout.alignment_path(record.method_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         rel = self._layout.rel(path)
@@ -1012,19 +1095,18 @@ class NarrationStore:
                 " VALUES (?, ?, ?, ?)",
                 (record.method_id, rel, text, now),
             )
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (name, value) VALUES ('current_alignment_benchmark', ?)",
-                (record.method_id,),
-            )
             self._index_files(conn, "alignment", record.method_id, [(rel, sha, size)])
 
         self._publish_file(tmp, path, decide, commit)
         return self._must(self.get_alignment_benchmark(record.method_id), "alignment benchmark", record.method_id)
 
     def current_alignment_benchmark(self) -> AlignmentBenchmark | None:
-        """The most recently published benchmark: that of the aligner method in use."""
-        ident = self._setting("current_alignment_benchmark")
-        return self.get_alignment_benchmark(ident) if ident else None
+        """The benchmark of the configured aligner method (``alignment_method_id``), whose measured error
+        every take reports; None if that method has no published benchmark, or no method is configured.
+        Never simply the last benchmark published: that may be another aligner's."""
+        if self._alignment_method_id is None:
+            return None
+        return self.get_alignment_benchmark(self._alignment_method_id)
 
     def _setting(self, name: str) -> str | None:
         row = self._conn().execute("SELECT value FROM settings WHERE name = ?", (name,)).fetchone()
@@ -1035,7 +1117,7 @@ class NarrationStore:
         """``exists`` if the key's result is published (checked now, in the same transaction);
         ``in_flight`` if another holder has a live lease; otherwise ``claimed`` with a lease. A lease past
         its time is free to claim. Claiming again under the same holder renews that holder's claim."""
-        if not keys.KEY_PATTERN.match(key):
+        if not keys.KEY_PATTERN.fullmatch(key):
             raise InvalidIdError("key", key)
         if not isinstance(holder, str) or not holder or len(holder) > 200:
             raise ValueError("holder must be a non-empty name of at most 200 characters")
@@ -1090,8 +1172,14 @@ class NarrationStore:
     # ================================================================ jobs and the queue (sections 6, 7.3, 8)
     def create_job(self, record: JobRecord) -> tuple[JobRecord, bool]:
         """Insert a job, or return the active job (queued, running or cancelling) of the same kind with the
-        same ``idempotency_key`` or, failing that, the same ``request_sha256``. The bool says whether it is
-        new. A request whose earlier job has finished makes a new job."""
+        same ``request_sha256``. The bool says whether it is new. A request whose earlier job has finished
+        makes a new job.
+
+        ``idempotency_key`` deduplicates retries, and a retry is the same request: an active job of the same
+        kind with the same key and the same request is returned. With the same key and a different request
+        it is refused, ``NarrationError(INVALID_ARGUMENT, field="idempotency_key")`` (plan.md DC-6): returning
+        the old job would tell the caller that its different request had been queued.
+        """
         self._layout.job_dir(record.job_id)  # checks the id
         record = self._validated_job(record)
         now = self._clock()
@@ -1099,10 +1187,18 @@ class NarrationStore:
             row = None
             if record.idempotency_key:
                 row = conn.execute(
-                    "SELECT record FROM jobs WHERE kind = ? AND idempotency_key = ? AND status IN (?, ?, ?)"
-                    " ORDER BY seq LIMIT 1",
+                    "SELECT record, request_sha256 FROM jobs WHERE kind = ? AND idempotency_key = ?"
+                    " AND status IN (?, ?, ?) ORDER BY seq LIMIT 1",
                     (record.kind, record.idempotency_key, *_ACTIVE),
                 ).fetchone()
+                if row is not None and row["request_sha256"] != record.request_sha256:
+                    raise NarrationError(
+                        codes.INVALID_ARGUMENT,
+                        f"idempotency_key {record.idempotency_key!r} belongs to an active {record.kind} job "
+                        "with a different request",
+                        field="idempotency_key",
+                        hint=DC6_HINT,
+                    )
             if row is None:
                 row = conn.execute(
                     "SELECT record FROM jobs WHERE kind = ? AND request_sha256 = ? AND status IN (?, ?, ?)"
@@ -1217,10 +1313,17 @@ class NarrationStore:
         self._write_job_json(record)
 
     def _write_job_json(self, record: JobRecord) -> None:
-        """``jobs/<job_id>/job.json``, a copy of the row for people and tools (the row is the record)."""
+        """``jobs/<job_id>/job.json``, a copy of the row for people and tools. Best effort: the row is the
+        record, so a copy that cannot be written (the file held open, a full disk) is logged and never
+        fails the job's change."""
         folder = self._layout.job_dir(record.job_id)
-        folder.mkdir(parents=True, exist_ok=True)
-        files.write_atomic(folder / JOB_JSON, sidecar_bytes(record), readonly=False, durable=False)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            files.write_atomic(folder / JOB_JSON, sidecar_bytes(record), readonly=False, durable=False)
+        except OSError as exc:
+            _log.warning(
+                "could not write %s for job %s (the database row is up to date): %s", JOB_JSON, record.job_id, exc
+            )
 
     # ================================================================ the daemon's status and commands
     def get_daemon_status(self) -> DaemonStatus | None:
@@ -1287,8 +1390,8 @@ class NarrationStore:
     # ================================================================ retention (section 15)
     def touch(self, kind: str, ident: str) -> None:
         """Record a use of an item, which restarts its retention period. ``kind`` is one of ``RetentionKind``
-        (anything else is a ``ValueError``). Using an analysis also uses its take. An unknown item is ignored
-        (it may just have been collected)."""
+        (anything else is a ``ValueError``). Using an analysis also uses its take; using a design also uses
+        its candidates' voice profiles. An unknown item is ignored (it may just have been collected)."""
         now = self._clock()
         statements = {
             "render": ["UPDATE renders SET last_used_at = ? WHERE render_id = ?"],
@@ -1308,10 +1411,22 @@ class NarrationStore:
         with self._write() as conn:
             for sql in statements:
                 conn.execute(sql, (now, ident))
+            if kind == "design":
+                rows = conn.execute("SELECT clip_sha256, record FROM candidates WHERE design_id = ?", (ident,))
+                conn.executemany(
+                    "UPDATE profiles SET last_used_at = ? WHERE audio_sha256 = ?",
+                    [(now, sha) for sha in sorted(_candidate_profiles(rows.fetchall()))],
+                )
 
-    def _drop(self, kind: str, ident: str) -> None:
-        """Forget an index entry whose files are gone (removed by hand, or damaged)."""
+    def _drop(self, kind: str, ident: str, record_text: str, rel: str) -> None:
+        """Forget an index entry whose file is gone (removed by hand, or damaged). Checked again under the
+        write lock: the row is dropped only if it is still the row that was read (``record_text``) and its
+        file (``rel``) is still missing, so a row a concurrent publish has just replaced is never dropped."""
+        table, column = _DROP_ROWS[kind]  # fixed names from this module, never from a caller
         with self._write() as conn:
+            row = conn.execute(f"SELECT record FROM {table} WHERE {column} = ?", (ident,)).fetchone()
+            if row is None or row["record"] != record_text or self._present(rel):
+                return
             self._delete_rows(conn, kind, ident)
 
     def _delete_rows(self, conn: sqlite3.Connection, kind: str, ident: str) -> None:
@@ -1349,71 +1464,54 @@ class NarrationStore:
         not used for ``retention_days``; measurements not used for ``measurement_retention_days``; expired
         leases; ``.tmp-``/``.staging-``/``.trash-`` leftovers and unindexed folders older than ``grace_s``
         (what a crash leaves); scratch files not touched for ``retention_days``. Never collected: the
-        provenance list, engine profiles and their canaries, alignment benchmarks, queued or running jobs.
+        provenance list, engine profiles and their canaries, alignment benchmarks, queued or running jobs,
+        and what a live measurement or design keeps alive (the module docstring).
+
+        A real run renames each item to a ``.trash-`` sibling and deletes its rows in one write transaction,
+        then removes the trash names after the commit, so a key published again meanwhile is never touched.
+        Leftovers and orphans are found before any row is deleted, so a dry run and a real run report the
+        same things, each once. A path that cannot be removed is listed under ``errors`` and the run goes on.
         """
         now = self._clock() if now is None else now
         cache_cutoff = now - self._retention.retention_days * _DAY
         measurement_cutoff = now - self._retention.measurement_retention_days * _DAY
         leftover_cutoff = now - grace_s
-
-        def plan(conn: sqlite3.Connection) -> dict[str, list[str]]:
-            def ids(sql: str, *args: Any) -> list[str]:
-                return sorted(str(r[0]) for r in conn.execute(sql, args).fetchall())
-
-            return {
-                "renders": ids("SELECT render_id FROM renders WHERE last_used_at < ?", cache_cutoff),
-                "takes": ids(
-                    "SELECT take_id FROM takes t WHERE last_used_at < ? AND NOT EXISTS"
-                    " (SELECT 1 FROM analyses a WHERE a.take_id = t.take_id AND a.last_used_at >= ?)",
-                    cache_cutoff,
-                    cache_cutoff,
-                ),
-                "analyses": ids(
-                    "SELECT a.analysis_id FROM analyses a JOIN takes t ON t.take_id = a.take_id"
-                    " WHERE a.last_used_at < ? AND (t.last_used_at >= ? OR EXISTS (SELECT 1 FROM analyses b"
-                    " WHERE b.take_id = a.take_id AND b.last_used_at >= ?))",
-                    cache_cutoff,
-                    cache_cutoff,
-                    cache_cutoff,
-                ),
-                "profiles": ids("SELECT audio_sha256 FROM profiles WHERE last_used_at < ?", cache_cutoff),
-                "designs": ids(
-                    "SELECT design_id FROM candidates GROUP BY design_id HAVING MAX(last_used_at) < ?", cache_cutoff
-                ),
-                "measurements": ids(
-                    "SELECT measurement_key FROM measurements WHERE last_used_at < ?", measurement_cutoff
-                ),
-                "jobs": ids(
-                    "SELECT job_id FROM jobs WHERE last_used_at < ? AND status NOT IN (?, ?, ?)",
-                    cache_cutoff,
-                    *_ACTIVE,
-                ),
-            }
-
-        with self._read() if dry_run else self._write() as conn:
-            items = plan(conn)
-            folders = {kind: [self._item_path(conn, kind, i) for i in idents] for kind, idents in items.items()}
-            if dry_run:
+        errors: list[dict[str, str]] = []
+        # What a crash left, found against the index as it stands, before any row is deleted.
+        leftovers, orphans = self._leftovers(leftover_cutoff)
+        scratch = self._old_entries(self._layout.tree(SCRATCH), cache_cutoff)
+        if dry_run:
+            with self._read() as conn:
+                items = self._gc_plan(conn, cache_cutoff, measurement_cutoff)
+                victims = self._victims(conn, items, errors)
                 expired_leases = int(
                     conn.execute("SELECT COUNT(*) FROM leases WHERE expires_at <= ?", (now,)).fetchone()[0]
                 )
-            else:
-                for kind, idents in items.items():
-                    for ident in idents:
-                        self._delete_rows(conn, _GC_KINDS[kind], ident)
-                expired_leases = conn.execute("DELETE FROM leases WHERE expires_at <= ?", (now,)).rowcount
-        removed_paths = [p for paths in folders.values() for p in paths]
-        leftovers, orphans = self._leftovers(leftover_cutoff)
-        scratch = self._old_entries(self._layout.tree(SCRATCH), cache_cutoff)
-        extra = leftovers + orphans + scratch
-        total = sum(files.tree_size(p) for p in removed_paths + extra)
-        if not dry_run:
-            for path in removed_paths + extra:
-                files.remove_tree(path)
-            for kind in ("measurements",):
-                for path in folders.get(kind, []):
+            # As a real run would: nothing inside a victim, and no leftover inside an orphan, is listed twice.
+            orphans, scratch = _outside(orphans, victims), _outside(scratch, victims)
+            leftovers = _outside(leftovers, [*victims, *orphans])
+            total = sum(files.tree_size(p) for p in [*victims, *leftovers, *orphans, *scratch])
+        else:
+            items, orphans, expired_leases, total, trashed = self._collect(
+                now, cache_cutoff, measurement_cutoff, leftover_cutoff, orphans, errors
+            )
+            victims = [original for original, _ in trashed]
+            leftovers, scratch = _outside(leftovers, victims), _outside(scratch, victims)
+            for original, trash in trashed:
+                self._remove(trash, original, errors)
+                if original.parent.parent.name == MEASUREMENTS:
                     with contextlib.suppress(OSError):
-                        path.parent.rmdir()  # the voice's folder, once its last measurement is gone
+                        original.parent.rmdir()  # the voice's folder, once its last measurement is gone
+            removed: list[Path] = []
+            for path in [*leftovers, *scratch]:
+                if path in scratch and _newest_mtime(path) >= cache_cutoff:
+                    continue  # used again since it was listed
+                size = files.tree_size(path)
+                if self._remove(path, path, errors):
+                    removed.append(path)
+                    total += size
+            leftovers = [p for p in leftovers if p in removed]
+            scratch = [p for p in scratch if p in removed]
         with self._read() as conn:
             kept = {
                 "provenance": int(conn.execute("SELECT COUNT(*) FROM provenance").fetchone()[0]),
@@ -1435,7 +1533,156 @@ class NarrationStore:
             "scratch": [self._layout.rel(p) for p in scratch],
             "bytes": total,
             "kept": kept,
+            "errors": errors,
         }
+
+    def _collect(
+        self,
+        now: float,
+        cache_cutoff: float,
+        measurement_cutoff: float,
+        leftover_cutoff: float,
+        orphans: list[Path],
+        errors: list[dict[str, str]],
+    ) -> tuple[dict[str, list[str]], list[Path], int, int, list[tuple[Path, Path]]]:
+        """The write-transaction half of a real ``gc``: plan again under the lock, rename each victim and
+        each orphan still unindexed to a ``.trash-`` sibling, and delete the victims' rows. Returns the items
+        collected, the orphans renamed, the expired leases deleted, their bytes, and the (original, trash)
+        pairs to remove after the commit. If the transaction fails, every rename is undone."""
+        renamed: list[tuple[Path, Path]] = []
+        total = 0
+        try:
+            with self._write() as conn:
+                planned = self._gc_plan(conn, cache_cutoff, measurement_cutoff)
+                items: dict[str, list[str]] = {}
+                for kind, idents in planned.items():
+                    items[kind] = []
+                    for ident in idents:
+                        try:
+                            path = self._item_path(conn, kind, ident)
+                        except NarrationError as exc:
+                            errors.append({"path": f"{kind}/{ident}", "error": exc.message})
+                            continue
+                        size = files.tree_size(path)
+                        if self._to_trash(path, renamed, errors):
+                            self._delete_rows(conn, _GC_KINDS[kind], ident)
+                            items[kind].append(ident)
+                            total += size
+                indexed = self._indexed(conn)
+                taken: list[Path] = []
+                for path in orphans:
+                    if self._layout.rel(path) in indexed or _mtime(path) >= leftover_cutoff:
+                        continue  # published since it was listed
+                    size = files.tree_size(path)
+                    if self._to_trash(path, renamed, errors):
+                        taken.append(path)
+                        total += size
+                expired = conn.execute("DELETE FROM leases WHERE expires_at <= ?", (now,)).rowcount
+        except BaseException:  # the rows are rolled back, so every folder goes back under its name
+            for original, trash in reversed(renamed):
+                _put_back(trash, original)
+            raise
+        return items, taken, expired, total, renamed
+
+    def _to_trash(self, path: Path, renamed: list[tuple[Path, Path]], errors: list[dict[str, str]]) -> bool:
+        """Rename ``path`` to a ``.trash-`` sibling (nothing to do if it is already gone). False, with the
+        error listed, if it cannot be renamed: its rows are then kept for the next run."""
+        if not os.path.lexists(path):
+            return True
+        trash = path.with_name(f".trash-{files.token()}-{path.name}")
+        try:
+            self._layout.confine(trash)
+            files.rename_retrying(path, trash)
+        except (OSError, NarrationError) as exc:
+            errors.append({"path": self._layout.rel(path), "error": _describe(exc)})
+            return False
+        renamed.append((path, trash))
+        return True
+
+    def _remove(self, path: Path, shown_as: Path, errors: list[dict[str, str]]) -> bool:
+        """Remove a tree; on failure list the error (under ``shown_as``) and carry on."""
+        try:
+            files.remove_tree(path)
+        except OSError as exc:
+            errors.append({"path": self._layout.rel(shown_as), "error": _describe(exc)})
+            return False
+        return True
+
+    def _gc_plan(
+        self, conn: sqlite3.Connection, cache_cutoff: float, measurement_cutoff: float
+    ) -> dict[str, list[str]]:
+        """The ids retention allows ``gc`` to collect, by kind, less what a live item keeps alive: the takes
+        a live measurement names (with their renders and analyses), and a live design's voice profiles."""
+
+        def ids(sql: str, *args: Any) -> list[str]:
+            return sorted(str(r[0]) for r in conn.execute(sql, args).fetchall())
+
+        plan = {
+            "renders": ids("SELECT render_id FROM renders WHERE last_used_at < ?", cache_cutoff),
+            "takes": ids(
+                "SELECT take_id FROM takes t WHERE last_used_at < ? AND NOT EXISTS"
+                " (SELECT 1 FROM analyses a WHERE a.take_id = t.take_id AND a.last_used_at >= ?)",
+                cache_cutoff,
+                cache_cutoff,
+            ),
+            "analyses": ids(
+                "SELECT a.analysis_id FROM analyses a JOIN takes t ON t.take_id = a.take_id"
+                " WHERE a.last_used_at < ? AND (t.last_used_at >= ? OR EXISTS (SELECT 1 FROM analyses b"
+                " WHERE b.take_id = a.take_id AND b.last_used_at >= ?))",
+                cache_cutoff,
+                cache_cutoff,
+                cache_cutoff,
+            ),
+            "profiles": ids("SELECT audio_sha256 FROM profiles WHERE last_used_at < ?", cache_cutoff),
+            "designs": ids(
+                "SELECT design_id FROM candidates GROUP BY design_id HAVING MAX(last_used_at) < ?", cache_cutoff
+            ),
+            "measurements": ids("SELECT measurement_key FROM measurements WHERE last_used_at < ?", measurement_cutoff),
+            "jobs": ids(
+                "SELECT job_id FROM jobs WHERE last_used_at < ? AND status NOT IN (?, ?, ?)",
+                cache_cutoff,
+                *_ACTIVE,
+            ),
+        }
+        # A live measurement keeps the takes it names, with their renders and analyses.
+        pinned_takes: set[str] = set()
+        for (text,) in conn.execute("SELECT record FROM measurements WHERE last_used_at >= ?", (measurement_cutoff,)):
+            pinned_takes |= _measurement_takes(json.loads(text))
+        pinned_renders = {
+            str(r["render_id"])
+            for r in conn.execute("SELECT take_id, render_id FROM takes").fetchall()
+            if r["take_id"] in pinned_takes
+        }
+        pinned_analyses = {
+            str(r["analysis_id"])
+            for r in conn.execute("SELECT analysis_id, take_id FROM analyses").fetchall()
+            if r["take_id"] in pinned_takes
+        }
+        # A live design keeps its candidates' voice profiles.
+        live_candidates = conn.execute(
+            "SELECT clip_sha256, record FROM candidates WHERE design_id IN"
+            " (SELECT design_id FROM candidates GROUP BY design_id HAVING MAX(last_used_at) >= ?)",
+            (cache_cutoff,),
+        ).fetchall()
+        pinned_profiles = _candidate_profiles(live_candidates)
+        plan["takes"] = [t for t in plan["takes"] if t not in pinned_takes]
+        plan["renders"] = [r for r in plan["renders"] if r not in pinned_renders]
+        plan["analyses"] = [a for a in plan["analyses"] if a not in pinned_analyses]
+        plan["profiles"] = [p for p in plan["profiles"] if p not in pinned_profiles]
+        return plan
+
+    def _victims(
+        self, conn: sqlite3.Connection, items: Mapping[str, list[str]], errors: list[dict[str, str]]
+    ) -> list[Path]:
+        """The paths of the planned items (a dry run)."""
+        paths: list[Path] = []
+        for kind, idents in items.items():
+            for ident in idents:
+                try:
+                    paths.append(self._item_path(conn, kind, ident))
+                except NarrationError as exc:
+                    errors.append({"path": f"{kind}/{ident}", "error": exc.message})
+        return paths
 
     def _item_path(self, conn: sqlite3.Connection, kind: str, ident: str) -> Path:
         if kind == "renders":
@@ -1456,19 +1703,23 @@ class NarrationStore:
             return self._layout.job_dir(ident)
         raise ValueError(kind)
 
+    def _indexed(self, conn: sqlite3.Connection) -> set[str]:
+        """Every published folder or file the index names, relative to the root."""
+        return {
+            *(r[0] for r in conn.execute("SELECT rel_dir FROM renders")),
+            *(r[0] for r in conn.execute("SELECT rel_dir FROM takes")),
+            *(r[0] for r in conn.execute("SELECT rel_path FROM analyses")),
+            *(r[0] for r in conn.execute("SELECT rel_dir FROM measurements")),
+            *(r[0] for r in conn.execute("SELECT rel_dir FROM profiles")),
+            *(r[0] for r in conn.execute("SELECT rel_dir FROM candidates")),
+            *(f"{JOBS}/{r[0]}" for r in conn.execute("SELECT job_id FROM jobs")),
+        }
+
     def _leftovers(self, cutoff: float) -> tuple[list[Path], list[Path]]:
         """Work-in-progress names older than ``cutoff`` (a crash's leftovers), and published-looking folders
         and files the index does not know (a crash between the rename and the index row)."""
         with self._read() as conn:
-            indexed = {
-                *(r[0] for r in conn.execute("SELECT rel_dir FROM renders")),
-                *(r[0] for r in conn.execute("SELECT rel_dir FROM takes")),
-                *(r[0] for r in conn.execute("SELECT rel_path FROM analyses")),
-                *(r[0] for r in conn.execute("SELECT rel_dir FROM measurements")),
-                *(r[0] for r in conn.execute("SELECT rel_dir FROM profiles")),
-                *(r[0] for r in conn.execute("SELECT rel_dir FROM candidates")),
-                *(f"{JOBS}/{r[0]}" for r in conn.execute("SELECT job_id FROM jobs")),
-            }
+            indexed = self._indexed(conn)
         root = self._layout.root
         scratch = self._layout.tree(SCRATCH)
         leftovers: list[Path] = []
@@ -1503,28 +1754,37 @@ class NarrationStore:
 
     def verify(self) -> dict[str, Any]:
         """Re-hash every immutable file against the index (section 15); report what is missing, changed or
-        writable, and the database's own integrity check."""
+        writable, and the database's own integrity check. A path that cannot be checked (one confinement
+        refuses, or one that cannot be read) is listed under ``errors``, and the check goes on."""
         rows = self._conn().execute("SELECT rel_path, sha256, size FROM files ORDER BY rel_path").fetchall()
         missing: list[str] = []
         mismatched: list[dict[str, str]] = []
         writable: list[str] = []
+        errors: list[dict[str, str]] = []
         for row in rows:
-            path = self._layout.abs(row["rel_path"])
-            if not path.is_file():
-                missing.append(row["rel_path"])
+            rel = str(row["rel_path"])
+            try:
+                path = self._layout.abs(rel)
+                if not path.is_file():
+                    missing.append(rel)
+                    continue
+                sha, _ = files.sha256_file(path)
+                readonly = files.is_readonly(path)
+            except (OSError, NarrationError) as exc:
+                errors.append({"path": rel, "error": _describe(exc)})
                 continue
-            sha, _ = files.sha256_file(path)
             if sha != row["sha256"]:
-                mismatched.append({"path": row["rel_path"], "expected": row["sha256"], "actual": sha})
-            if not files.is_readonly(path):
-                writable.append(row["rel_path"])
+                mismatched.append({"path": rel, "expected": row["sha256"], "actual": sha})
+            if not readonly:
+                writable.append(rel)
         integrity = str(self._conn().execute("PRAGMA integrity_check").fetchone()[0])
         return {
             "checked": len(rows),
-            "ok": len(rows) - len(missing) - len(mismatched),
+            "ok": len(rows) - len(missing) - len(mismatched) - len(errors),
             "missing": missing,
             "mismatched": mismatched,
             "writable": writable,
+            "errors": errors,
             "database": integrity,
         }
 
@@ -1534,6 +1794,89 @@ class NarrationStore:
         if value is None:
             raise StoreError(f"the {what} {ident} was published but cannot be read back")
         return value
+
+
+def _describe(exc: BaseException) -> str:
+    return exc.message if isinstance(exc, NarrationError) else f"{type(exc).__name__}: {exc}"
+
+
+def _outside(paths: list[Path], victims: list[Path]) -> list[Path]:
+    """``paths`` less those inside a victim's folder: removing the victim removes them, so they are neither
+    listed nor counted twice."""
+    return [p for p in paths if not any(v in p.parents for v in victims)]
+
+
+def _measurement_takes(record: Mapping[str, Any]) -> set[str]:
+    """The take ids a measurement names: its calibration takes and its ladder's takes."""
+    found: set[str] = set()
+    for take in record.get("calibration") or ():
+        if isinstance(take, Mapping) and isinstance(take.get("take_id"), str):
+            found.add(take["take_id"])
+    for rung in record.get("ladder") or ():
+        for seed in (rung.get("seeds") or ()) if isinstance(rung, Mapping) else ():
+            if isinstance(seed, Mapping) and isinstance(seed.get("take_id"), str):
+                found.add(seed["take_id"])
+    return found
+
+
+def _candidate_profiles(rows: list[sqlite3.Row]) -> set[str]:
+    """The audio sha256s of candidates' voice profiles: each candidate's clip, and the audio its embedded
+    profile names (the same audio when the profile was made from the clip)."""
+    found: set[str] = set()
+    for row in rows:
+        found.add(str(row["clip_sha256"]))
+        profile = json.loads(row["record"]).get("profile")
+        if isinstance(profile, Mapping) and isinstance(profile.get("audio_sha256"), str):
+            found.add(profile["audio_sha256"])
+    return found
+
+
+def _hashed_fields(profile: Mapping[str, Any]) -> dict[str, Any]:
+    """An engine profile's JSON without the fields its ``hash`` leaves out."""
+    return {k: v for k, v in profile.items() if k not in _ENGINE_UNHASHED}
+
+
+class _Staging:
+    """A folder being assembled under a ``.staging-`` name, and the caller's files moved into it."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._moved: list[tuple[Path, Path]] = []
+
+    def move_in(self, src: Path, name: str) -> Path:
+        """Move the caller's finished file into the folder as ``name`` (read-only)."""
+        dst = self.path / name
+        self._moved.append((src, dst))
+        files.move_into(src, dst, readonly=True)
+        return dst
+
+    def return_sources(self) -> bool:
+        """Move every file handed in back to its source path, writable again, as the caller had it. False
+        if one could not be (it is then left in the staging folder, which is kept)."""
+        ok = True
+        for src, dst in reversed(self._moved):
+            if not os.path.lexists(dst):
+                if not os.path.lexists(src):
+                    _log.error("%s is neither in %s nor back at %s", src.name, self.path, src)
+                    ok = False
+                continue
+            try:
+                files.make_writable(dst)
+                files.rename_retrying(dst, src)
+            except OSError as exc:
+                _log.error("could not move %s back to %s: %s", dst, src, exc)
+                ok = False
+        return ok
+
+
+def _put_back(src: Path, dst: Path) -> bool:
+    """Undo a rename of a failed publish. Logs and returns False if even that fails."""
+    try:
+        files.rename_retrying(src, dst)
+    except OSError as exc:
+        _log.error("could not rename %s back to %s: %s", src, dst, exc)
+        return False
+    return True
 
 
 def _engine_kind(kind: str) -> str:
