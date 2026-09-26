@@ -44,6 +44,7 @@ DELIVERY_PROFILE = DeliveryConfig(
     target_lufs=-16.0,
     true_peak_dbtp=-1.0,
     trim_rel_db=-40.0,
+    trim_floor_dbfs=-70.0,
     trim_pad_s=0.08,
     fade_s=0.01,
 )
@@ -74,11 +75,11 @@ RENDER_KEY = "sha256:0ed0f147896bf2cca87ce7c629e305dc62d58c1dba177bcc37f3d08608e
 
 DELIVERY_BYTES = (
     '{"delivery_profile":{"fade_s":0.01,"sample_rate":48000,"subtype":"PCM_24","target_lufs":-16,'
-    '"trim_pad_s":0.08,"trim_rel_db":-40,"true_peak_dbtp":-1},"raw_sha256":"' + "ab" * 32 + '",'
+    '"trim_floor_dbfs":-70,"trim_pad_s":0.08,"trim_rel_db":-40,"true_peak_dbtp":-1},"raw_sha256":"' + "ab" * 32 + '",'
     '"schema":"narration.delivery-key/v1","stretch":null,"tools":{"loudness_meter":"pyloudnorm 0.1.1",'
     '"post":"narration.post/1","resampler":"soxr 0.5.0"}}'
 ).encode("utf-8")
-DELIVERY_KEY = "sha256:05fe7c65c7549f5260a60666e2cfb22756907912eb9f6d70788a783e380afb05"
+DELIVERY_KEY = "sha256:0f057208e4a6f5bb823598f40d9d013cb88966514ffd0fdf0637c48cd9492c6d"
 
 MEASUREMENT_BYTES = (
     '{"corpus_version":"' + CORPUS_VERSION + '","engine_profile_hash":"' + ENGINE_PROFILE_HASH + '",'
@@ -267,7 +268,7 @@ def test_seed_golden_s10_3() -> None:
 
 def test_ids_are_the_prefix_and_16_hex_of_their_key_s6() -> None:
     assert keys.render_id(RENDER_KEY) == "rn_0ed0f147896bf2cc"
-    assert keys.take_id(DELIVERY_KEY) == "tk_05fe7c65c7549f52"
+    assert keys.take_id(DELIVERY_KEY) == "tk_0f057208e4a6f5bb"
     assert keys.analysis_id(ANALYSIS_KEY) == "an_f7fb5269b0291188"
     for bad in ("0ed0f147896bf2cca87ce7c629e305dc62d58c1dba177bcc37f3d08608ebd544", "sha256:XYZ", ""):
         with pytest.raises(ValueError):
@@ -401,6 +402,7 @@ _DELIVERY_CHANGES: list[dict[str, Any]] = [
     {"target_lufs": -23.0},
     {"true_peak_dbtp": -2.0},
     {"trim_rel_db": -35.0},
+    {"trim_floor_dbfs": -60.0},
     {"trim_pad_s": 0.1},
     {"fade_s": 0.02},
 ]
