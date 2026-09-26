@@ -38,7 +38,7 @@ from narration.contracts.models import DaemonStatus
 from narration.platform import ProcessPlatform
 
 from .settings import isolated, scrub_python_env
-from .sweep import daemon_alive, read_status
+from .sweep import StatusUnreadable, daemon_alive, read_status
 
 DAEMON_MODULE: Final = "narration.daemon"
 RUNNING_STATES: Final = ("idle", "busy")
@@ -86,8 +86,11 @@ def start_detached(
 
 def running_daemon(store: Store) -> DaemonStatus | None:
     """The status of the daemon that runs for this store, or None when none does (its ``run/daemon.json``
-    is missing, says ``stopped``, or names a process that is gone)."""
-    status = read_status(store)
+    is missing, cannot be read, says ``stopped``, or names a process that is gone)."""
+    try:
+        status = read_status(store)
+    except StatusUnreadable:
+        return None
     return status if daemon_alive(status) else None
 
 

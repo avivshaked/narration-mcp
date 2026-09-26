@@ -15,13 +15,20 @@ from narration.daemon.seam import JobRunner, NullRunner, RunnerHost, WorkerPool,
 from narration.daemon.service import Daemon, _Host  # pyright: ignore[reportPrivateUsage]
 from narration.daemon.settings import DaemonSettings
 from narration.daemon.supervisor import WorkerSupervisor
-from narration.daemon.sweep import READ_ATTEMPTS, READ_PAUSE_S, daemon_alive, read_status, sweep
+from narration.daemon.sweep import (
+    READ_ATTEMPTS,
+    READ_PAUSE_S,
+    StatusUnreadable,
+    daemon_alive,
+    read_status,
+    sweep,
+)
 from narration.daemon.testing import FakeWorkerRunner
 from narration.store import NarrationStore
 from narration.store.layout import StorePathError
 from narration.store.store import utc_iso
 
-from .conftest import make_job
+from .conftest import UNREADABLE_STATUSES, make_job, plant_status
 from .standin import StandInPlatform
 
 NO_SUCH_PID = 0xFFFFFFFC
@@ -123,6 +130,19 @@ def test_the_sweep_requeues_what_a_dead_daemon_left_running_s4_1(store: Narratio
     }
 
 
+@pytest.mark.parametrize("content", UNREADABLE_STATUSES)
+def test_an_unreadable_status_file_is_reported_as_unreadable_s4_1(store: NarrationStore, content: bytes) -> None:
+    plant_status(store, content)
+    with pytest.raises(StatusUnreadable):
+        read_status(store, sleep=lambda _s: None)
+
+
+def test_the_sweep_takes_an_unreadable_status_for_a_daemon_that_died_s4_1(store: NarrationStore) -> None:
+    left = make_job(store, "Left running.", status="running")
+    report = sweep(store, None, started_at=utc_iso(time.time()), previous_unreadable=True)
+    assert (report.previous, report.previous_pid, report.requeued) == ("died", None, (left.job_id,))
+
+
 def test_the_sweep_tells_a_clean_stop_and_no_daemon_at_all_s4_1(store: NarrationStore) -> None:
     assert sweep(store, None, started_at=utc_iso(time.time())).previous == "none"
     assert sweep(store, status("stopped", None, None), started_at=utc_iso(time.time())).previous == "clean"
@@ -206,7 +226,14 @@ def test_a_status_read_that_keeps_failing_is_raised_s4_1() -> None:
 
 
 def test_other_status_read_errors_are_raised_at_once_s4_1() -> None:
-    flaky = FlakyStatusStore(ValueError("not a status"))
-    with pytest.raises(ValueError, match="not a status"):
+    flaky = FlakyStatusStore(IsADirectoryError(21, "a folder where the file should be"))
+    with pytest.raises(IsADirectoryError):
+        read_status(flaky, sleep=lambda _s: None)  # pyright: ignore[reportArgumentType]
+    assert flaky.calls == 1
+
+
+def test_a_status_that_is_not_one_is_unreadable_at_once_s4_1() -> None:
+    flaky = FlakyStatusStore(ValueError("Expecting value: line 1 column 1 (char 0)"))
+    with pytest.raises(StatusUnreadable, match="Expecting value"):
         read_status(flaky, sleep=lambda _s: None)  # pyright: ignore[reportArgumentType]
     assert flaky.calls == 1

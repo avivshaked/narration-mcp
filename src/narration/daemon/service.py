@@ -41,7 +41,7 @@ from .seam import DAEMON_HOLDER, GpuFacts, JobRunner, ShutdownReason, StopMode, 
 from .settings import DaemonSettings
 from .status import StatusBoard
 from .supervisor import FAKE_ROLES, WorkerSupervisor
-from .sweep import read_status, sweep
+from .sweep import StatusUnreadable, read_status, sweep
 
 log = logging.getLogger(__name__)
 
@@ -182,7 +182,11 @@ class Daemon:
                     if waited:
                         log.info("the stopping daemon has gone; taking over")
                     return self._run_held()
-            holder = read_status(self.store)
+            try:
+                holder = read_status(self.store)
+            except StatusUnreadable as exc:
+                log.warning("%s; taking the daemon that holds the singleton for one that is not stopping", exc)
+                holder = None
             if holder is None or holder.state != "stopping" or self._clock() >= deadline:
                 log.info(
                     "another daemon runs for this store (pid %s, %s); exiting",
@@ -195,9 +199,14 @@ class Daemon:
 
     def _run_held(self) -> int:
         self.started_at = utc_iso(self._wall())
-        previous = read_status(self.store)
+        unreadable = False
+        try:
+            previous = read_status(self.store)
+        except StatusUnreadable as exc:
+            log.warning("%s; the daemon before this one is taken to have died", exc)
+            previous, unreadable = None, True
         self._board = StatusBoard(self.store, pid=self._pid, started_at=self.started_at, wall=self._wall)
-        report = sweep(self.store, previous, started_at=self.started_at)
+        report = sweep(self.store, previous, started_at=self.started_at, previous_unreadable=unreadable)
         log.info(
             "daemon started (pid %d, store %s; previous daemon: %s)",
             self._pid,

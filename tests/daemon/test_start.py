@@ -17,6 +17,7 @@ from narration.daemon.start import daemon_argv, ensure_daemon, running_daemon, s
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 
+from .conftest import UNREADABLE_STATUSES, plant_status
 from .standin import StandInPlatform
 
 
@@ -121,6 +122,22 @@ def test_ensure_can_wait_until_the_new_daemon_serves_s4(store: NarrationStore, t
         writer.cancel()
     assert result.started
     assert result.status is not None and result.status.state == "idle"
+
+
+@pytest.mark.parametrize("content", UNREADABLE_STATUSES)
+def test_an_unreadable_status_is_no_running_daemon_s4_1(store: NarrationStore, content: bytes) -> None:
+    plant_status(store, content)
+    assert running_daemon(store) is None
+
+
+@pytest.mark.parametrize("content", UNREADABLE_STATUSES)
+def test_ensure_starts_a_daemon_over_an_unreadable_status_s4_1(
+    store: NarrationStore, tmp_path: Path, content: bytes
+) -> None:
+    platform = StandInPlatform()
+    plant_status(store, content)
+    result = ensure_daemon(store, tmp_path / "narration.toml", platform=platform)
+    assert result.started and len(platform.spawned) == 1
 
 
 def test_running_daemon_is_none_without_a_live_status_s4_1(store: NarrationStore) -> None:

@@ -24,7 +24,7 @@ from narration.daemon.seam import JobRunner
 from narration.daemon.service import Daemon
 from narration.daemon.settings import DaemonSettings
 from narration.daemon.supervisor import FAKE_ROLES, WorkerSupervisor
-from narration.daemon.sweep import read_status
+from narration.daemon.sweep import StatusUnreadable, read_status
 from narration.daemon.testing import job_request
 from narration.keys import Keys
 from narration.store import NarrationStore
@@ -114,6 +114,18 @@ def make_job(store: NarrationStore, *texts: str, status: JobStatus = "queued", l
     return store.create_job(record)[0]
 
 
+UNREADABLE_STATUSES = [b"", b'{"state": "busy", "pid": 7', b"[]", b'{"no": "status"}', "été".encode("latin-1")]
+"""``run/daemon.json`` as a crash or a power loss can leave it: empty, cut short, not a status, not UTF-8."""
+
+
+def plant_status(store: NarrationStore, content: bytes) -> Path:
+    """Write ``content`` as ``run/daemon.json``, as a crash might have left it."""
+    path = store.layout.daemon_json_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
 def wait_until(predicate: Callable[[], bool], timeout_s: float = WAIT_S, what: str = "a condition") -> None:
     deadline = time.monotonic() + timeout_s
     while not predicate():
@@ -143,7 +155,10 @@ class DaemonHarness:
         return self
 
     def status(self) -> DaemonStatus | None:
-        return read_status(self.store)
+        try:
+            return read_status(self.store)
+        except StatusUnreadable:  # a test planted a broken file; the daemon has not replaced it yet
+            return None
 
     def wait_status(self, predicate: Callable[[DaemonStatus], bool], what: str = "a status") -> DaemonStatus:
         found: list[DaemonStatus] = []

@@ -21,7 +21,7 @@ from narration.daemon.testing import SCRATCH_DIR, FakeWorkerRunner
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 
-from .conftest import DaemonFactory, make_job, wait_until
+from .conftest import UNREADABLE_STATUSES, DaemonFactory, make_job, plant_status, wait_until
 from .standin import StandInPlatform
 from .test_seam_and_sweep import NO_SUCH_PID, status
 
@@ -164,6 +164,31 @@ def test_the_sweep_runs_on_start_s4_1(run_daemon: DaemonFactory, store: Narratio
     assert job_status(store, left).status == "queued"
     daemon.command("stop")
     assert daemon.join() == EXIT_OK
+
+
+@pytest.mark.parametrize("content", UNREADABLE_STATUSES)
+def test_an_unreadable_status_is_swept_as_a_daemon_that_died_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, content: bytes
+) -> None:
+    left = make_job(store, "Left running.", status="running")
+    plant_status(store, content)
+    daemon = run_daemon(NullRunner())
+    daemon.wait_serving()
+    assert job_status(store, left).status == "queued"
+    daemon.command("stop")
+    assert daemon.join() == EXIT_OK
+
+
+def test_an_unreadable_status_of_the_holder_is_not_a_daemon_stopping_s4(
+    run_daemon: DaemonFactory, store: NarrationStore, platform: StandInPlatform
+) -> None:
+    planted = plant_status(store, b"")
+    with platform.hold(store.root):
+        started = time.monotonic()
+        daemon = run_daemon(NullRunner(), takeover_wait_s=20.0)
+        assert daemon.join(10) == EXIT_OK
+        assert time.monotonic() - started < 5.0, "it does not wait for a daemon it cannot see stopping"
+    assert planted.read_bytes() == b"", "it wrote nothing"
 
 
 def test_a_stale_stop_does_not_stop_a_new_daemon_s4_1(run_daemon: DaemonFactory, store: NarrationStore) -> None:

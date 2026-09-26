@@ -13,6 +13,12 @@ gone). ``daemon_alive`` reads only whether that pid exists and when that process
 has since given to another program is not taken for the daemon. No other process is ever inspected,
 signalled or killed.
 
+**An unreadable status.** ``run/daemon.json`` is written through a temp file and a rename, but not flushed
+to disk first, so a crash or a power loss can leave it empty or cut short. ``read_status`` then raises
+``StatusUnreadable``, and every reader treats that as "no daemon to speak of": the sweep as a daemon that
+died (``sweep(..., previous_unreadable=True)``), a daemon that finds the singleton held as a holder that is
+not stopping, and ``start.running_daemon`` as no daemon.
+
 **Stale commands.** A ``stop`` or ``stop_now`` posted before this daemon started was meant for a daemon
 that is gone; it is completed without stopping this one. ``release_gpu`` is always answered normally.
 """
@@ -46,6 +52,10 @@ READ_ATTEMPTS: Final = 10
 READ_PAUSE_S: Final = 0.02
 
 
+class StatusUnreadable(Exception):
+    """``run/daemon.json`` exists but is not a status: empty, cut short, not JSON, or not a status's shape."""
+
+
 def read_status(
     store: Store,
     *,
@@ -59,8 +69,9 @@ def read_status(
     KNOW (WP30, Windows): a reader that opens the file during that rename gets ``PermissionError`` (about
     one read in 25 in a tight loop, spike g), and ``os.path.realpath``, which the store's path check uses, can
     return a ``\\\\?\\``-prefixed path for a file replaced during the call, which the check takes for a path
-    outside the store (``StorePathError``). Both pass within milliseconds. Any other error, or either one
-    ``attempts`` times running, is raised.
+    outside the store (``StorePathError``). Both pass within milliseconds. Either one ``attempts`` times
+    running is raised. A file that is there but is not a status raises ``StatusUnreadable`` (see the module
+    docstring); any other error is raised as it is.
     """
     for attempt in range(1, attempts + 1):
         try:
@@ -69,6 +80,8 @@ def read_status(
             if attempt >= attempts:
                 raise
             sleep(pause_s)
+        except (ValueError, TypeError) as exc:  # JSON, UTF-8 and contract errors are ValueErrors
+            raise StatusUnreadable(f"run/daemon.json cannot be read as a status: {exc}") from exc
     raise ValueError(f"attempts must be at least 1, not {attempts}")
 
 
@@ -109,14 +122,18 @@ def sweep(
     previous: DaemonStatus | None,
     *,
     started_at: str,
+    previous_unreadable: bool = False,
     alive: Callable[[DaemonStatus | None], bool] = daemon_alive,
     exit_wait_s: float = EXIT_WAIT_S,
     sleep: Callable[[float], None] = time.sleep,
 ) -> SweepReport:
     """Clean up after the previous daemon (see the module docstring). Call it holding the singleton, with
-    the ``run/daemon.json`` read before this daemon wrote its own, and this daemon's ``started_at``."""
+    the ``run/daemon.json`` read before this daemon wrote its own (``previous_unreadable`` when it was there
+    but could not be read), and this daemon's ``started_at``."""
     kind: PreviousDaemon
-    if previous is None:
+    if previous_unreadable:
+        kind = "died"
+    elif previous is None:
         kind = "none"
     elif previous.state == "stopped":
         kind = "clean"
@@ -132,11 +149,12 @@ def sweep(
             )
     else:
         kind = "died"
-    reason = (
-        f"the daemon that ran it (pid {previous.pid}) stopped without finishing it"
-        if previous is not None
-        else "no daemon was running it"
-    )
+    if previous is not None:
+        reason = f"the daemon that ran it (pid {previous.pid}) stopped without finishing it"
+    elif previous_unreadable:
+        reason = "the daemon that ran it stopped without finishing it (its run/daemon.json could not be read)"
+    else:
+        reason = "no daemon was running it"
     requeued: list[str] = []
     cancelled: list[str] = []
     for job in store.queued_jobs():
