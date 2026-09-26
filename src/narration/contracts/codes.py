@@ -322,7 +322,21 @@ FLAGS: Final[dict[str, FlagCode]] = {
 
 
 CUE_NO_ALIGNABLE_WORDS: Final = "no_alignable_words"
-"""``CUE_UNALIGNED``'s ``details.reason`` for a cue whose text has no word the aligner can place (DC-12)."""
+"""``CUE_UNALIGNED``'s ``details.reason`` for a cue whose text has no word the aligner can place (DC-12). The
+only reason that is not a retake trigger: no retake can place such a cue."""
+CUE_UNPLACED_LOW_CONFIDENCE: Final = "low_confidence"
+"""``CUE_UNALIGNED``'s ``details.reason`` for a cue the aligner placed with a confidence under
+``unplaced_below`` (section 11.2 step 7): its times are dropped, never interpolated."""
+CUE_UNPLACED_ALIGNMENT_ERROR: Final = "alignment_error"
+"""``CUE_UNALIGNED``'s ``details.reason`` for every cue of a take the aligner could not align at all (the take
+gets ``ALIGNMENT_ERROR``, section 11.2 step 3)."""
+CUE_NOT_PLACED: Final = "not_placed"
+"""``CUE_UNALIGNED``'s ``details.reason`` when QA finds a cue without times and the aligner gave no
+``CUE_UNALIGNED`` for it (QA's fallback, section 11.2 step 7): QA cannot say why, only that it is unplaced."""
+CUE_UNALIGNED_REASONS: Final = frozenset(
+    {CUE_NO_ALIGNABLE_WORDS, CUE_UNPLACED_LOW_CONFIDENCE, CUE_UNPLACED_ALIGNMENT_ERROR, CUE_NOT_PLACED}
+)
+"""Every ``details.reason`` a ``CUE_UNALIGNED`` may carry; every ``CUE_UNALIGNED`` carries one (DC-12)."""
 
 
 def is_retake_trigger(code: str, severity: Severity, details: Mapping[str, object] | None = None) -> bool:

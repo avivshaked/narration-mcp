@@ -324,10 +324,11 @@ def alignment_flags(alignment: Alignment, segment: SegmentText) -> tuple[Flag, .
     """The aligner's flags, carried into QA, plus ``CUE_UNALIGNED`` for any cue left without times.
 
     Cue times are never interpolated: a cue with no timing, or null times, is unplaced, and QA makes sure it
-    carries ``CUE_UNALIGNED`` (a retake trigger) even if the aligner did not say so. Each carried flag's
-    ``retake_trigger`` is set again by the contract's rule, from its code, severity and details: a
-    ``CUE_UNALIGNED`` whose ``details.reason`` is ``no_alignable_words`` is not a trigger (DC-12). Like every
-    QA flag, these carry no segment id (``QaScorer.score``).
+    carries ``CUE_UNALIGNED`` (a retake trigger) even if the aligner did not say so; QA cannot tell why, so its
+    ``details.reason`` is ``not_placed`` (``codes.CUE_NOT_PLACED``), and every ``CUE_UNALIGNED`` has a reason.
+    Each carried flag's ``retake_trigger`` is set again by the contract's rule, from its code, severity and
+    details: a ``CUE_UNALIGNED`` whose ``details.reason`` is ``no_alignable_words`` is not a trigger (DC-12).
+    Like every QA flag, these carry no segment id (``QaScorer.score``).
     """
     flags = [
         dataclasses.replace(f, segment_id=None, retake_trigger=codes.is_retake_trigger(f.code, f.severity, f.details))
@@ -341,8 +342,10 @@ def alignment_flags(alignment: Alignment, segment: SegmentText) -> tuple[Flag, .
                 make_flag(
                     codes.CUE_UNALIGNED,
                     "warn",
-                    f"cue {cue.index} could not be placed in the audio; its times are null (never interpolated)",
+                    f"cue {cue.index} could not be placed in the audio, and the aligner gave no reason; its times "
+                    "are null (never interpolated)",
                     cue=cue.index,
+                    details={"reason": codes.CUE_NOT_PLACED},
                 )
             )
     return tuple(flags)

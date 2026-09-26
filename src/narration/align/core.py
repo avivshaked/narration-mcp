@@ -99,9 +99,9 @@ CTC_MODELS: Final = frozenset({MODEL_ALIGNER})
 thresholds spike (b) measured. Another model (the Qwen forced aligner, say) is another method, not
 ``ctc-snap``; the worker also refuses a snapshot that is not a wav2vec2 CTC model."""
 DEVICE: Final = "cpu"
-LOW_CONFIDENCE: Final = "low_confidence"
+LOW_CONFIDENCE: Final = codes.CUE_UNPLACED_LOW_CONFIDENCE
 """``CUE_UNALIGNED``'s ``details.reason`` for a cue whose confidence is under ``unplaced_below``."""
-ALIGNMENT_FAILED: Final = "alignment_error"
+ALIGNMENT_FAILED: Final = codes.CUE_UNPLACED_ALIGNMENT_ERROR
 """``CUE_UNALIGNED``'s ``details.reason`` when the whole take could not be aligned (``ALIGNMENT_ERROR``)."""
 
 
