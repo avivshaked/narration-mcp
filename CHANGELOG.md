@@ -93,3 +93,11 @@ are tracked here but no version is tagged; nothing described below is installabl
   `LOUDNESS_UNDER_TARGET` and `GAIN_HIGH` flags, the tools and rules version that enter the delivery key,
   and the signal statistics QA needs. The WAV bytes are written by the service itself. On one machine,
   with the same pinned versions, the same raw take gives the same bytes.
+- `narration.mcp`: the MCP front-end, built over a backend interface (plan.md WP17). It publishes the
+  eleven v1 tools in a fixed order with dereferenced JSON Schemas and descriptions that state the caller's
+  rules (no caller state kept, length is the caller's decision, a respelling is a hint, the backoff rule,
+  the retention periods). It validates arguments inside the handler, so a bad argument is a tool error
+  with `field` and `hint`, and every failure inside a call is a tool error too. Results carry a text copy
+  and `file:///` links. It serves the `narration://` resources with `ttlMs` and `cacheScope` and the four
+  prompts, in both the 2026-07-28 protocol and the legacy `initialize` handshake. The `narration-mcp`
+  command is connected to the real backend in a later work package (WP36).
