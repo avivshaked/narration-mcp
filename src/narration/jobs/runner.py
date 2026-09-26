@@ -13,20 +13,29 @@
 A claimed job goes to the handler of its kind (``handlers.Registry``: the job engine runs ``generate`` and
 ``analyse``; WP33 to WP35 add theirs). A kind with no handler fails with ``INTERNAL`` and ``details.kind``.
 
-Which model group stays loaded between jobs is the residency's (``gpu.Residency``, shared by every handler):
-a job whose first work needs the resident group starts without a load. Every generation job uses the
-current Base engine profile, so jobs need no grouping by profile until design jobs run here too.
+**Scheduling across jobs** (section 4 item 3): priority, then first come, then affinity to the resident
+group. The first two are the claim order. Affinity is kept by the residency (``gpu.Residency``, shared by
+every handler): the resident group stays loaded across jobs, so a job whose first work needs it starts
+without a load. It never reorders the queue: first come is a strict order (the store's insertion
+sequence), so affinity ranked after it could decide nothing, and ranked before it would move jobs off the
+queue positions DC-2 reports. Every generation job uses the current Base engine profile, so jobs need no
+grouping by profile until design jobs run here too.
+
+A job given back (a stop, or giving way to an interactive job) and taken again is planned from the cache
+and resumes the round it was in; its record never shows less progress than before. A job cancelled as the
+daemon lets go of it is finished as ``cancelled``.
 
 A job-level failure (``NarrationError``) fails the job with its error. An exception the engine does not
-expect is a bug: the job fails with ``INTERNAL`` rather than being tried again at every step.
+expect is a bug: the job fails with ``INTERNAL`` rather than being tried again at every step. Every
+``INTERNAL`` error names the daemon's log (``details.log``, section 14).
 
 ``has_work`` answers whether a ``step`` would find work (a job held, or one queued) and claims nothing; the
 daemon asks it before an idle exit. ``default_runner`` is the zero-argument factory the daemon loads by
 name; it builds the engine at the first job, from the daemon's config.
 
 ``shutdown`` gives back the job held (``return_job``: ``running`` goes back to ``queued``, ``cancelling``
-becomes ``cancelled``) and removes its scratch files. Leases are released at the end of each piece of work
-(and lapse by their TTL if the process dies), so none is held between steps.
+becomes ``cancelled``) and removes its scratch files. Leases are renewed while their work runs, released
+at the end of each piece of work, and lapse by their TTL if the process dies, so none is held between steps.
 
 The drain estimate the daemon publishes (DC-2's ``admission.queue.est_drain_s``) is refreshed after each step.
 """

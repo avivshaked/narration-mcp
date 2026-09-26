@@ -457,6 +457,9 @@ class Stages:
             {"wav": wav, "language": names.LANGUAGE, "word_timestamps": True, "long_form": True},
             timeout_s=QA_TIMEOUT_S,
         )
+        # App. A's embed takes "cuda" or "cpu" (EmbedRequest.device), not a device index: "cuda" is the GPU the
+        # QA group was loaded on, which the load's payload names ([gpu] device). Sending [gpu] device itself
+        # ("cuda:1") would need the protocol to accept a device index.
         device = "cpu" if self.core.config.gpu.device == "cpu" else "cuda"
         embedded = client.request("embed", {"wav": wav, "device": device}, timeout_s=QA_TIMEOUT_S)
         aligner = parts.aligner
