@@ -4,7 +4,15 @@ Rules (sections 5 and 7.2):
 
 * **No ``$ref``.** Fragments are inlined wherever they are used; each use gets its own deep copy.
 * **Every ``outputSchema`` has ``"type": "object"`` at its root**, whose properties are the success
-  fields plus an optional ``error`` (Error). A result carries one or the other.
+  fields plus an optional ``error`` (Error). A **tool error** is ``isError: true`` with only ``error``.
+  ``get_job`` and ``get_results`` on a ``failed`` job are successful calls: their result carries the
+  job's status and, as ``error`` (``get_job``) or ``job.error`` (``get_results``), the job's terminal
+  error (``JobRecord.error``), with ``isError`` false.
+* **Absent versus null** follows ``models``: an optional field that is unset is left out; a nullable
+  field is always present and may be null (a take with no analysis has ``qa: null``). The schemas of
+  results built from records (the design, measurement, profile and audition results; ``limits``) are
+  generated from the records by ``record_schema``, so the two cannot drift; the tests validate
+  ``serial.to_json`` of every result record against its schema.
 * **Inputs are strict** (``additionalProperties: false``), so an unknown field such as ``instruct`` is an
   argument error. **Outputs are open**, so adding a field later is not a breaking change.
 
@@ -17,8 +25,12 @@ The dialect is JSON Schema 2020-12. The front-end validates arguments inside its
 from __future__ import annotations
 
 import copy
+import dataclasses
+import types
+import typing
 from dataclasses import dataclass
-from typing import Any, Final
+from pathlib import Path
+from typing import Any, Final, Literal, Union, get_args, get_origin
 
 from .names import (
     JOB_PHASES,
@@ -249,6 +261,108 @@ def _output(properties: dict[str, Schema]) -> Schema:
     return _obj({**properties, "error": _ERROR})
 
 
+def _nullable(schema: Schema) -> Schema:
+    """A copy of ``schema`` that also accepts null."""
+    out = _c(schema)
+    if "enum" in out:
+        if None not in out["enum"]:
+            out["enum"] = [*out["enum"], None]
+    elif isinstance(out.get("type"), str):
+        out["type"] = [out["type"], "null"]
+    elif isinstance(out.get("type"), list):
+        if "null" not in out["type"]:
+            out["type"] = [*out["type"], "null"]
+    else:
+        out = {"anyOf": [out, {"type": "null"}]}
+    return out
+
+
+def record_schema(cls: type) -> Schema:
+    """The open output schema of a record's JSON form (``serial.to_json``), built from its annotations.
+
+    Every field is a property. Fields that ``to_json`` always writes are required; an optional field
+    (``X | None = None``) is not required and, when present, is never null; a nullable field (``X | None``
+    with no default) is required and may be null. No ``$ref``: nested records are inlined.
+    """
+    if not dataclasses.is_dataclass(cls):
+        raise TypeError(f"{cls!r} is not a dataclass")
+    hints = typing.get_type_hints(cls)
+    properties: dict[str, Schema] = {}
+    required: list[str] = []
+    for f in dataclasses.fields(cls):
+        tp = hints[f.name]
+        if f.default is None:
+            properties[f.name] = _type_schema(_strip_none(tp))
+        else:
+            properties[f.name] = _type_schema(tp)
+            required.append(f.name)
+    schema: Schema = {"type": "object", "properties": properties}
+    if required:
+        schema["required"] = required
+    return schema
+
+
+def _strip_none(tp: Any) -> Any:
+    origin = get_origin(tp)
+    if origin is Union or origin is types.UnionType:
+        args = tuple(a for a in get_args(tp) if a is not type(None))
+        return args[0] if len(args) == 1 else Union[args]  # noqa: UP007
+    return tp
+
+
+_SCALARS: Final[dict[Any, Schema]] = {str: _STR, int: _INT, float: _NUM, bool: _BOOL, Path: _STR}
+
+
+def _type_schema(tp: Any) -> Schema:
+    if tp is Any:
+        return {}
+    if tp in _SCALARS:
+        return _c(_SCALARS[tp])
+    origin = get_origin(tp)
+    if origin is Union or origin is types.UnionType:
+        args = get_args(tp)
+        inner = [a for a in args if a is not type(None)]
+        schema = _type_schema(inner[0]) if len(inner) == 1 else {"anyOf": [_type_schema(a) for a in inner]}
+        return _nullable(schema) if type(None) in args else schema
+    if origin is Literal:
+        return {"enum": list(get_args(tp))}
+    if dataclasses.is_dataclass(tp):
+        return record_schema(tp)  # pyright: ignore[reportArgumentType]
+    if origin is tuple:
+        args = get_args(tp)
+        if len(args) == 2 and args[1] is Ellipsis:
+            return {"type": "array", "items": _type_schema(args[0])}
+        return {
+            "type": "array",
+            "prefixItems": [_type_schema(a) for a in args],
+            "minItems": len(args),
+            "maxItems": len(args),
+        }
+    if origin is list:
+        return {"type": "array", "items": _type_schema(get_args(tp)[0])}
+    if origin is dict:
+        value = get_args(tp)[1]
+        if value is Any:
+            return {"type": "object"}
+        return {"type": "object", "additionalProperties": _type_schema(value)}
+    raise TypeError(f"no schema for {tp!r}")
+
+
+def _result_records() -> dict[str, Schema]:
+    """The schemas of results that are records (imported here: ``models`` must not depend on schemas)."""
+    from narration.config import LimitsConfig
+
+    from . import models
+
+    return {
+        "candidate": record_schema(models.Candidate),
+        "measurement": record_schema(models.MeasurementRecord),
+        "profile": record_schema(models.ProfileRecord),
+        "audition": record_schema(models.AuditionResult),
+        "limits": record_schema(LimitsConfig),
+    }
+
+
 # ======================================================================== shared output parts
 
 _HINT_APPLIED = _obj({"term": _STR, "respell": _STR_OR_NULL, "offset": _INT})
@@ -283,9 +397,9 @@ _ALIGNMENT = _obj(
         "method": _STR,
         "model": _STR,
         "revision": _STR,
-        "cross_check": _STR,
+        "cross_check": {"type": "string", "description": "the cross-check in words (the ASR's word timestamps)"},
         "max_disagreement_s": _NUM_OR_NULL,
-        "measured_error": _MEASURED_ERROR,
+        "measured_error": {**_nullable(_MEASURED_ERROR), "description": "null until an alignment benchmark exists"},
         "flags": _array(_FLAG),
     }
 )
@@ -341,9 +455,14 @@ _TAKE = _obj(
         "loudness": _LOUDNESS,
         "analysis_id": _STR_OR_NULL,
         "cues": _array(_CUE_TIMING),
-        "alignment": _ALIGNMENT,
-        "qa": _QA,
+        "alignment": {**_nullable(_ALIGNMENT), "description": "null for a take with no analysis"},
+        "qa": {**_nullable(_QA), "description": "null for a take with no analysis"},
         "fit": {**_c(_FIT), "description": "present only when the segment gave scene_seconds"},
+        "flags": _array(
+            _FLAG,
+            description="this take's flags outside its cached verdict, never part of qa.verdict: delivery flags "
+            "(LOUDNESS_UNDER_TARGET, GAIN_HIGH) and per-job flags (SPK_OUTLIER, CANARY_MISMATCH, RETAKEN)",
+        ),
     }
 )
 _SEGMENT_TEXT = _obj(
@@ -366,14 +485,6 @@ _LINT = _obj(
         "policy": {"enum": ["warn"]},
         "findings": _array(_obj({"phrase": _STR, "offset": _INT, "suggestion": _STR})),
         "note": _STR,
-    }
-)
-_PROFILE = _obj(
-    {
-        "audio_sha256": _STR,
-        "profile_version": _STR,
-        "measurements": {"type": "object"},
-        "pictures": _obj({"spectrogram": _STR, "pitch": _STR}),
     }
 )
 
@@ -477,7 +588,7 @@ def _get_job_output() -> Schema:
             "eta_s": _NUM_OR_NULL,
             "queue_position": {"type": ["integer", "null"]},
             "poll_after_s": POLL_AFTER_S,
-            "message": _STR,
+            "message": _STR_OR_NULL,
             "segments": _array(
                 _obj(
                     {
@@ -494,6 +605,7 @@ def _get_job_output() -> Schema:
 
 
 def _get_results_output() -> Schema:
+    records = _result_records()
     return _output(
         {
             "job": _obj(
@@ -503,6 +615,7 @@ def _get_results_output() -> Schema:
                     "status": {"enum": list(JOB_STATUSES)},
                     "outcome": {"enum": ["all_passed", "needs_attention", None]},
                     "label": _STR_OR_NULL,
+                    "error": {**_nullable(_ERROR), "description": "the job's terminal error when it failed"},
                 }
             ),
             "voice": _obj({"voice_hash": _STR, "clip_sha256": _STR}),
@@ -514,7 +627,10 @@ def _get_results_output() -> Schema:
                         "segment_id": _STR,
                         "status": {"enum": list(SEGMENT_STATES)},
                         "suggested_take_id": _STR_OR_NULL,
-                        "suggestion": _obj({"tier": {"enum": [1, 2, 3, 4]}, "reason": _STR}),
+                        "suggestion": {
+                            **_nullable(_obj({"tier": {"enum": [1, 2, 3, 4]}, "reason": _STR})),
+                            "description": "null for a segment with no take",
+                        },
                         "text": _obj({"spoken_chars": _INT, "cues": _array(_CUE_TEXT)}),
                         "takes": _array(_TAKE),
                         "flags": _array(_FLAG),
@@ -543,18 +659,19 @@ def _get_results_output() -> Schema:
             ),
             "report_md": _STR,
             "licence": {"type": "object"},
-            "design": {
-                "type": "object",
-                "description": "design_voice jobs: design_id and candidates (clip, transcript, seed, profile)",
-            },
-            "measurement_result": {
-                "type": "object",
-                "description": "measure_voice jobs: the full measurement, and the path of its JSON file",
-            },
-            "profile": {**_c(_PROFILE), "description": "profile_voice jobs"},
+            "design": _obj(
+                {"design_id": _STR, "candidates": _array(records["candidate"])},
+                description="design_voice jobs: each candidate's clip, exact transcript, seed, lint and profile",
+            ),
+            "measurement_result": _obj(
+                {"path": _STR, "measurement": records["measurement"]},
+                description="measure_voice jobs: the full measurement, and the path of its JSON file to keep",
+            ),
+            "profile": {**records["profile"], "description": "profile_voice jobs: measurements and pictures"},
             "audition": {
-                "type": "object",
-                "description": "audition_pronunciation jobs: per variant, its takes and what the ASR heard",
+                **records["audition"],
+                "description": "audition_pronunciation jobs: per variant, its takes and what the ASR heard; "
+                "whoever owns the text decides by ear",
             },
         }
     )
@@ -629,7 +746,7 @@ def _server_status_output() -> Schema:
                     "text_modes": _array(_STR),
                 }
             ),
-            "limits": {"type": "object"},
+            "limits": {**_result_records()["limits"], "description": "the [limits] in force (section 16)"},
             "text_checks_version": _STR,
             "alignment": _obj(
                 {
@@ -764,8 +881,9 @@ def _build() -> tuple[ToolSchema, ...]:
                 {
                     "voice_hash": _STR,
                     "measurement": {
-                        "type": "object",
-                        "description": "present at once when this voice is already measured under this engine",
+                        **_result_records()["measurement"],
+                        "description": "present at once when this voice is already measured under this engine "
+                        "profile; job_id is then the id of the already completed job",
                     },
                 }
             ),

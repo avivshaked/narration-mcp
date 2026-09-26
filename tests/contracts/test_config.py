@@ -52,6 +52,9 @@ def test_relative_paths_resolve_against_the_config_folder(tmp_path: Path) -> Non
         {"server": {"store_root": "s", "models_root": "m"}, "defaults": {"takes": 4}},
         {"server": {"store_root": "s", "models_root": "m"}, "voices": {"allow_sha256": ["not-a-hash"]}},
         {"server": {"store_root": "s", "models_root": "m"}, "workers": {"priority": "high"}},
+        {"server": {"store_root": "s", "models_root": "m"}, "workers": 5},
+        {"server": {"store_root": "s", "models_root": "m"}, "workers": [1]},
+        {"server": {"store_root": "s", "models_root": "m"}, "engines": {"qwen3_base": {"typo": True}}},
     ],
 )
 def test_unknown_keys_and_bad_values_are_refused(tmp_path: Path, data: dict[str, object]) -> None:
@@ -69,3 +72,22 @@ def test_worker_projects_are_read_from_their_subtables(tmp_path: Path) -> None:
     )
     assert config.workers.cpu_threads == 4
     assert config.workers.qwen3 is not None and config.workers.qwen3.project == tmp_path / "workers/qwen3tts"
+
+
+def test_engine_subtables_are_read(tmp_path: Path) -> None:
+    config = parse_config(
+        {"server": {"store_root": "s", "models_root": "m"}, "engines": {"qwen3_base": {"non_streaming_mode": True}}},
+        base=tmp_path,
+    )
+    assert config.engines.qwen3_base.non_streaming_mode is True
+    assert config.engines.qwen3_design.non_streaming_mode is True
+
+
+def test_config_defaults_are_the_contract_names() -> None:
+    from narration.contracts import names
+
+    config = Config.for_tests(Path("s"))
+    assert config.text.checks == names.TEXT_CHECKS_VERSION
+    assert config.qa.profile == names.QA_PROFILE
+    assert config.measurement.corpus == names.CORPUS
+    assert (config.alignment.model, config.alignment.benchmark) == (names.MODEL_ALIGNER, names.BENCHMARK)

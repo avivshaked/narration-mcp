@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal, get_args, get_origin, get_type_hints
 
 from .contracts.errors import ConfigError
+from .contracts.names import BENCHMARK, CORPUS, MODEL_ALIGNER, QA_PROFILE, TEXT_CHECKS_VERSION
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -51,6 +52,10 @@ class WorkerProject:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WorkersConfig:
+    """``[workers]``. ``env`` is added to every worker's environment; an operator's table replaces the
+    default one. Whatever it says, the daemon always starts workers with ``HF_HUB_OFFLINE=1``,
+    ``TRANSFORMERS_OFFLINE=1`` and ``CUBLAS_WORKSPACE_CONFIG`` set (sections 4, 10.1)."""
+
     cpu_threads: int = 8
     priority: Literal["below_normal", "normal"] = "below_normal"
     env: dict[str, str] = field(
@@ -94,7 +99,7 @@ class DefaultsConfig:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TextConfig:
-    checks: str = "text-1.1.0"
+    checks: str = TEXT_CHECKS_VERSION
     refuse: tuple[str, ...] = ("[", "]", "<|", "|>")
 
 
@@ -119,7 +124,7 @@ class VoiceDesignConfig:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MeasurementConfig:
-    corpus: str = "narration-en.v1"
+    corpus: str = CORPUS
     seeds: int = 3
     length_ladder_spoken_chars: tuple[int, ...] = (80, 150, 250, 300, 350, 400, 450, 500, 560)
     trend_band_max_chars: int = 300
@@ -130,15 +135,15 @@ class MeasurementConfig:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AlignmentConfig:
-    model: str = "facebook/wav2vec2-large-960h-lv60-self"
+    model: str = MODEL_ALIGNER
     device: str = "cpu"
     disagree_threshold_s: float = 0.25
-    benchmark: str = "alignment-en.v1"
+    benchmark: str = BENCHMARK
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class QaConfig:
-    profile: str = "default.v3"
+    profile: str = QA_PROFILE
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -227,7 +232,10 @@ def parse_config(data: dict[str, Any], *, base: Path, path: Path | None = None) 
     """Validate parsed TOML against the design's keys; relative paths resolve against ``base``."""
     if "server" not in data:
         raise ConfigError("[server] is required, with store_root and models_root")
-    workers = dict(data.get("workers", {}))
+    raw_workers = data.get("workers", {})
+    if not isinstance(raw_workers, dict):
+        raise ConfigError("[workers] must be a table")
+    workers = dict(raw_workers)
     worker_projects = {role: workers.pop(role) for role in ("qwen3", "qa") if role in workers}
     sections: dict[str, Any] = {}
     for name, tp in get_type_hints(Config).items():
