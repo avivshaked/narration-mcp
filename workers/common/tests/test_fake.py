@@ -534,3 +534,16 @@ def test_the_fake_runs_where_the_parent_has_no_console(store: Path) -> None:
     proc = subprocess.run(_argv(store), input=b"", capture_output=True, timeout=TIMEOUT, check=False)
     assert proc.returncode == 0
     assert proc.stdout == b""
+
+
+@pytest.mark.parametrize(("heard", "bursts"), [(3, 3), (2, 5), (5, 2), (7, 3), (1, 4)])
+def test_a_given_transcript_is_spread_over_the_take_in_order_without_overlap_s11_1(heard: int, bursts: int) -> None:
+    from narration_worker.fake.handler import _map_heard
+
+    words = _map_heard([f"w{k}" for k in range(heard)], list(range(10, 10 + bursts)), set())
+    assert [w["text"] for w in words] == [f"w{k}" for k in range(heard)]
+    covered: list[tuple[int, int, int, int]] = [(w["burst"], w["last_burst"], w["part"], w["parts"]) for w in words]
+    assert covered[0][0] == 10 and covered[-1][1] == 10 + bursts - 1
+    for (first, last, part, parts), (next_first, _, next_part, _) in itertools.pairwise(covered):
+        assert first <= last
+        assert (last < next_first) or (last == next_first and part + 1 == next_part and parts > 1)

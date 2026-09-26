@@ -32,6 +32,9 @@ kind                      default op        effect (parameters)
 ``protocol_break``        ``synthesize``    a line that is not a protocol message on stdout
 ``stdout_noise``          ``synthesize``    prints to ``sys.stdout``, file descriptor 1 and a child
                                             process's stdout; none of it may reach the protocol stream
+``say``                   ``synthesize``    the take says ``text`` instead, and ``transcribe`` hears ``heard``
+                                            (``text`` by default) spread over it; this drives the QA fixture
+                                            specs (``material/fixtures/qa-faults-v1``: render and asr text)
 ``wrong_word``            ``synthesize``    the take says ``replacement`` ("wrong") for word ``word``
                                             (index into the text's words; the middle one by default)
 ``head_insertion``        ``synthesize``    the take starts with extra ``words`` (["so"])
@@ -40,7 +43,7 @@ kind                      default op        effect (parameters)
                                             tokens by default): ``hit_token_cap`` and a cut take
 ========================  ================  ==============================================================
 
-The last four change what the take says, so they apply to ``synthesize`` and ``design`` only; the fake's
+The last five change what the take says, so they apply to ``synthesize`` and ``design`` only; the fake's
 QA ops then hear the planted words. ``when`` for a QA op matches the utterance the fake recognises in the
 audio. ``transcripts`` gives the transcript of a file the fake did not render (by its sha256).
 """
@@ -72,7 +75,7 @@ REQUEST_KINDS: Final = (
     "protocol_break",
     "stdout_noise",
 )
-CONTENT_KINDS: Final = ("wrong_word", "head_insertion", "end_insertion", "token_cap")
+CONTENT_KINDS: Final = ("say", "wrong_word", "head_insertion", "end_insertion", "token_cap")
 CONTENT_OPS: Final = ("synthesize", "design")
 
 _PARAMS: Final[dict[str, dict[str, str]]] = {
@@ -84,12 +87,13 @@ _PARAMS: Final[dict[str, dict[str, str]]] = {
     "alignment_error": {},
     "protocol_break": {},
     "stdout_noise": {},
+    "say": {"text": "str", "heard": "str"},
     "wrong_word": {"word": "int", "replacement": "str"},
     "head_insertion": {"words": "words"},
     "end_insertion": {"words": "words"},
     "token_cap": {"max_new_tokens": "int"},
 }
-_REQUIRED: Final[dict[str, tuple[str, ...]]] = {"delay": ("seconds",), "error": ("code",)}
+_REQUIRED: Final[dict[str, tuple[str, ...]]] = {"delay": ("seconds",), "error": ("code",), "say": ("text",)}
 _WHEN: Final[dict[str, str]] = {"text_contains": "str", "seed": "int", "voice_hash": "str"}
 _COMMON: Final = frozenset({"kind", "op", "when", "times"})
 

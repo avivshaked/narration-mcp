@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 import zlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, cast
 
@@ -296,19 +296,26 @@ class FakeHandler(WorkerHandler):
         tokens = spoken_tokens(text)
         if not tokens:
             raise OpError("INVALID_REQUEST", f"{field} has no words to speak", {"field": field})
-        # each entry: [what the take says, the engine word it stands for (None if inserted), planted?]
-        entries: list[tuple[str, int | None, bool]] = [(token, i, False) for i, token in enumerate(tokens)]
+        # one entry per word the take says: (the word, is it one of the text's words?, was it planted?)
+        entries: list[tuple[str, bool, bool]] = [(token, True, False) for token in tokens]
+        heard_text: str | None = None
         cap = self.max_new_tokens
         cap_fault: Fault | None = None
         planted: list[dict[str, Any]] = []
         for fault in self._content_faults(op, Facts(text, seed, voice_hash)):
             planted.append({"kind": fault.kind, **fault.params})
-            if fault.kind == "wrong_word":
-                entries = _replace_word(entries, tokens, fault.params)
+            if fault.kind == "say":
+                said = spoken_tokens(str(fault.params["text"]))
+                if not said:
+                    raise OpError("INTERNAL", "the fake spec's say.text has no words to speak")
+                entries = [(w, True, i >= len(tokens) or w != tokens[i]) for i, w in enumerate(said)]
+                heard_text = fault.params.get("heard")
+            elif fault.kind == "wrong_word":
+                entries = _replace_word(entries, fault.params)
             elif fault.kind == "head_insertion":
-                entries = [(w, None, True) for w in fault.params.get("words", ["so"])] + entries
+                entries = [(w, False, True) for w in fault.params.get("words", ["so"])] + entries
             elif fault.kind == "end_insertion":
-                entries = entries + [(w, None, True) for w in fault.params.get("words", ["okay"])]
+                entries = entries + [(w, False, True) for w in fault.params.get("words", ["okay"])]
             else:
                 cap_fault = fault
         bursts, total = layout([said for said, _, _ in entries])
@@ -331,11 +338,11 @@ class FakeHandler(WorkerHandler):
         }
         digest = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode("utf-8")).digest()
         utterance_id = int.from_bytes(digest[:4], "big")
-        words = [
-            {"text": said, "burst": index, "engine_index": engine_index, "planted": is_planted}
-            for index, (said, engine_index, is_planted) in enumerate(entries)
-            if index < len(bursts) and bursts[index].segments == full[index]
-        ]
+        whole = [i for i in range(len(bursts)) if bursts[i].segments == full[i]]
+        if heard_text is None:
+            words = [_heard_word(entries[i][0], i, i, 0, 1, entries[i][2]) for i in whole]
+        else:
+            words = _map_heard(heard_text.split(), whole, {w.lower() for w, _, _ in entries})
         record = {
             "schema": RECORD_SCHEMA,
             "id": f"{utterance_id:08x}",
@@ -349,6 +356,7 @@ class FakeHandler(WorkerHandler):
             "samples": total,
             "bursts": [[b.start, b.segments] for b in bursts],
             "words": words,
+            "text_bursts": [i for i in range(len(bursts)) if entries[i][1]],
             "planted": planted,
             "hit_token_cap": hit,
         }
@@ -387,7 +395,9 @@ class FakeHandler(WorkerHandler):
         times = _burst_times(record, heard)
         words = []
         for word in record["words"]:
-            start, end = times[word["burst"]]
+            start, end = times[word["burst"]][0], times[word["last_burst"]][1]
+            width = (end - start) / word["parts"]
+            start, end = start + width * word["part"], start + width * (word["part"] + 1)
             words.append(
                 {
                     "text": word["text"],
@@ -448,7 +458,7 @@ class FakeHandler(WorkerHandler):
             )
         if record is not None:
             times = _burst_times(record, heard)
-            words = [times[w["burst"]] for w in record["words"] if w["engine_index"] is not None]
+            words = [times[i] for i in record["text_bursts"]]
         else:
             words = [
                 (start / heard.sample_rate, (start + n * heard.sample_rate * SEGMENT_S) / heard.sample_rate)
@@ -524,15 +534,38 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
-def _replace_word(
-    entries: list[tuple[str, int | None, bool]], tokens: Sequence[str], params: dict[str, Any] | Any
-) -> list[tuple[str, int | None, bool]]:
-    index = int(params.get("word", len(tokens) // 2))
-    index = min(max(index + len(tokens) if index < 0 else index, 0), len(tokens) - 1)
-    original = tokens[index]
+def _replace_word(entries: list[tuple[str, bool, bool]], params: Mapping[str, Any]) -> list[tuple[str, bool, bool]]:
+    """Replace one of the text's words (``word``: an index into them; the middle one by default)."""
+    positions = [i for i, (_, is_text, _) in enumerate(entries) if is_text]
+    index = int(params.get("word", len(positions) // 2))
+    index = min(max(index + len(positions) if index < 0 else index, 0), len(positions) - 1)
+    target = positions[index]
+    original = entries[target][0]
     core_end = max((i + 1 for i, ch in enumerate(original) if ch.isalnum()), default=len(original))
-    said = str(params.get("replacement", "wrong")) + original[core_end:]
-    return [(said, i, True) if i == index else (text, i, planted) for text, i, planted in entries]
+    replaced = (str(params.get("replacement", "wrong")) + original[core_end:], True, True)
+    return [replaced if i == target else entry for i, entry in enumerate(entries)]
+
+
+def _heard_word(text: str, burst: int, last_burst: int, part: int, parts: int, planted: bool) -> dict[str, Any]:
+    """A transcript word: the bursts it spans, and which of ``parts`` equal shares of them it takes."""
+    return {"text": text, "burst": burst, "last_burst": last_burst, "part": part, "parts": parts, "planted": planted}
+
+
+def _map_heard(heard: Sequence[str], bursts: Sequence[int], said: set[str]) -> list[dict[str, Any]]:
+    """Spread a given transcript's words over the take's bursts in order: one each when the counts match,
+    several bursts per word when fewer words are heard, equal shares of a burst when more are."""
+    count, total = len(heard), len(bursts)
+    if not count or not total:
+        return []
+    spans = [(k * total // count, max(k * total // count, (k + 1) * total // count - 1)) for k in range(count)]
+    words = []
+    for k, token in enumerate(heard):
+        sharing = [j for j, span in enumerate(spans) if span == spans[k]]
+        first, last = spans[k]
+        words.append(
+            _heard_word(token, bursts[first], bursts[last], sharing.index(k), len(sharing), token.lower() not in said)
+        )
+    return words
 
 
 def _burst_times(record: dict[str, Any], heard: Heard) -> list[tuple[float, float]]:
