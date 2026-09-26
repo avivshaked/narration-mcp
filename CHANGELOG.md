@@ -162,7 +162,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   (below `unplaced_below`) or `alignment_error`; QA adds `not_placed` for a cue it finds without times that
   the aligner did not flag, so every `CUE_UNALIGNED` says why. A cue next to one it cannot place never
   takes that cue's speech: when no pause separates them, its edge keeps the aligner's time
-  (`CUE_BOUNDARY_NO_PAUSE` with `details.edge`). It cross-checks boundaries against Whisper's words (`CUE_ALIGNMENT_DISAGREE`,
-  `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC emissions on the CPU and runs
-  the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not held against the take. A
-  missing, damaged or foreign aligner snapshot is reported as not installed (`BACKEND_NOT_INSTALLED`).
+  (`CUE_BOUNDARY_NO_PAUSE` with `details.edge`). It cross-checks boundaries against Whisper's words
+  (`CUE_ALIGNMENT_DISAGREE`, `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC
+  emissions on the CPU and runs the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not
+  held against the take. A missing, damaged or foreign aligner snapshot is reported as not installed
+  (`BACKEND_NOT_INSTALLED`).
