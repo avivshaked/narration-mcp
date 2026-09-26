@@ -1,6 +1,6 @@
 # HANDOFF
 
-*Updated 2026-09-26, late evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-26, night. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
@@ -17,13 +17,16 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
     - The lead runs it on every branch before pushing, and every reviewer runs it.
     - The main checkout's gitignored `.dev/private-text.txt` and `.dev/private-terms.txt` configure it for
       every worktree.
-  - **WP15** (alignment) and **WP20** (Qwen worker): rewriting their branches' history to drop private
-    text. Then WP15 adds DC-11's wildcard and goes to review; WP20 fixes its review's findings and adds
-    DC-4.
-  - **WP30** (daemon): building. **WP31** (job engine): building against WP30's seam
+  - **WP20** (Qwen worker): its fixes and DC-4 are done, and its history is rewritten. The lead added its
+    CI job (`worker-qwen3tts`). Its reviewer is re-verifying.
+  - **WP15** (alignment): the review said merge with follow-ups. F1–F4 and the nits are being fixed.
+  - **WP30** (daemon): built, in independent review. **WP31** (job engine): building against WP30's seam
     (`narration.daemon.seam.JobRunner`).
-  - **Follow-ups building:** WP12's five low items (`wp/12-followups`); WP18's new reference text
-    and WP10's fixture changes (`wp/18-followups`).
+  - **Follow-ups:**
+    - WP12's (`wp/12-followups`): items 1–5 and two races are done; WP30's two store races are being
+      added.
+    - WP18's (`wp/18-followups`): the service's own default design text and WP10's fixture changes, in
+      review.
 - **GPU:** the owner lifted the hold on 2026-09-26 evening. Agents take the GPU lock in bounded runs.
 - **Hangs:** Avast's Auto-Sandbox took custody of venv launcher `.exe`s. Agents run every tool as
   `uv run python -m …`. Avast was off for the session.
@@ -58,6 +61,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   suggested sample is in `status/WP18.md`. It needs the GPU.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
 - Later:
+  - one run of the daemon under the owner's real MCP client: spike (g) modelled a session's job object,
+    but not a real client's;
   - the GitHub description, which still says voices are "locked" (WP44);
   - gates H2 to H4.
 
@@ -66,19 +71,18 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 1. Merge as each branch comes back. Before any push, run
    `py -3.12 tools/check_private.py --commits main..<branch> --base main`; the pre-push hook runs it too.
    Then: full suite, PR, CI, `--no-ff`, remove the worktree.
-   - WP20 after its fixes; its reviewer should verify the BLOCK item (private text).
-   - WP15 after its scrub and an independent review.
-   - The WP12 and WP18 follow-ups: a quick review each.
-   - WP30 and WP31: an independent review each.
-2. At WP20's merge (lead):
-   - edit design §10.1 for ADR 0002 (`bit_exact`; the encode exemption covers the whole
-     `create_voice_clone_prompt`);
-   - mark ADR 0003 accepted;
-   - add a CI job for `workers/qwen3tts`'s pure tests.
-
-   At WP15's merge (lead): apply DC-11's text to §11.2 step 1. At WP14's merge, which happened: add
-   §11.3's description of the @2 rules (clock times, minus, money after the normaliser, the degree
-   sign, the comma trade-off). Not yet done.
+   - WP20 after its reviewer's re-verification.
+   - WP15 after its fixes; its reviewer re-checks F1.
+   - The WP12 and WP18 follow-ups, each after a quick review.
+   - WP30 after its review. WP31 after WP30: it swaps the daemon's `DEFAULT_RUNNER` for the job engine's.
+2. The lead's edits at merge:
+   - WP20: design §10.1 for ADR 0002 (`bit_exact`; the encode exemption covers the whole
+     `create_voice_clone_prompt`); mark ADR 0003 accepted.
+   - WP15: the proposed §11.2 wording (steps 1, 3 and 5) in `status/WP15.md`.
+   - WP18: DC-13's row in plan.md §1.5, and design revision 5.7's header line (both proposed in
+     `status/WP18.md`).
+   - WP30: design §4.1 (the daemon runs as `pythonw.exe`), and §17 (workers start in their project folder,
+     with `NoDefaultCurrentDirectoryInExePath=1` on Windows and `PATH` kept).
 3. Follow-ups not yet assigned:
    - **WP36 must restamp** cached QA results with the request's segment id and exact-span offsets, and turn
      `QaUnavailable` into the segment's `QA_UNAVAILABLE`. Its backend write calls must finish well inside
@@ -86,9 +90,9 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
      aligner's `resolve` only for an `ALIGNMENT_ERROR` reply.
    - **WP22**: package `workers/qa`; wire WP15's `AlignOp` into `QaHandler`; write any WAV with a
      byte-reproducible writer (soundfile's float WAV has a time-stamped `PEAK` chunk).
-   - **WP30/WP31**: the daemon sets the CPU thread-cap environment for itself before numpy is imported.
-     Workers start with `cwd` = their project folder and `NoDefaultCurrentDirectoryInExePath=1`
-     (qwen-tts's `sox` import runs a shell command).
+   - **WP37**: a worker's `BACKEND_NOT_INSTALLED` sticks for the daemon's lifetime, so after
+     `narration-admin install` repairs a worker, the daemon must restart (or gain a `reset_workers` command).
+   - **WP36** starts the daemon with `narration.daemon.ensure_daemon`.
 4. **Wave 2**, in dependency order:
    - on the CPU: WP30 and WP31 (building), then WP36 and WP37;
    - on the GPU: WP22 (QA worker) after WP15, then WP32 (engine profiles and canary).

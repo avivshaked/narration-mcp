@@ -650,17 +650,17 @@ Updated by the lead on `main` only.
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; low follow-ups 1–5 on `wp/12-followups` |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; follow-ups on `wp/12-followups`: items 1–5, the trash race, a canary-clip race, and WP30's two store races (building) |
 | WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
 | WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | removing private text from its history; then DC-11's wildcard; then review |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | DC-11's wildcard built; review: merge with follow-ups; fixing F1 (snapping next to an unplaced cue), F2–F4 and nits |
 | WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups a–e (DC-4's per-call cap; the fake matched to the real worker) |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
-| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; follow-up on `wp/18-followups`: the service's own reference text (owner), WP10's fixture changes |
+| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; follow-up in review on `wp/18-followups`: the service's own default design text (DC-13, proposed), WP10's fixture changes |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `active` | `wp/20-gpu-lane` | review: BLOCK for private text (never pushed); fixing that, 10 findings and DC-4 |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `review` | `wp/20-gpu-lane` | findings and DC-4 done, history rewritten; the worker's CI job added; its reviewer re-verifying |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
-| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | started 2026-09-26 night |
+| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `review` | `wp/30-daemon` | built, with spike (g); independent review |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `active` | `wp/31-jobs` | started 2026-09-26 night, against WP30's seam |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
@@ -865,3 +865,17 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     (a WP18 follow-up).
   - Contracts 1.6.1: the per-call cap's floor is at least 2, and its product exact.
   - Started: WP31 (job engine), the WP12 follow-ups and the WP18 follow-up.
+- 2026-09-26, night:
+  - **WP20** came back from its fixes. Its history is rewritten so that no commit holds private text, and
+    spike (f) publishes numbers only. The lead added a CI job, `worker-qwen3tts`, that runs the worker's
+    default tests on Windows and Linux and basedpyright on its code, in a venv without the model packages.
+    Its reviewer is re-verifying.
+  - **WP15's review: merge with follow-ups.** The Medium finding: a cue next to an unplaced cue could take
+    that cue's speech as its own when no pause separates them. F1–F4 and the nits are being fixed, with a
+    lead-authorised change to the aligner contract's docstrings and `AlignerCore.resolve`.
+  - **WP30** (the daemon, with spike g) is built and in review. Spike (g) found two store races on
+    Windows: reading `run/daemon.json` while it is replaced, and `realpath` returning a `\\?\` path.
+    WP12's follow-ups are fixing both in the store.
+  - **WP18's follow-up** is in review: the service's own default design text, WP10's fixture changes, and
+    the material tests through `narration.text`. The lead replaced the old text's last fragment in spike
+    j's probes.
