@@ -474,6 +474,16 @@ def test_a_cue_with_no_alignable_words_is_flagged_but_never_retaken_dc12(world: 
     assert world.pool.calls[("qa", "align")] == 0  # no letter to place: the aligner is not asked
 
 
+def test_a_job_whose_takes_only_warn_is_all_passed_s8(world: World) -> None:
+    job = world.submit(LAMPS, "1947 2031.")  # the second has no word to align: a warning, never retaken
+    world.run()
+    done = world.job(job.job_id)
+    assert [i.state for i in done.items] == ["passed", "warned"]
+    assert done.result is not None
+    assert [s["suggestion"]["tier"] for s in done.result["suggestions"]] == [1, 3]
+    assert done.outcome == "all_passed"  # needs_attention is for a failed take (tier 4) or no take at all
+
+
 def test_a_cancel_that_arrives_as_the_job_finishes_ends_it_cancelled_s8(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:

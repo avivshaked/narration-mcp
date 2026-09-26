@@ -17,6 +17,7 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import ScoredTake
 from narration.contracts.models import Consistency, Flag, JobAttempt, JobRecord, JobSegment, Progress
+from narration.contracts.names import JobOutcome
 from narration.contracts.serial import to_json
 
 from .core import EngineCore
@@ -55,9 +56,10 @@ class JobView:
             consistency, outliers = Consistency(min=None, median=None), ()
         run.consistency = consistency
         run.outliers = {str((f.details or {}).get("take_id")): f for f in outliers}
+        outcome = _outcome(run)
         passed = sum(1 for s in run.segments if s.state == "passed")
-        outcome = "all_passed" if passed == len(run.segments) else "needs_attention"
-        run.message = f"completed: {passed} of {len(run.segments)} segment(s) passed QA"
+        warned = sum(1 for s in run.segments if s.state == "warned")
+        run.message = f"completed: {passed} of {len(run.segments)} segment(s) passed QA, {warned} with warnings"
         updated = host.store.update_job(
             run.job_id,
             expect_status="running",
@@ -297,6 +299,16 @@ class JobView:
             verdict=attempt.analysis.qa.verdict if attempt.analysis is not None else None,
             flags=tuple(flags),
         )
+
+
+def _outcome(run: JobRun) -> JobOutcome:
+    """Section 8: ``needs_attention`` when some segment's suggested take failed QA (tier 4) or a segment has no
+    take at all (an execution error); otherwise ``all_passed``, warnings included, since a warned take is
+    usable and the caller reads its flags."""
+    for seg in run.segments:
+        if seg.suggestion is None or seg.suggestion.tier == 4:
+            return "needs_attention"
+    return "all_passed"
 
 
 def _stamped(flag: Flag, segment_id: str) -> Flag:
