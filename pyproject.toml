@@ -18,6 +18,7 @@ classifiers = [
 # Licences as read on PyPI, 2026-09-26.
 dependencies = [
     "mcp==2.2.0",             # MIT: the MCP Python SDK v2 line; pinned by spike (j), ADR 0001
+    "anyio>=4.15,<5",         # MIT: cancel scopes in the MCP front-end (already required by mcp)
     "jsonschema>=4.26,<5",    # MIT: in-handler argument validation (design section 14)
     "rfc8785>=0.1.4,<0.2",    # Apache-2.0: RFC 8785 canonical JSON for every key (section 10.2)
     "numpy>=2.3,<3",          # BSD-3-Clause

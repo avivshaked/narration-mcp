@@ -62,3 +62,23 @@ def test_worker_protocol_is_one_definition_appA() -> None:
     assert set(get_args(worker.Op)) == set(worker.FAKE_OPS)
     assert get_args(worker.WorkerErrorCode) == worker.WORKER_ERROR_CODES
     assert set(worker.OPS_BY_ROLE) == set(get_args(names.WorkerRole))
+
+
+def test_an_align_transcript_names_its_cue_count_and_term_words_s11_2() -> None:
+    import dataclasses
+
+    import pytest
+
+    base = {"tokens": ("A",), "token_words": ((0, 0),), "words": ((0, 0, "a"),)}
+    with pytest.raises(TypeError):
+        interfaces.AlignTranscript(**base)  # pyright: ignore[reportCallIssue]
+    transcript = interfaces.AlignTranscript(**base, cue_count=2)
+    assert transcript.cue_count == 2 and transcript.term_words == () and transcript.dropped == ()
+    assert [f.name for f in dataclasses.fields(interfaces.AlignTranscript)] == [
+        "tokens",
+        "token_words",
+        "words",
+        "cue_count",
+        "term_words",
+        "dropped",
+    ]

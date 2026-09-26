@@ -32,6 +32,9 @@ def test_defaults_are_the_design_defaults_s16(tmp_path: Path) -> None:
     assert config.engines.qwen3_base.non_streaming_mode is False
     assert config.engines.qwen3_design.non_streaming_mode is True
     assert config.voices.allow_sha256 == ()
+    for engine in (config.engines.qwen3_base, config.engines.qwen3_design):
+        assert (engine.max_new_tokens_per_char, engine.max_new_tokens_floor) == (2.5, 128)  # DC-4
+    assert (config.alignment.low_confidence_below, config.alignment.unplaced_below) == (0.75, 0.50)
 
 
 def test_store_and_models_roots_are_required(tmp_path: Path) -> None:
@@ -56,6 +59,13 @@ def test_relative_paths_resolve_against_the_config_folder(tmp_path: Path) -> Non
         {"server": {"store_root": "s", "models_root": "m"}, "workers": 5},
         {"server": {"store_root": "s", "models_root": "m"}, "workers": [1]},
         {"server": {"store_root": "s", "models_root": "m"}, "engines": {"qwen3_base": {"typo": True}}},
+        {"server": {"store_root": "s", "models_root": "m"}, "alignment": {"unplaced_below": 0.9}},
+        {"server": {"store_root": "s", "models_root": "m"}, "alignment": {"low_confidence_below": 1.5}},
+        {"server": {"store_root": "s", "models_root": "m"}, "engines": {"qwen3_base": {"max_new_tokens_floor": 0}}},
+        {
+            "server": {"store_root": "s", "models_root": "m"},
+            "engines": {"qwen3_design": {"max_new_tokens_per_char": 0}},
+        },
     ],
 )
 def test_unknown_keys_and_bad_values_are_refused(tmp_path: Path, data: dict[str, object]) -> None:

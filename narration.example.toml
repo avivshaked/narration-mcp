@@ -91,6 +91,8 @@ sim_fail_floor = 0.90
 model = "facebook/wav2vec2-large-960h-lv60-self"   # Apache-2.0; the model revision is pinned at install
 device = "cpu"
 disagree_threshold_s = 0.25    # a starting value; calibrate it against your own alignment benchmark
+low_confidence_below = 0.75    # a cue's mean token posterior below this is CUE_LOW_CONFIDENCE (a starting value)
+unplaced_below = 0.50          # below this the cue is not placed: null times and CUE_UNALIGNED (a starting value)
 benchmark = "alignment-en.v1"  # the service's own benchmark text; the measured error is published
 
 [qa]
@@ -99,8 +101,12 @@ profile = "default.v3"
 [engines.qwen3_base]
 non_streaming_mode = false     # change only after verifying an alternative setting for yourself
 x_vector_only_mode = false     # part of the voice hash: changing it changes what counts as "the same voice"
+max_new_tokens_per_char = 2.5  # each render may generate at most min(8192, max(floor, ceil(2.5 x characters)))
+max_new_tokens_floor = 128     # frames; 12.5 frames per second of audio, so about 10 s for the shortest text
 [engines.qwen3_design]
 non_streaming_mode = true
+max_new_tokens_per_char = 2.5
+max_new_tokens_floor = 128
 
 [workers.qwen3]
 project = '<service_root>\workers\qwen3tts'
