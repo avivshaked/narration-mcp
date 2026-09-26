@@ -31,3 +31,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   benchmark (`alignment-en.v1`), the canary's description, text and seeds (`canary.v1`), the Phase 4 demo
   script (`demo-en.v1`), and the text and QA fixtures (`text-v1`, `qa-faults-v1`), each set with a
   manifest of its files' sha256 hashes.
+- `narration.platform`: every OS-specific mechanism behind one interface, implemented for Windows (the
+  daemon's singleton, detached start, kill-on-close worker groups, below-normal priority, the free-disk
+  check, and the path rules: caller paths must be absolute local regular files, network, device and
+  reserved-name paths are refused, and store writes refuse links and junctions). On any other OS each
+  call reports that v1 runs on Windows only.
