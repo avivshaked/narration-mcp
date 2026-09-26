@@ -297,6 +297,10 @@ class TestAligner:
     revision = FAKE_REVISION
     device = "cpu"
 
+    def __init__(self) -> None:
+        self.errors: list[Mapping[str, Any] | None] = []
+        """The ``error`` each ``resolve`` call was given, in order."""
+
     def build_transcript(self, segment: SegmentText, hints: Sequence[Hint]) -> AlignTranscript:
         tokens: list[str] = []
         owners: list[tuple[int, int] | None] = []
@@ -317,8 +321,19 @@ class TestAligner:
         )
 
     def guard(self, transcript: AlignTranscript, num_frames: int) -> bool:
-        repeats = sum(1 for a, b in zip(transcript.tokens, transcript.tokens[1:], strict=False) if a == b)
-        return num_frames >= len(transcript.tokens) + repeats
+        return num_frames >= len(transcript.tokens) + self._repeats(transcript)
+
+    def guard_details(self, transcript: AlignTranscript, num_frames: int) -> dict[str, Any]:
+        return {
+            "reason": "guard",
+            "frames": num_frames,
+            "tokens": len(transcript.tokens),
+            "repeats": self._repeats(transcript),
+        }
+
+    @staticmethod
+    def _repeats(transcript: AlignTranscript) -> int:
+        return sum(1 for a, b in zip(transcript.tokens, transcript.tokens[1:], strict=False) if a == b)
 
     def resolve(
         self,
@@ -328,7 +343,10 @@ class TestAligner:
         sample_rate: int,
         asr_words: Sequence[AsrWord],
         measured_error: MeasuredError | None,
+        *,
+        error: Mapping[str, Any] | None = None,
     ) -> Alignment:
+        self.errors.append(error)
         flags: list[Flag] = []
         times: dict[tuple[int, int], list[float]] = {}
         if not any(ch.isalpha() for t in transcript.tokens for ch in t):

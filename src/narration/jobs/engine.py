@@ -49,6 +49,7 @@ import numpy as np
 import soundfile
 
 from narration import keys
+from narration.align import has_letters
 from narration.config import Config
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError, QaUnavailable, WorkerCrashed, WorkerFailure, WorkerTimeout
@@ -851,20 +852,22 @@ class JobEngine:
         aligner = self.parts.aligner
         transcript = aligner.build_transcript(seg.text, seg.hints)
         reply: AlignReply | None = None
-        if any(ch.isalpha() for token in transcript.tokens for ch in token):  # no letter: nothing to place
+        error: dict[str, Any] | None = None
+        if has_letters(transcript):  # no letter: nothing to place, and resolve says so (DC-12)
             try:
                 reply = cast(
                     AlignReply,
                     client.request("align", {"wav": wav, "tokens": list(transcript.tokens)}, timeout_s=QA_TIMEOUT_S),
                 )
             except WorkerFailure as exc:
-                if exc.code != "ALIGNMENT_ERROR":
+                if exc.code != codes.ALIGNMENT_ERROR:
                     raise
+                error = dict(exc.details or {})
                 log.info("job %s: the aligner could not align %s: %s", run.job_id, take.take_id, exc.message)
         audio, rate = soundfile.read(wav, dtype="float32", always_2d=True)
         samples = np.asarray(audio, dtype=np.float32).mean(axis=1).astype(np.float32)
         asr_words = tuple(cast(list[AsrWord], heard.get("words") or []))
-        alignment = aligner.resolve(transcript, reply, samples, int(rate), asr_words, run.measured_error)
+        alignment = aligner.resolve(transcript, reply, samples, int(rate), asr_words, run.measured_error, error=error)
         signal = self.parts.delivery.signal_stats(Path(render.raw.path), Path(wav))
         embedding = tuple(float(v) for v in embedded["embedding"])
         qa = self.parts.scorer.score(

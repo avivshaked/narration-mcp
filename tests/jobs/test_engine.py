@@ -21,7 +21,18 @@ from narration.jobs.engine import OOM_WAIT_S
 from narration.jobs.pins import call_cap
 
 from .conftest import World
-from .support import DESIGN_ID, GENERATION, KETTLE, LAMPS, LANTERN, ORCHARD, QWEN_VRAM_MB, FixedProbe, write_clip
+from .support import (
+    DESIGN_ID,
+    GENERATION,
+    KETTLE,
+    LAMPS,
+    LANTERN,
+    ORCHARD,
+    QWEN_VRAM_MB,
+    FixedProbe,
+    TestAligner,
+    write_clip,
+)
 
 
 def _step_until(world: World, predicate: object, *, limit: int = 200) -> None:
@@ -108,6 +119,10 @@ def test_an_alignment_error_is_a_failed_take_and_retaken_s11_2(world: World) -> 
     assert first is not None
     assert codes.ALIGNMENT_ERROR in {f.code for f in first.qa.flags}
     assert all(c.start_s is None and c.end_s is None for c in first.alignment.cues)  # never interpolated
+    aligner = world.engine.parts.aligner
+    assert isinstance(aligner, TestAligner)
+    assert aligner.errors[0] == {"reason": "planted"}  # the worker's details reach resolve (contracts 1.6.2)
+    assert aligner.errors[1:] == [None]
 
 
 # ======================================================================== section 4: the scheduler
