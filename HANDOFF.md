@@ -67,8 +67,11 @@ The owner needed the machine, so every agent was told to commit its work in prog
 file as a handoff (`blocked:paused by owner`), release the GPU lock and stop. Nothing was merged or pushed
 after `1814b3b`. Resume in this order:
 
-1. **Check the machine is clean**: `tools/gpu_lock.py status` is free (release it if WP22 left it held,
-   after checking no WP22 run is alive); no `-m narration.daemon` or `narration_worker` process is left.
+1. **Check the machine is clean**: `tools/gpu_lock.py status` (it read free at the pause); no
+   `-m narration.daemon` or `narration_worker` process is left. The lead's drafted design edits (for WP16's
+   and WP30's merges) and the H1 investigation's workflow script are kept locally in the gitignored
+   `.dev/lead/`: `design_rev.py` bumps the revision; `design_wp16.py` and `design_wp30.py` take the
+   worktree's root as their argument and apply in either order.
 2. **WP16 follow-ups** (`wp/16-worker-followups`, b131baa): re-verified, merge with follow-ups (all Low).
    No refusal changed across 128 load cases; the WAV writer is byte-identical; no cycles; standard library
    only. Merge first, with the lead's design note (§11.2 step 7, the four `CUE_UNALIGNED` reasons; the

@@ -655,14 +655,14 @@ Updated by the lead on `main` only.
 | WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
 | WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups 2 in review on `wp/16-worker-followups`: the fake's `load` matched to qwen3, one shared WAV writer, contracts 1.6.3 (every `CUE_UNALIGNED` reason) |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups 2 re-verified (merge with Low follow-ups) on `wp/16-worker-followups`, to merge first: shared Qwen settings parser, one WAV writer, contracts 1.6.3 |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; the service's own default design text (DC-13, design 5.8); fixtures settled with WP10; H1: 8 of 10 approved, `ladder-080` and `align-03` under investigation (an artefact at the start of the take) |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
-| WP22 | QA worker | 2 | WP16, WP15 | yes | `active` | `wp/22-qa-worker` | started 2026-09-26 night; DC-1; the QA half of spike (h); WavLM revision to pin |
-| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | re-review: the BLOCK is closed, merge with follow-ups; fixing a takeover race and four small items before the merge |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `active` | `wp/31-jobs` | review: merge with follow-ups; fixing F1 (a failed engine guard left Qwen marked loaded) and F2–F14, splitting `engine.py`, adding §4 item 3's grouping |
+| WP22 | QA worker | 2 | WP16, WP15 | yes | `paused` | `wp/22-qa-worker` | about half built; acceptance matches the bake-off; ADR 0004 (decoding) proposed; next steps in its status file |
+| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `review` | `wp/30-daemon` | three reviews; every fix made; ready to merge after the lead's diff check (contracts 1.6.4 at rebase, design text drafted) |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `paused` | `wp/31-jobs` | review fixes made; re-verification half done (a candidate Medium: a connection per lease renewal); rebases after WP30 |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
@@ -947,3 +947,7 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **WP30's re-review:** the BLOCK is closed; merge with follow-ups. The lead's ruling on a stop that an
     exiting daemon has already answered: a daemon honours every stop posted after it was launched, so a
     successor that was waiting to take over stops too.
+- 2026-09-26, near midnight: **paused by the owner**, who needed the machine. Every agent committed its
+  work, wrote its status file as a handoff and stopped; the GPU lock is free. HANDOFF.md's "Paused by
+  the owner" section gives the order to resume: WP16's follow-ups, WP30, WP31, WP22, then gate H1's
+  investigation of `ladder-080` and `align-03`. The owner found both items' second takes clean.
