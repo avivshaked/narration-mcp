@@ -21,8 +21,8 @@ Ops: ``hello`` (from ``WorkerHandler``), ``load``, ``prepare_voice``, ``synthesi
   numpy, torch and torch.cuda with the request's seed immediately before generating (section 10.3), and
   write the raw render as a float32 mono WAV to ``out_path`` through a temp name. The reply echoes the cap
   applied (``max_new_tokens``).
-  - The file is byte-reproducible: the same samples give the same bytes (``wav``), so a render's sha256
-    is a fact about its audio.
+  - The file is byte-reproducible: the same samples give the same bytes (``narration_worker.wav``, the
+    writer every worker shares), so a render's sha256 is a fact about its audio.
   - The file keeps the samples as generated, NaN and infinity included: ``SIGNAL_INVALID`` is the
     server's verdict on the raw take (section 11.1, DC-5).
   - The reply is ``protocol.AudioReply``: ``new_tokens`` (codec frames decoded: the talker's steps less
@@ -42,6 +42,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final, TypeVar
 
+import numpy as np
 from narration_worker.determinism import apply_determinism, parse_determinism, seed_everything
 from narration_worker.errors import OpError
 from narration_worker.handler import (
@@ -55,10 +56,10 @@ from narration_worker.handler import (
     require_str,
 )
 from narration_worker.protocol import Controls, WorkerErrorCode
+from narration_worker.wav import write_float32_mono
 
 from .engine import EngineError, QwenEngine, Rendered, check_snapshot
 from .settings import ATTN_IMPLEMENTATIONS, DTYPES, SettingsError, parse_settings
-from .wav import write_float32_mono
 
 OFFLINE_ENV: Final = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
 REVISION_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
@@ -267,12 +268,13 @@ def _call_cap(request: Request, engine: QwenEngine) -> int:
 
 
 def _write(out: Path, rendered: Rendered) -> dict[str, Any]:
-    """Write the raw render as a byte-reproducible float32 mono WAV (``wav``); the ``protocol.AudioReply``
-    members (the loop adds ``id`` and ``ok``)."""
-    write_float32_mono(out, rendered.audio, rendered.sample_rate)
+    """Write the raw render as float32 samples with the workers' byte-reproducible writer
+    (``narration_worker.wav``); the ``protocol.AudioReply`` members (the loop adds ``id`` and ``ok``)."""
+    audio = np.ascontiguousarray(rendered.audio, dtype="<f4")
+    write_float32_mono(out, audio, rendered.sample_rate)
     return {
         "sample_rate": rendered.sample_rate,
-        "samples": int(rendered.audio.size),
+        "samples": int(audio.size),
         "gen_s": round(rendered.gen_s, 3),
         "hit_token_cap": rendered.hit_token_cap,
         "new_tokens": rendered.new_tokens,

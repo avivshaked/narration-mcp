@@ -345,7 +345,7 @@ def test_unknown_audio_is_not_transcribed_unless_the_spec_names_it_s11_1(store: 
     silence = store / "scratch" / "foreign.wav"
     from array import array
 
-    from narration_worker.fake.wav import write_float32_mono
+    from narration_worker.wav import write_float32_mono
 
     write_float32_mono(silence, array("f", [0.0] * 4800), 24_000)
     digest = hashlib.sha256(silence.read_bytes()).hexdigest()

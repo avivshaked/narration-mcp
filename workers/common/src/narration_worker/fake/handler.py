@@ -11,7 +11,8 @@ the snapshot directories it is given, paths stay in the store.
   ceiling is 8192 unless they carry ``settings``. The reply's ``vram_mb`` is null: the fake holds nothing on
   a GPU, and the protocol allows null, which is what ``qwen3`` replies for a CPU load.
 - ``synthesize`` and ``design`` write a real float32 mono WAV at 24 kHz whose length follows the text
-  (``audio.py``) and record what they said (``registry.py``). They count tokens as the real worker does
+  (``audio.py``) with the workers' shared, byte-reproducible writer (``narration_worker.wav``), and record
+  what they said (``registry.py``). They count tokens as the real worker does
   (``protocol.AudioReply``): a take of F frames at 12.5 per second takes F + 1 talker steps, the last one
   the end token. Under the call's ``max_new_tokens`` (2 to the loaded ceiling), a cap of F + 1 or more
   leaves the take whole (``new_tokens`` F), and a cap C of F or less cuts it to C - 1 frames with
@@ -62,6 +63,7 @@ from narration_worker.handler import (
     require_str_list,
 )
 from narration_worker.protocol import Controls, WorkerErrorCode
+from narration_worker.wav import write_float32_mono
 
 from .audio import (
     SAMPLE_RATE,
@@ -80,7 +82,7 @@ from .audio import (
 )
 from .faults import CONTENT_KINDS, REQUEST_KINDS, Facts, Fault, FaultSpec, SpecError, SpecSource, Tally
 from .registry import RECORD_SCHEMA, Registry
-from .wav import Audio, WavError, read_wav, write_float32_mono
+from .wav import Audio, WavError, read_wav
 
 log = logging.getLogger(__name__)
 
