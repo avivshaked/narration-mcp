@@ -8,5 +8,5 @@
   "design": "docs/design.md revision 5.2, sections 3.5, 10.1 and 16; plan.md DC-3",
   "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
   "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
-  "files": [{"path": "canary.json", "bytes": 1443, "sha256": "84c6ff44ff6bfd305779ea59761bbe367b79b54ac2fbad9485525518fd72d233"}]
+  "files": [{"path": "canary.json", "bytes": 1443, "sha256": "057e05f2e5bc5117df2285c3ee371e3b7f9b3c1e862fd41f4ce41dbf47b9cab1"}]
 }

@@ -118,8 +118,8 @@ class DeliveryConfig:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class VoiceDesignConfig:
     design_text: str = (
-        "Far below the surface, where the light grows thin, small things live quiet lives. Some of them "
-        "thrive, and some of them simply disappear, and the water keeps no record of either."
+        "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When "
+        "the loaves come out golden and crisp, a gentle warmth fills the whole kitchen."
     )
 
 

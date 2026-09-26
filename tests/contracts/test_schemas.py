@@ -58,7 +58,7 @@ def _valid(tool: str, args: dict[str, Any]) -> bool:
     return VALIDATOR(schemas.TOOLS_BY_NAME[tool].input_schema).is_valid(args)
 
 
-VOICE = {"path": "C:\\voices\\narrator.wav", "sha256": "5b1e" + "0" * 60, "transcript": "Far below the surface."}
+VOICE = {"path": "C:\\voices\\narrator.wav", "sha256": "5b1e" + "0" * 60, "transcript": "Good bread asks for patience."}
 
 
 def test_schema_the_submit_job_example_of_section_7_3_validates() -> None:

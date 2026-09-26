@@ -40,17 +40,22 @@ def test_the_fake_stages_the_qa_fault_fixture_s11_1(
         "design",
         {
             "description": "A calm voice.",
-            "design_text": "Far below the surface.",
+            "design_text": "Good bread asks for patience.",
             "language": "English",
             "seed": 1,
-            "max_new_tokens": call_cap("Far below the surface.", design=True),
+            "max_new_tokens": call_cap("Good bread asks for patience.", design=True),
             "out_path": str(clip),
         },
         timeout_s=TIMEOUT,
     )
     client.request(
         "prepare_voice",
-        {"voice_hash": VOICE, "ref_wav": str(clip), "ref_text": "Far below the surface.", "x_vector_only_mode": False},
+        {
+            "voice_hash": VOICE,
+            "ref_wav": str(clip),
+            "ref_text": "Good bread asks for patience.",
+            "x_vector_only_mode": False,
+        },
         timeout_s=TIMEOUT,
     )
     take = store / "scratch" / "take.wav"

@@ -76,7 +76,7 @@ trim_pad_s = 0.08
 fade_s = 0.01
 
 [voice_design]
-design_text = "Far below the surface, where the light grows thin, small things live quiet lives. Some of them thrive, and some of them simply disappear, and the water keeps no record of either."
+design_text = "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen."
 
 [measurement]
 corpus = "narration-en.v1"     # the service's own spoken-form calibration paragraphs

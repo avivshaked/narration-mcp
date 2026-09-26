@@ -28,7 +28,7 @@ from .conftest import ClientFactory, call_cap
 
 TIMEOUT = 30.0
 VOICE = "sha256:" + "ef" * 32
-TEXT = "Some of them thrive, and some of them simply disappear, and the water keeps no record of either."
+TEXT = "When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen."
 
 
 def _required(typed_dict: Any) -> set[str]:
@@ -53,10 +53,10 @@ def ready(make_client: ClientFactory, store: Path) -> SubprocessWorkerClient:
         "design",
         {
             "description": "A warm voice.",
-            "design_text": "Far below the surface.",
+            "design_text": "Good bread asks for patience.",
             "language": "English",
             "seed": 9,
-            "max_new_tokens": call_cap("Far below the surface.", design=True),
+            "max_new_tokens": call_cap("Good bread asks for patience.", design=True),
             "out_path": str(clip),
         },
         timeout_s=TIMEOUT,
@@ -64,7 +64,12 @@ def ready(make_client: ClientFactory, store: Path) -> SubprocessWorkerClient:
     assert _required(protocol.AudioReply) <= set(design)
     client.request(
         "prepare_voice",
-        {"voice_hash": VOICE, "ref_wav": str(clip), "ref_text": "Far below the surface.", "x_vector_only_mode": False},
+        {
+            "voice_hash": VOICE,
+            "ref_wav": str(clip),
+            "ref_text": "Good bread asks for patience.",
+            "x_vector_only_mode": False,
+        },
         timeout_s=TIMEOUT,
     )
     return client
@@ -143,7 +148,7 @@ def test_the_fake_hears_a_post_processed_delivery_file_s13(ready: SubprocessWork
 
     assert embed(delivery) == embed(raw)
 
-    tokens = [ch for word in "Some of them".upper().split() for ch in [*word, "|"]][:-1]
+    tokens = [ch for word in "When the loaves".upper().split() for ch in [*word, "|"]][:-1]
     aligned = ready.request("align", {"wav": str(delivery), "tokens": tokens}, timeout_s=TIMEOUT)
     assert _required(protocol.AlignReply) <= set(aligned)
     assert aligned["num_frames"] == (round(sf.info(delivery).duration * 16_000) - 400) // 320 + 1

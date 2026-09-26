@@ -28,7 +28,7 @@ from narration_worker.testing.client import WorkerProcess, check_reply
 TIMEOUT = 30.0
 CEILING = 8192
 """The fake's loaded ``max_new_tokens`` ceiling when ``load`` gives none; these tests' calls pass it as their cap."""
-TEXT = "Far below the surface, where the light grows thin, small things live quiet lives."
+TEXT = "Good bread asks for patience: the dough is mixed, folded and left to rise."
 VOICE = "sha256:" + "ab" * 32
 
 
@@ -81,7 +81,7 @@ def _design(
         worker.request(
             "design",
             description=description,
-            design_text="Some of them thrive, and some of them simply disappear.",
+            design_text="When the loaves come out golden and crisp.",
             language="English",
             seed=2001,
             max_new_tokens=cap,
@@ -99,7 +99,7 @@ def _voice(worker: WorkerProcess, store: Path, voice_hash: str = VOICE, name: st
             "prepare_voice",
             voice_hash=voice_hash,
             ref_wav=str(clip),
-            ref_text="Some of them thrive, and some of them simply disappear.",
+            ref_text="When the loaves come out golden and crisp.",
             x_vector_only_mode=False,
             timeout_s=TIMEOUT,
         )
@@ -160,7 +160,7 @@ def test_synthesize_writes_float32_mono_wav_whose_length_follows_the_text_appA(
     assert reply["new_tokens"] == math.ceil(reply["samples"] * 12.5 / SAMPLE_RATE)  # frames at 12.5 per second
     assert reply["max_new_tokens"] == CEILING
     assert 4.0 < audio.duration_s < 8.0  # 14 words at about narration pace
-    _, short = _say(worker, store, "short", text="Far below.")
+    _, short = _say(worker, store, "short", text="Good bread.")
     assert _ok(short)["samples"] < reply["samples"] / 4
 
 
@@ -183,7 +183,7 @@ def test_the_same_request_gives_the_same_bytes_in_another_process_appA(tmp_path:
     assert digests[1] == digests[3]
 
 
-GOLDEN_DESIGN_SHA256 = "faa8a531e385afce0a7af3f1a79458d600ac54c8f6959ebc43aac1016dd03746"
+GOLDEN_DESIGN_SHA256 = "b13694c94194bcaf4f5a6dc2d4468a9b3e64754da29caaf9670e46b508f4611b"
 
 
 def test_the_fake_voice_is_pinned_to_the_byte_on_every_platform_appA(worker: WorkerProcess, store: Path) -> None:
@@ -361,8 +361,8 @@ def test_unknown_audio_is_not_transcribed_unless_the_spec_names_it_s11_1(store: 
 
 def test_align_places_every_token_in_order_s11_2(worker: WorkerProcess, store: Path) -> None:
     _voice(worker, store)
-    wav, _ = _say(worker, store, "take", text="Small things live.")
-    tokens = [*"SMALL", "|", *"THINGS", "|", *"LIVE"]
+    wav, _ = _say(worker, store, "take", text="Smell golden crust.")
+    tokens = [*"SMELL", "|", *"GOLDEN", "|", *"CRUST"]
     reply = _ok(worker.request("align", wav=str(wav), tokens=tokens, timeout_s=TIMEOUT))
     spans = reply["spans"]
     assert [s["token_index"] for s in spans] == list(range(len(tokens)))
@@ -373,10 +373,10 @@ def test_align_places_every_token_in_order_s11_2(worker: WorkerProcess, store: P
         previous_end = span["end_frame"]
     assert previous_end <= reply["num_frames"]
     words = _ok(_transcribe(worker, wav))["words"]
-    things = spans[6:12]
-    assert things[0]["start_frame"] * 0.02 == pytest.approx(words[1]["start_s"], abs=0.03)
-    assert things[-1]["end_frame"] * 0.02 == pytest.approx(words[1]["end_s"], abs=0.03)
-    # the two Ls of SMALL are equal neighbours: CTC needs a blank frame between them
+    golden = spans[6:12]
+    assert golden[0]["start_frame"] * 0.02 == pytest.approx(words[1]["start_s"], abs=0.03)
+    assert golden[-1]["end_frame"] * 0.02 == pytest.approx(words[1]["end_s"], abs=0.03)
+    # the two Ls of SMELL are equal neighbours: CTC needs a blank frame between them
     assert spans[4]["start_frame"] > spans[3]["end_frame"]
 
 
@@ -410,7 +410,11 @@ def test_profile_returns_every_measurement_and_two_pictures_s3_6(worker: WorkerP
     out_dir = store / "scratch" / "profile"
     reply = _ok(
         worker.request(
-            "profile", wav=str(clip), out_dir=str(out_dir), transcript="Some of them thrive.", timeout_s=TIMEOUT
+            "profile",
+            wav=str(clip),
+            out_dir=str(out_dir),
+            transcript="Good bread asks for patience.",
+            timeout_s=TIMEOUT,
         )
     )
     assert tuple(reply["measurements"]) == PROFILE_KEYS
@@ -448,7 +452,7 @@ def test_planted_head_insertion_comes_before_the_first_word_wp40(store: Path) ->
         _ready(worker, store)
         wav, _ = _say(worker, store, "take")
         words = _ok(_transcribe(worker, wav))["words"]
-    assert [w["text"] for w in words[:3]] == ["and", "so", "Far"]
+    assert [w["text"] for w in words[:3]] == ["and", "so", "Good"]
     assert words[1]["end_s"] < words[2]["start_s"]
     assert words[0]["probability"] < 0.9
 
@@ -500,7 +504,7 @@ def test_planted_gpu_oom_fires_as_many_times_as_asked_s4(store: Path) -> None:
 
 
 def test_planted_faults_match_on_text_and_seed_wp40(store: Path) -> None:
-    fault = {"kind": "error", "code": "RENDER_FAILED", "when": {"text_contains": "quiet", "seed": 2}}
+    fault = {"kind": "error", "code": "RENDER_FAILED", "when": {"text_contains": "dough", "seed": 2}}
     with _faulted(store, fault) as worker:
         _ready(worker, store)
         _ok(_say(worker, store, "a", seed=1)[1])
@@ -509,11 +513,11 @@ def test_planted_faults_match_on_text_and_seed_wp40(store: Path) -> None:
 
 
 def test_planted_alignment_error_wp40(store: Path) -> None:
-    with _faulted(store, {"kind": "alignment_error", "when": {"text_contains": "surface"}}) as worker:
+    with _faulted(store, {"kind": "alignment_error", "when": {"text_contains": "patience"}}) as worker:
         _ready(worker, store)
         wav, _ = _say(worker, store, "take")
         error = _error(
-            worker.request("align", wav=str(wav), tokens=["F", "A", "R"], timeout_s=TIMEOUT), "ALIGNMENT_ERROR"
+            worker.request("align", wav=str(wav), tokens=["G", "O", "O", "D"], timeout_s=TIMEOUT), "ALIGNMENT_ERROR"
         )
     assert error["details"]["reason"] == "planted"
 
