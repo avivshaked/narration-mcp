@@ -27,7 +27,7 @@ from narration.contracts.interfaces import WorkerClient
 from narration.contracts.worker import FAKE_OPS, PROTOCOL_VERSION
 from narration.workers import SubprocessWorkerClient, WorkerCommand, venv_python, worker_command, worker_env
 
-from .conftest import ClientFactory
+from .conftest import ClientFactory, call_cap
 
 TIMEOUT = 30.0
 VOICE = "sha256:" + "cd" * 32
@@ -42,6 +42,7 @@ def _voice(client: SubprocessWorkerClient, store: Path) -> None:
             "design_text": "Some of them thrive.",
             "language": "English",
             "seed": 3,
+            "max_new_tokens": call_cap("Some of them thrive.", design=True),
             "out_path": str(clip),
         },
         timeout_s=TIMEOUT,
@@ -63,6 +64,7 @@ def _synthesize(
             "engine_text": text,
             "language": "English",
             "seed": 11,
+            "max_new_tokens": call_cap(text),
             "out_path": str(store / "scratch" / f"{name}.wav"),
         },
         timeout_s=TIMEOUT,
@@ -171,6 +173,7 @@ def test_a_crash_is_reported_at_once_with_exit_code_and_stderr_tail_appA(
                 "engine_text": "Hello.",
                 "language": "English",
                 "seed": 1,
+                "max_new_tokens": call_cap("Hello."),
                 "out_path": str(store / "scratch" / "x.wav"),
             },
             timeout_s=120.0,

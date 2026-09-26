@@ -9,9 +9,16 @@ Subclass ``WorkerContract`` once per worker, in a class whose name starts with `
 
 The default ``worker_argv`` fixture starts ``python -m narration_worker --role <role> --store <tmp store>``
 with the running interpreter, so run the tests from the worker's own venv. Override fixtures to change what
-is started (``worker_argv``, ``worker_env``) or to enable the load round trip (``load_request``: a ``load``
-request that succeeds here; the default ``None`` skips that one test, as for a real model on a machine
-without it). Nothing here needs a model or a GPU.
+is started (``worker_argv``, ``worker_env``) or to enable the tests that need a loaded model:
+
+- ``load_request``: a ``load`` request that succeeds here. The default ``None`` skips the tests that need
+  it, as for a real model on a machine without it;
+- ``render_requests``: for a role with ``synthesize`` or ``design``, the requests to send after that
+  ``load`` so that one of those calls succeeds, that call last (for example a ``prepare_voice`` and then a
+  ``synthesize``). The test sets the last call's ``max_new_tokens`` itself. The default ``None`` skips the
+  test of the call cap's effect.
+
+Nothing here needs a model or a GPU unless those fixtures load one.
 
 What the contract says, beyond the message shapes:
 
@@ -20,6 +27,10 @@ What the contract says, beyond the message shapes:
 - malformed input and unknown ops get ``INVALID_REQUEST`` and the worker keeps serving;
 - model ops reply ``NOT_LOADED`` before ``load`` (and after ``unload``), before reading any file;
 - ``load`` with a snapshot directory that does not exist replies ``BACKEND_NOT_INSTALLED``;
+- ``synthesize`` and ``design`` need their own ``max_new_tokens`` (design section 10.1, DC-4): missing, not
+  an integer, below 1 or above the loaded ceiling is ``INVALID_REQUEST`` for ``max_new_tokens``, before
+  ``VOICE_NOT_PREPARED``; a cap below the take's length cuts it and reports ``hit_token_cap: true``, and
+  the loaded ceiling does not cut a short take;
 - ``shutdown`` replies, then the process exits with code 0; so does the end of input, without a reply;
 - stdout carries protocol replies and nothing else.
 """
@@ -36,6 +47,14 @@ import pytest
 from narration_worker.protocol import COMMON_OPS, FAKE_OPS, OPS_BY_ROLE, PROTOCOL_VERSION, Fingerprint, WorkerRole
 
 from .client import WorkerProcess, check_reply
+
+CALL_CAP_OPS: tuple[str, ...] = ("synthesize", "design")
+"""The ops that take their own ``max_new_tokens`` (design section 10.1, DC-4)."""
+DEFAULT_CEILING = 8192
+"""The loaded ceiling when a ``load`` request gives no ``settings.generation.max_new_tokens``: the pinned Qwen
+snapshots' value (a real Qwen worker's ``load`` always passes it)."""
+SAMPLE_CAP = 128
+"""The ``max_new_tokens`` of the sample requests: the daemon's floor, so within any ceiling."""
 
 DETERMINISM: dict[str, Any] = {
     "tf32": False,
@@ -58,6 +77,7 @@ def sample_requests(store_root: Path) -> dict[str, dict[str, Any]]:
             "engine_text": "Hello there.",
             "language": "English",
             "seed": 1,
+            "max_new_tokens": SAMPLE_CAP,
             "out_path": out,
         },
         "design": {
@@ -65,6 +85,7 @@ def sample_requests(store_root: Path) -> dict[str, dict[str, Any]]:
             "design_text": "Hello there.",
             "language": "English",
             "seed": 1,
+            "max_new_tokens": SAMPLE_CAP,
             "out_path": out,
         },
         "transcribe": {"wav": wav, "language": "English", "word_timestamps": True, "long_form": True},
@@ -73,6 +94,14 @@ def sample_requests(store_root: Path) -> dict[str, dict[str, Any]]:
         "align": {"wav": wav, "tokens": ["H", "E", "L", "L", "O"]},
         "profile": {"wav": wav, "out_dir": str(scratch / "profile"), "transcript": None},
     }
+
+
+def loaded_ceiling(load_request: dict[str, Any]) -> int:
+    """The ``max_new_tokens`` ceiling a ``load`` request sets (``DEFAULT_CEILING`` when it names none)."""
+    settings = load_request.get("settings")
+    generation = settings.get("generation", {}) if isinstance(settings, dict) else {}
+    ceiling = generation.get("max_new_tokens", DEFAULT_CEILING) if isinstance(generation, dict) else DEFAULT_CEILING
+    return int(ceiling)
 
 
 def missing_snapshot_load(store_root: Path) -> dict[str, Any]:
@@ -96,6 +125,8 @@ class WorkerContract:
     role: ClassVar[WorkerRole]
     timeout_s: ClassVar[float] = 120.0
     """How long any single reply may take (a real worker imports torch when it starts)."""
+    small_cap: ClassVar[int] = 1
+    """The ``max_new_tokens`` the call-cap test expects to cut the last of ``render_requests``."""
 
     # ------------------------------------------------------------------ fixtures to override
     @pytest.fixture
@@ -124,6 +155,10 @@ class WorkerContract:
 
     @pytest.fixture
     def load_request(self, store_root: Path) -> dict[str, Any] | None:
+        return None
+
+    @pytest.fixture
+    def render_requests(self, store_root: Path) -> list[tuple[str, dict[str, Any]]] | None:
         return None
 
     @pytest.fixture
@@ -223,6 +258,47 @@ class WorkerContract:
         model_ops = [op for op in OPS_BY_ROLE[self.role] if op not in COMMON_OPS]
         reply = worker.request(model_ops[0], timeout_s=self.timeout_s, **sample_requests(store_root)[model_ops[0]])
         assert reply["ok"] is False and reply["error"]["code"] == "NOT_LOADED"
+
+    def test_a_call_without_a_valid_max_new_tokens_is_invalid_request_s10_1(
+        self, worker: WorkerProcess, store_root: Path, load_request: dict[str, Any] | None
+    ) -> None:
+        ops = [op for op in CALL_CAP_OPS if op in OPS_BY_ROLE[self.role]]
+        if not ops:
+            pytest.skip(f"the {self.role} role has no synthesize or design")
+        if load_request is None:
+            pytest.skip(f"no loadable {self.role} models here: override the load_request fixture to run this")
+        assert worker.request("load", timeout_s=self.timeout_s, **load_request)["ok"] is True
+        ceiling = loaded_ceiling(load_request)
+        samples = sample_requests(store_root)
+        missing = object()
+        for op in ops:
+            body = {k: v for k, v in samples[op].items() if k != "max_new_tokens"}
+            for bad in (missing, None, 0, -1, ceiling + 1, 1.5, True, "128"):
+                payload = body if bad is missing else {**body, "max_new_tokens": bad}
+                reply = worker.request(op, timeout_s=self.timeout_s, **payload)
+                assert reply["ok"] is False and reply["error"]["code"] == "INVALID_REQUEST", (op, bad, reply)
+                assert reply["error"].get("details", {}).get("field") == "max_new_tokens", (op, bad, reply)
+
+    def test_a_call_cap_below_the_take_cuts_it_and_reports_hit_token_cap_s10_1(
+        self,
+        worker: WorkerProcess,
+        load_request: dict[str, Any] | None,
+        render_requests: list[tuple[str, dict[str, Any]]] | None,
+    ) -> None:
+        if load_request is None or render_requests is None:
+            pytest.skip(f"override load_request and render_requests to render with the {self.role} worker")
+        *setup, (op, body) = render_requests
+        assert op in CALL_CAP_OPS, f"the last of render_requests must be one of {CALL_CAP_OPS}, not {op}"
+        assert worker.request("load", timeout_s=self.timeout_s, **load_request)["ok"] is True
+        for setup_op, setup_body in setup:
+            reply = worker.request(setup_op, timeout_s=self.timeout_s, **setup_body)
+            assert reply["ok"] is True, (setup_op, reply)
+        full = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": loaded_ceiling(load_request)})
+        assert full["ok"] is True and full["hit_token_cap"] is False, full
+        cut = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": self.small_cap})
+        assert cut["ok"] is True and cut["hit_token_cap"] is True, cut
+        assert cut.get("new_tokens", self.small_cap) == self.small_cap
+        assert cut["samples"] < full["samples"]
 
     def test_shutdown_replies_then_exits_zero_appA(self, worker: WorkerProcess) -> None:
         reply = worker.request("shutdown", timeout_s=self.timeout_s)

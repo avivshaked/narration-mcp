@@ -24,7 +24,7 @@ from narration.contracts import worker as protocol
 from narration.contracts.models import ProfileMeasurements, ProfilePictures
 from narration.workers import SubprocessWorkerClient
 
-from .conftest import ClientFactory
+from .conftest import ClientFactory, call_cap
 
 TIMEOUT = 30.0
 VOICE = "sha256:" + "ef" * 32
@@ -56,6 +56,7 @@ def ready(make_client: ClientFactory, store: Path) -> SubprocessWorkerClient:
             "design_text": "Far below the surface.",
             "language": "English",
             "seed": 9,
+            "max_new_tokens": call_cap("Far below the surface.", design=True),
             "out_path": str(clip),
         },
         timeout_s=TIMEOUT,
@@ -83,7 +84,14 @@ def test_soundfile_reads_the_fakes_wav_as_float32_mono_appA(ready: SubprocessWor
     raw = store / "scratch" / "take.wav"
     reply = ready.request(
         "synthesize",
-        {"voice_hash": VOICE, "engine_text": TEXT, "language": "English", "seed": 5, "out_path": str(raw)},
+        {
+            "voice_hash": VOICE,
+            "engine_text": TEXT,
+            "language": "English",
+            "seed": 5,
+            "max_new_tokens": call_cap(TEXT),
+            "out_path": str(raw),
+        },
         timeout_s=TIMEOUT,
     )
     assert _required(protocol.AudioReply) <= set(reply)
@@ -98,7 +106,14 @@ def test_the_fake_hears_a_post_processed_delivery_file_s13(ready: SubprocessWork
     raw = store / "scratch" / "take.wav"
     ready.request(
         "synthesize",
-        {"voice_hash": VOICE, "engine_text": TEXT, "language": "English", "seed": 5, "out_path": str(raw)},
+        {
+            "voice_hash": VOICE,
+            "engine_text": TEXT,
+            "language": "English",
+            "seed": 5,
+            "max_new_tokens": call_cap(TEXT),
+            "out_path": str(raw),
+        },
         timeout_s=TIMEOUT,
     )
     delivery = store / "takes" / "delivery.wav"

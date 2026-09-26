@@ -26,6 +26,8 @@ from narration_worker.fake.wav import read_wav
 from narration_worker.testing.client import WorkerProcess, check_reply
 
 TIMEOUT = 30.0
+CEILING = 8192
+"""The fake's loaded ``max_new_tokens`` ceiling when ``load`` gives none; these tests' calls pass it as their cap."""
 TEXT = "Far below the surface, where the light grows thin, small things live quiet lives."
 VOICE = "sha256:" + "ab" * 32
 
@@ -71,7 +73,9 @@ def _error(reply: dict[str, Any], code: str) -> dict[str, Any]:
     return reply["error"]
 
 
-def _design(worker: WorkerProcess, store: Path, name: str, description: str = "A calm, low voice.") -> Path:
+def _design(
+    worker: WorkerProcess, store: Path, name: str, description: str = "A calm, low voice.", cap: int = CEILING
+) -> Path:
     clip = store / "scratch" / f"{name}.wav"
     _ok(
         worker.request(
@@ -80,6 +84,7 @@ def _design(worker: WorkerProcess, store: Path, name: str, description: str = "A
             design_text="Some of them thrive, and some of them simply disappear.",
             language="English",
             seed=2001,
+            max_new_tokens=cap,
             out_path=str(clip),
             timeout_s=TIMEOUT,
         )
@@ -87,8 +92,8 @@ def _design(worker: WorkerProcess, store: Path, name: str, description: str = "A
     return clip
 
 
-def _voice(worker: WorkerProcess, store: Path, voice_hash: str = VOICE, name: str = "clip") -> Path:
-    clip = _design(worker, store, name)
+def _voice(worker: WorkerProcess, store: Path, voice_hash: str = VOICE, name: str = "clip", cap: int = CEILING) -> Path:
+    clip = _design(worker, store, name, cap=cap)
     _ok(
         worker.request(
             "prepare_voice",
@@ -102,7 +107,9 @@ def _voice(worker: WorkerProcess, store: Path, voice_hash: str = VOICE, name: st
     return clip
 
 
-def _say(worker: WorkerProcess, store: Path, name: str, text: str = TEXT, seed: int = 7) -> tuple[Path, dict[str, Any]]:
+def _say(
+    worker: WorkerProcess, store: Path, name: str, text: str = TEXT, seed: int = 7, cap: int = CEILING
+) -> tuple[Path, dict[str, Any]]:
     out = store / "scratch" / f"{name}.wav"
     reply = worker.request(
         "synthesize",
@@ -110,6 +117,7 @@ def _say(worker: WorkerProcess, store: Path, name: str, text: str = TEXT, seed: 
         engine_text=text,
         language="English",
         seed=seed,
+        max_new_tokens=cap,
         out_path=str(out),
         timeout_s=TIMEOUT,
     )
@@ -275,6 +283,7 @@ def test_paths_outside_the_store_are_refused_s17_2(worker: WorkerProcess, store:
         engine_text=TEXT,
         language="English",
         seed=1,
+        max_new_tokens=CEILING,
         out_path=str(tmp_path / "outside.wav"),
         timeout_s=TIMEOUT,
     )
@@ -282,7 +291,7 @@ def test_paths_outside_the_store_are_refused_s17_2(worker: WorkerProcess, store:
     assert not (tmp_path / "outside.wav").exists()
 
 
-def test_a_low_token_cap_cuts_the_take_s11_1(store: Path) -> None:
+def test_the_loaded_ceiling_bounds_every_calls_cap_s10_1(store: Path) -> None:
     with fake(store) as worker:
         _ok(
             worker.request(
@@ -292,8 +301,10 @@ def test_a_low_token_cap_cuts_the_take_s11_1(store: Path) -> None:
                 timeout_s=TIMEOUT,
             )
         )
-        _voice(worker, store)
-        wav, reply = _say(worker, store, "capped")
+        _voice(worker, store, cap=30)
+        error = _error(_say(worker, store, "over", cap=31)[1], "INVALID_REQUEST")
+        assert error["details"] == {"field": "max_new_tokens", "ceiling": 30}
+        wav, reply = _say(worker, store, "capped", cap=30)
         _ok(reply)
         assert reply["hit_token_cap"] is True
         assert reply["new_tokens"] == 30
@@ -301,6 +312,31 @@ def test_a_low_token_cap_cuts_the_take_s11_1(store: Path) -> None:
         heard = _ok(_transcribe(worker, wav))["text"].split()
         assert 0 < len(heard) < len(TEXT.split())
         assert heard == TEXT.split()[: len(heard)]
+
+
+def test_the_calls_cap_cuts_the_take_and_the_fake_hears_the_words_before_the_cut_s10_1(
+    worker: WorkerProcess, store: Path
+) -> None:
+    _voice(worker, store)
+    _, full = _say(worker, store, "full")
+    wav, cut = _say(worker, store, "cut", cap=20)
+    assert _ok(full)["hit_token_cap"] is False and full["new_tokens"] > 20
+    assert _ok(cut)["hit_token_cap"] is True and cut["new_tokens"] == 20
+    assert cut["samples"] <= 20 * SAMPLE_RATE // 12
+    heard = [w["text"] for w in _ok(_transcribe(worker, wav))["words"]]
+    assert heard and heard == TEXT.split()[: len(heard)] and len(heard) < len(TEXT.split())
+
+
+def test_a_cap_the_take_ends_under_changes_nothing_s10_1(worker: WorkerProcess, store: Path) -> None:
+    """The cap only truncates (ADR 0003): the take is the same under any cap it ends under."""
+    _voice(worker, store)
+    at_ceiling, reply = _say(worker, store, "ceiling")
+    natural = _ok(reply)["new_tokens"]
+    just_over, over = _say(worker, store, "just-over", cap=natural + 1)
+    assert _ok(over) == {**reply, "id": over["id"]}
+    assert just_over.read_bytes() == at_ceiling.read_bytes()
+    _, exact = _say(worker, store, "exact", cap=natural)
+    assert _ok(exact)["hit_token_cap"] is True  # generation reached the cap: no room for the end token
 
 
 def test_unknown_audio_is_not_transcribed_unless_the_spec_names_it_s11_1(store: Path) -> None:
@@ -433,6 +469,15 @@ def test_planted_token_cap_hit_wp40(store: Path) -> None:
     assert first["new_tokens"] == second["new_tokens"] * 6 // 10
 
 
+def test_planted_token_cap_stops_at_the_calls_cap_when_that_is_lower_wp40(store: Path) -> None:
+    with _faulted(store, {"kind": "token_cap", "max_new_tokens": 40}) as worker:
+        _ready(worker, store)
+        _, fault_cap = _say(worker, store, "fault-cap")
+        _, call_cap = _say(worker, store, "call-cap", cap=25)
+    assert _ok(fault_cap)["hit_token_cap"] is True and fault_cap["new_tokens"] == 40
+    assert _ok(call_cap)["hit_token_cap"] is True and call_cap["new_tokens"] == 25
+
+
 def test_planted_gpu_oom_fires_as_many_times_as_asked_s4(store: Path) -> None:
     with _faulted(store, {"kind": "gpu_oom", "times": 1}) as worker:
         _ready(worker, store)
@@ -472,6 +517,7 @@ def test_planted_crash_exits_mid_request_and_does_not_repeat_after_a_restart_wp4
                 "engine_text": TEXT,
                 "language": "English",
                 "seed": 1,
+                "max_new_tokens": CEILING,
                 "out_path": str(store / "scratch" / "x.wav"),
             }
         )
@@ -560,6 +606,7 @@ def test_the_spec_is_read_only_from_the_environment_appA(store: Path) -> None:
             engine_text=TEXT,
             language="English",
             seed=1,
+            max_new_tokens=CEILING,
             out_path=str(store / "scratch" / "x.wav"),
             faults=[{"kind": "crash"}],
             timeout_s=TIMEOUT,

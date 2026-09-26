@@ -5,8 +5,10 @@ keeps the contract the real workers keep (``handler.py``): model ops need ``load
 the snapshot directories it is given, paths stay in the store.
 
 - ``synthesize`` and ``design`` write a real float32 mono WAV at 24 kHz whose length follows the text
-  (``audio.py``), report ``new_tokens`` at Qwen's 12 per second and ``hit_token_cap`` against the loaded
-  ``max_new_tokens`` (8192 unless ``load`` says otherwise), and record what they said (``registry.py``).
+  (``audio.py``), report ``new_tokens`` at Qwen's 12 per second, and record what they said
+  (``registry.py``). Each call's ``max_new_tokens`` (required, at most the loaded ceiling: ``load``'s
+  ``settings.generation.max_new_tokens``, 8192 when it gives none) cuts a take that would be longer, which
+  then reports ``hit_token_cap: true``. A take that ends under its cap is the same under any cap.
 - ``transcribe`` hears the text back, with word times, from the take or from any post-processed copy of it.
 - ``embed`` gives a 512-dimension unit vector: the voice's direction plus a small per-take part, so takes of
   one voice (and the clip they clone) are about 0.99 similar and different voices are not.
@@ -42,6 +44,7 @@ from narration_worker.handler import (
     WorkerHandler,
     require_bool,
     require_int,
+    require_max_new_tokens,
     require_number,
     require_one_of,
     require_str,
@@ -78,7 +81,7 @@ FAKE_ALIGNER_MODEL: Final = "narration-worker/fake-ctc"
 EMBEDDING_DIM: Final = 512
 """WavLM-base-plus-sv's x-vector size."""
 DEFAULT_MAX_NEW_TOKENS: Final = 8192
-"""The effective Qwen cap (plan.md 1.3 item 1)."""
+"""The ceiling when ``load`` gives none: the pinned Qwen snapshots' value (plan.md 1.3 item 1)."""
 ALIGN_FRAME_S: Final = 0.02
 """wav2vec2's frame: 320 samples at 16 kHz."""
 F0_HOP_S: Final = 0.01
@@ -264,13 +267,14 @@ class FakeHandler(WorkerHandler):
         text = require_str(request, "engine_text")
         language = require_str(request, "language")
         seed = require_int(request, "seed", minimum=0, maximum=0xFFFFFFFF)
+        cap = require_max_new_tokens(request, self.max_new_tokens)
         out = self.output_file(request, "out_path")
         voice_key = self.voices.get(voice_hash)
         if voice_key is None:
             raise OpError(
                 "VOICE_NOT_PREPARED", "send prepare_voice for this voice_hash first", {"voice_hash": voice_hash}
             )
-        return self._speak("synthesize", text, language, seed, voice_hash, voice_key, out, "engine_text")
+        return self._speak("synthesize", text, language, seed, cap, voice_hash, voice_key, out, "engine_text")
 
     def op_design(self, request: Request) -> dict[str, Any]:
         self._need_loaded("design")
@@ -278,9 +282,10 @@ class FakeHandler(WorkerHandler):
         text = require_str(request, "design_text")
         language = require_str(request, "language")
         seed = require_int(request, "seed", minimum=0, maximum=0xFFFFFFFF)
+        cap = require_max_new_tokens(request, self.max_new_tokens)
         out = self.output_file(request, "out_path")
         voice_key = "design:" + hashlib.sha256(f"{description}\x00{seed}".encode()).hexdigest()[:16]
-        return self._speak("design", text, language, seed, None, voice_key, out, "design_text")
+        return self._speak("design", text, language, seed, cap, None, voice_key, out, "design_text")
 
     def _speak(
         self,
@@ -288,18 +293,20 @@ class FakeHandler(WorkerHandler):
         text: str,
         language: str,
         seed: int,
+        cap: int,
         voice_hash: str | None,
         voice_key: str,
         out: Path,
         field: str,
     ) -> dict[str, Any]:
+        """Render a take of ``text``, cut at ``cap`` tokens (the call's ``max_new_tokens``, or a lower
+        ``token_cap`` fault's) if it would be longer."""
         tokens = spoken_tokens(text)
         if not tokens:
             raise OpError("INVALID_REQUEST", f"{field} has no words to speak", {"field": field})
         # one entry per word the take says: (the word, is it one of the text's words?, was it planted?)
         entries: list[tuple[str, bool, bool]] = [(token, True, False) for token in tokens]
         heard_text: str | None = None
-        cap = self.max_new_tokens
         cap_fault: Fault | None = None
         planted: list[dict[str, Any]] = []
         for fault in self._content_faults(op, Facts(text, seed, voice_hash)):
@@ -321,8 +328,8 @@ class FakeHandler(WorkerHandler):
         bursts, total = layout([said for said, _, _ in entries])
         full = [b.segments for b in bursts]
         natural = new_tokens(total)
-        if cap_fault is not None:
-            cap = int(cap_fault.params.get("max_new_tokens", max(1, natural * 6 // 10)))
+        if cap_fault is not None:  # generation stops at the fault's cap, or the call's if that is lower
+            cap = min(cap, int(cap_fault.params.get("max_new_tokens", max(1, natural * 6 // 10))))
         hit = natural >= cap
         if hit:
             bursts, total = truncate(bursts, cap * SAMPLE_RATE // TOKENS_PER_SECOND)

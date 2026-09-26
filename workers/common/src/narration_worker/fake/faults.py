@@ -40,7 +40,8 @@ kind                      default op        effect (parameters)
 ``head_insertion``        ``synthesize``    the take starts with extra ``words`` (["so"])
 ``end_insertion``         ``synthesize``    the take ends with extra ``words`` (["okay"])
 ``token_cap``             ``synthesize``    generation stops at ``max_new_tokens`` (60 % of the take's
-                                            tokens by default): ``hit_token_cap`` and a cut take
+                                            tokens by default), or at the call's own ``max_new_tokens``
+                                            if that is lower: ``hit_token_cap`` and a cut take
 ========================  ================  ==============================================================
 
 The last five change what the take says, so they apply to ``synthesize`` and ``design`` only; the fake's

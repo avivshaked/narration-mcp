@@ -11,10 +11,24 @@ from typing import Any
 import pytest
 from narration_worker.fake.faults import SPEC_ENV
 
-from narration.config import Config
+from narration.config import Config, EnginesConfig
+from narration.contracts.names import MAX_NEW_TOKENS_CEILING, max_new_tokens_for
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command
 
 ClientFactory = Callable[..., SubprocessWorkerClient]
+
+
+def call_cap(text: str, *, design: bool = False) -> int:
+    """The ``max_new_tokens`` the daemon passes for a call that speaks ``text`` (design section 10.1, DC-4),
+    with the default engine settings."""
+    engines = EnginesConfig()
+    engine = engines.qwen3_design if design else engines.qwen3_base
+    return max_new_tokens_for(
+        text,
+        per_char=engine.max_new_tokens_per_char,
+        floor=engine.max_new_tokens_floor,
+        ceiling=MAX_NEW_TOKENS_CEILING,
+    )
 
 
 @pytest.fixture

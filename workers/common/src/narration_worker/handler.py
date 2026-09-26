@@ -16,6 +16,12 @@ replies to it and calls ``shutdown()`` first). A method returns the reply's memb
   any file or checks its other fields;
 - ``load`` checks that each snapshot directory it is given exists before anything else, and replies
   ``BACKEND_NOT_INSTALLED`` for a missing one;
+- ``synthesize`` and ``design`` take a required ``max_new_tokens``, the call's own generation cap (design
+  section 10.1, DC-4), and check it with ``require_max_new_tokens``: an integer from 1 to the loaded ceiling
+  (``load``'s ``settings.generation.max_new_tokens``). A missing or out-of-range cap is ``INVALID_REQUEST``,
+  and like every argument error it comes before ``VOICE_NOT_PREPARED``. A render that reaches the call's
+  cap reports ``hit_token_cap: true``; the cap only truncates, so a render that ends under it is the same
+  under any cap;
 - a worker returns raw outputs only; every verdict, threshold and flag is the server's (plan.md P1);
 - file paths in a request are absolute and inside ``<store_root>``; outputs are written only there.
 
@@ -251,6 +257,26 @@ def require_str_list(request: Request, name: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise _wrong(name, "a list of strings")
     return list(value)
+
+
+def require_max_new_tokens(request: Request, ceiling: int) -> int:
+    """The ``max_new_tokens`` of a ``synthesize`` or ``design`` call: required, an integer in 1..``ceiling``.
+
+    It is the call's own generation cap (design section 10.1, DC-4). The daemon computes it from the text the
+    call speaks, ``min(ceiling, max(floor, ceil(per_char * len(text))))`` with the engine profile's
+    ``max_new_tokens_per_char`` and ``max_new_tokens_floor`` (``narration.contracts.names.max_new_tokens_for``),
+    so a runaway render stops early. ``ceiling`` is the loaded ``settings.generation.max_new_tokens`` (8192,
+    the snapshots' value). A missing cap, or one above the ceiling, is ``INVALID_REQUEST`` with
+    ``details.field`` ``max_new_tokens``: an audio-changing setting is never left to a default.
+    """
+    cap = require_int(request, "max_new_tokens", minimum=1)
+    if cap > ceiling:
+        raise OpError(
+            "INVALID_REQUEST",
+            f"max_new_tokens ({cap}) is above the loaded ceiling ({ceiling}); the daemon's cap is at most that",
+            {"field": "max_new_tokens", "ceiling": ceiling},
+        )
+    return cap
 
 
 def require_one_of(request: Request, name: str, choices: tuple[str, ...]) -> str:
