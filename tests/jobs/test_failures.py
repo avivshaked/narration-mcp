@@ -4,6 +4,10 @@ flight (design sections 4, 4.1, 10.1 and 14; plan.md WP31)."""
 
 from __future__ import annotations
 
+import os
+import signal
+import threading
+import time
 from typing import Any
 
 import pytest
@@ -127,3 +131,42 @@ def test_out_of_memory_while_loading_is_retried_once_then_fails_the_segment_s4(w
     assert world.host.sleeps.count(OOM_WAIT_S) == 1  # one wait for the segment, not one per take
     assert kettle.state == "passed" and len(kettle.attempts) == 2
     assert world.pool.texts() == [KETTLE, KETTLE]
+
+
+# ================================================================== stop_now with a request in flight (section 4.1)
+
+
+def test_stop_now_during_a_render_neither_retries_nor_flags_it_s4_1(world: World) -> None:
+    # The render's worker has crashed once already, so one more failure would end the take with
+    # WORKER_CRASHED. The failure stop_now causes (the daemon kills the worker) must not count.
+    world.faults(
+        {"kind": "crash", "op": "synthesize", "times": 1},
+        {"kind": "delay", "op": "synthesize", "seconds": 30.0},
+    )
+    job = world.submit(LAMPS)
+
+    def stop_now() -> None:
+        deadline = time.monotonic() + 60
+        while world.pool.calls[("qwen", "synthesize")] < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        time.sleep(0.3)  # the worker is inside the request
+        world.host.stop_mode = "now"
+        client = world.pool.client("qwen")
+        assert client.pid is not None
+        os.kill(client.pid, signal.SIGTERM)  # the daemon kills every worker
+
+    killer = threading.Thread(target=stop_now)
+    killer.start()
+    steps = 0
+    while world.pool.calls[("qwen", "synthesize")] < 2 or killer.is_alive():
+        world.runner.step(world.host)
+        steps += 1
+        assert steps < 50
+    killer.join()
+    world.runner.shutdown(world.host, "now")
+
+    back = world.job(job.job_id)
+    assert back.status == "queued"
+    assert world.pool.calls[("qwen", "synthesize")] == 2  # the retry after the crash, and no more
+    assert not back.items[0].flags and back.items[0].attempts[0].render_id is None
+    assert OOM_WAIT_S not in world.host.sleeps
