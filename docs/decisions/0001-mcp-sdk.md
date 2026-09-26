@@ -1,6 +1,6 @@
 # ADR 0001: The MCP front-end is built on the low-level `Server` of `mcp` 2.2.0
 
-- Status: proposed (WP17, spike j), for the lead to accept
+- Status: accepted (the lead, 2026-09-26); proposed by WP17, spike j
 - Date: 2026-09-26
 - Design sections: 5 (protocol basis), 7 (MCP surface), 14 (error model)
 - Evidence: [spikes/j-mcp-sdk](../../spikes/j-mcp-sdk/README.md)
@@ -100,11 +100,8 @@ package's source and not run. The file is named in each case.
   inbound log of `spike_server.py` is the way to find out.
 - A spec revision that changes where argument errors belong.
 
-## Open points for the lead
+## Resolved since it was proposed
 
-- **Pin `mcp==2.2.0`** in `pyproject.toml`: a dependency request in `status/WP17.md` (the lead owns
-  `pyproject.toml`).
-- Design section 14 lists both JSON-RPC -32603 ("an internal failure") and the tool-error code
-  `INTERNAL` ("a bug; the log path is included"). The proposal: a failure inside a tool call is an
-  `isError` result with `INTERNAL`, so that the model sees it, and -32603 is kept for failures outside a
-  tool call. WP01 or the lead decides.
+- `mcp==2.2.0` is pinned in `pyproject.toml` (the lead, with WP01).
+- A failure inside a tool call is a tool error with `INTERNAL`, so that the model sees it; JSON-RPC
+  -32603 is kept for failures outside a tool call. Design revision 5.2 states this in section 14.
