@@ -55,7 +55,8 @@ Base. Every take comes back QA'd and cue-aligned.
 |---|---|
 | OS / shells | Windows 11 (the first platform; plan.md §1.4); PowerShell 7 and Git Bash. Paths in code use `pathlib`, never hard-coded separators |
 | Python | **3.12** only, from the installed interpreter (`py -3.12`; its path is in `AGENTS.local.md`). Pass `--python 3.12` to uv; never let uv download a Python |
-| uv | 0.10.10. Always set `UV_CACHE_DIR` to `<repo>\.dev\uv-cache`, so every worktree's venvs hardlink one cache on the same drive and nothing is written outside the project |
+| uv | 0.10.10. Always set `UV_CACHE_DIR` to `<repo>\.dev\uv-cache`, so every worktree's venvs hardlink one cache on the same drive and nothing is written outside the project, and `UV_PYTHON_DOWNLOADS=never`. If uv reports "invalid peer certificate", set `UV_NATIVE_TLS=1` (design §17.8; never disable verification). `AGENTS.local.md` has the exact shell set-up |
+| Checks | `uv run ruff check`, `uv run ruff format --check`, `uv run basedpyright` (pyright with its runtime bundled; plan.md P9), `uv run pytest` |
 | GPU | One NVIDIA GPU (details in `AGENTS.local.md`); torch wheels cu128 (torch 2.11.0+cu128). Other people's jobs use it too |
 | Models | Pinned snapshots under `<repo>\.dev\models` (`NARRATION_MODELS_ROOT`). Workers run with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` |
 | Bakeoff (read-only) | The private bake-off that preceded this project (`NARRATION_BAKEOFF_ROOT`): working Qwen calls, eval code, 6 real clone takes, golden numbers. Map: plan.md §1.2 |
@@ -104,7 +105,7 @@ up as a request in your status file.
 5. **Done** means all of these:
    - your WP's acceptance tests pass;
    - the whole default suite passes (`uv run pytest`);
-   - `uv run ruff check` and `uv run ruff format --check` are clean;
+   - `uv run ruff check`, `uv run ruff format --check` and `uv run basedpyright` are clean;
    - you have rebased onto `main`;
    - the status file says `review`.
    Then stop and report. Do not merge.

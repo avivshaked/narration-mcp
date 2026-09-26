@@ -1,0 +1,12 @@
+[project]
+name = "narration-worker"
+version = "0.1.0"
+description = "Shared code of narration-mcp's model workers: the JSON-lines protocol, determinism set-up and fingerprint."
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+requires-python = ">=3.12,<3.13"
+# Standard library only, so every worker venv and the server's dev venv can carry it.
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"

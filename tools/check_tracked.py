@@ -25,11 +25,28 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-FORBIDDEN_SUFFIXES = frozenset({
-    ".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac",
-    ".safetensors", ".bin", ".pt", ".pth", ".ckpt", ".onnx", ".gguf", ".npz", ".npy",
-    ".sqlite", ".sqlite3", ".db",
-})
+FORBIDDEN_SUFFIXES = frozenset(
+    {
+        ".wav",
+        ".flac",
+        ".mp3",
+        ".ogg",
+        ".m4a",
+        ".aac",
+        ".safetensors",
+        ".bin",
+        ".pt",
+        ".pth",
+        ".ckpt",
+        ".onnx",
+        ".gguf",
+        ".npz",
+        ".npy",
+        ".sqlite",
+        ".sqlite3",
+        ".db",
+    }
+)
 MAX_BYTES = 5 * 1024 * 1024
 BINARY_ALLOWED_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg"})
 
@@ -122,11 +139,13 @@ def commit_messages(root: Path, rev_range: str) -> list[tuple[str, str]]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--staged", action="store_true", help="check only staged files (pre-commit)")
     group.add_argument("--msg-file", type=Path, help="check one commit message file (commit-msg)")
-    group.add_argument("--commits", metavar="RANGE", help="check the messages of a commit range, e.g. origin/main..HEAD")
+    group.add_argument(
+        "--commits", metavar="RANGE", help="check the messages of a commit range, e.g. origin/main..HEAD"
+    )
     args = parser.parse_args(argv)
 
     root = repo_root()

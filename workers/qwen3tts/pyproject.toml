@@ -1,0 +1,50 @@
+[project]
+name = "narration-worker-qwen3tts"
+version = "0.1.0"
+description = "narration-mcp's Qwen3-TTS worker: Base (ICL clone) and VoiceDesign (design section 4)."
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+requires-python = ">=3.12,<3.13"
+# Pins from the bakeoff's working venv (plan.md P8). qwen-tts 0.1.1 pins transformers and accelerate
+# exactly. Licences: qwen-tts Apache-2.0, transformers Apache-2.0, accelerate Apache-2.0, torch BSD-3,
+# soundfile BSD-3, numpy BSD-3. qwen-tts brings librosa (ISC), soxr (LGPL-2.1+, a separately installed,
+# replaceable package), gradio (Apache-2.0), onnxruntime (MIT), sox (BSD-3), einops (MIT); see plan.md 1.4.
+dependencies = [
+    "narration-worker",
+    "qwen-tts==0.1.1",
+    "transformers==4.57.3",
+    "accelerate==1.12.0",
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    "soundfile>=0.13,<1",
+    "numpy>=2,<3",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.1,<10"]
+
+[tool.uv]
+package = false
+# Universal lock for the platforms with CUDA 12.8 wheels (plan.md Q2): Windows and Linux on x86-64.
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.sources]
+narration-worker = { path = "../common", editable = true }
+torch = [{ index = "pytorch-cu128" }]
+torchaudio = [{ index = "pytorch-cu128" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-markers", "-m", "not model and not gpu and not evidence and not slow"]
+markers = [
+    "model: loads a model on the CPU (needs NARRATION_MODELS_ROOT)",
+    "gpu: needs an NVIDIA GPU and the GPU lock",
+    "evidence: reads the bakeoff's local evidence (needs NARRATION_BAKEOFF_ROOT)",
+    "slow: takes over a minute",
+]
