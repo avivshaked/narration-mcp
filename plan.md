@@ -651,17 +651,17 @@ Updated by the lead on `main` only.
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; follow-ups on `wp/12-followups` (items 1–9, WP30's two store races included): reviewed, merge with follow-ups; fixing gc's lock bound, a reader gap in a replace, and a mid-publish gc case |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PRs #13, #23 | 2026-09-26; follow-ups merged after review and re-verification: gc, publishes, readers, path confinement; three informational notes in HANDOFF.md |
 | WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
 | WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups a–e merged; follow-ups 2 building on `wp/16-worker-followups` (the fake's `load` matched to qwen3, one shared WAV writer, WP14's `CUE_UNALIGNED` reason) |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups 2 in review on `wp/16-worker-followups`: the fake's `load` matched to qwen3, one shared WAV writer, contracts 1.6.3 (every `CUE_UNALIGNED` reason) |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; the service's own default design text (DC-13, design 5.8); fixtures settled with WP10; H1 still to listen |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `active` | `wp/22-qa-worker` | started 2026-09-26 night; DC-1; the QA half of spike (h); WavLM revision to pin |
-| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | review: BLOCK (test clean-up could kill a reused pid); fixing it and the findings (an unreadable status file, a job stranded at idle exit, `-P`, the platform seam) |
+| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | the review's BLOCK and findings fixed; a stale-stop rule and the test platform being added; then re-verification |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `active` | `wp/31-jobs` | review: merge with follow-ups; fixing F1 (a failed engine guard left Qwen marked loaded) and F2–F14, splitting `engine.py`, adding §4 item 3's grouping |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
@@ -926,3 +926,13 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
       no take, as §8's tier 4 says; warnings alone leave `all_passed` (§7.3 and §8 to say so at merge);
     - §4 item 3's grouping across queued jobs is in WP31's scope, not an accepted deviation;
     - WP36 reads `measured_error` from the current benchmark, not from a cached analysis.
+  - **WP12's follow-ups merged (PR #23)** after a review and a re-verification: trash names dated, moved
+    files stamped, gc's lock bound by items examined, measurement temp files out of gc's reach, a failed
+    publish undone under the lock before the ROLLBACK (only paths whose file id still matches), readers
+    that retry or re-read, and `real_path` with `is_under` refusing `..`.
+  - **Gate H1: the owner asked for the listening sample.** Ten renders of the service's own texts in the
+    d2 voice, through the real Qwen worker, are written locally under the gitignored `.dev/h1/` with a
+    listening sheet.
+  - **WP30:** the BLOCK and findings are fixed. The lead's rule for a stale stop: a daemon honours a
+    pending stop only if it was posted after that daemon was launched, and WP37's `daemon stop` posts only
+    when a daemon runs.

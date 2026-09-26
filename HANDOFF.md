@@ -7,9 +7,9 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **Stage: Wave 1 is merged; Wave 2 is under way.**
   - Merged into `main` and pushed: WP00–WP03, WP01, WP10, WP12, WP13, WP14, WP16 (with follow-ups),
-    WP15, WP17, WP18 (draft, with its follow-ups), WP19, WP20, contracts 1.1–1.6.2, and the
-    private-text guard. Design revision 5.9. Main has 2727 tests passing; the Qwen worker's own suite
-    has 152 and the QA worker's 82.
+    WP15, WP17, WP18 (draft, with its follow-ups), WP19, WP20, WP12's follow-ups, contracts 1.1–1.6.2,
+    and the private-text guard. Design revision 5.9. Main has 2780 tests passing; the Qwen worker's own
+    suite has 152 and the QA worker's 82.
   - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before
     merge, and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
   - **Private text:** the bake-off's scripts and transcripts are the owner's private story, and the
@@ -22,9 +22,9 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   - **WP30** (daemon): fixing its review's BLOCK and findings, with the seam changes WP31 needs.
   - **WP31** (job engine): fixing its review's findings (F1 High), splitting `engine.py`, adding §4 item 3.
   - **Follow-ups:**
-    - WP12's (`wp/12-followups`): reviewed; fixing gc's lock bound, a reader gap during a replace and a
-      mid-publish gc case.
-    - WP16's second set (`wp/16-worker-followups`): building.
+    - WP16's second set (`wp/16-worker-followups`): in review (contracts 1.6.3).
+  - **Gate H1:** the owner asked for the listening sample; it renders locally to `.dev/h1/` with a listening
+    sheet (`LISTEN.md`). After the owner's verdict, WP18 applies any text changes and freezes the manifests.
 - **GPU:** the owner lifted the hold on 2026-09-26 evening. Agents take the GPU lock in bounded runs.
 - **Hangs and restarts:** the machine restarted three times on 2026-09-26.
   - The first two followed Avast's Auto-Sandbox taking custody of venv launcher `.exe`s, so agents run
@@ -76,7 +76,6 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 1. Merge as each branch comes back. Before any push, run
    `py -3.12 tools/check_private.py --commits main..<branch> --base main`; the pre-push hook runs it too.
    Then: full suite, PR, CI, `--no-ff`, remove the worktree.
-   - WP12's follow-ups after their fixes.
    - WP22 after an independent review.
    - WP30 after its fixes and its reviewer's re-verification (it had a BLOCK).
    - WP31 after its review and after WP30. It then re-exports WP30's seam and swaps the daemon's
@@ -104,7 +103,13 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
    - **WP32**: assemble the aligner and the QA model pins in the job engine's `installed_engine`.
    - **WP38**: re-set the aligner's snap reaches (ASSUME) from a hand-marked boundary next to an unplaced
      cue, and consider a separate reach for wildcard edges.
-   - **WP37**: a worker's `BACKEND_NOT_INSTALLED` sticks for the daemon's lifetime, so after
+   - **Store (low, from WP12's re-verification):** treat a zero file id (`st_ino == 0`) as unknown in the
+     undo's check; close the thread's connection if a ROLLBACK ever fails, so the write lock is released.
+     FAT and exFAT reuse file ids, which makes the check no stronger there, never weaker.
+   - **WP16 (deferred):** whether the fake refuses a bare load once WP30 and WP31 have merged; moving
+     qwen3's settings parser into `narration_worker` so the fake checks every sampling value.
+   - **WP37**: `daemon stop` posts only when `running_daemon` says a daemon runs. A worker's
+     `BACKEND_NOT_INSTALLED` sticks for the daemon's lifetime, so after
      `narration-admin install` repairs a worker, the daemon must restart (or gain a `reset_workers` command).
    - **WP36** starts the daemon with `narration.daemon.ensure_daemon`. It reads the aligner's
      `measured_error` from the current benchmark, not from a cached analysis (a re-benchmark of the same
