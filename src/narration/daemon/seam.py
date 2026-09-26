@@ -20,6 +20,9 @@ runner needs from the daemon comes through the ``RunnerHost`` it is handed.
 - ``host.stop_mode`` says how the daemon is stopping: ``"segment"`` (``stop``: the daemon calls ``step``
   no more once the one in flight returns) or ``"now"`` (``stop_now``: the daemon has killed every worker,
   so the request in flight fails with ``WorkerCrashed``; the step must not retry it, and should return).
+- ``has_work(host)`` says whether a job is waiting that ``step`` would take (or the runner still holds one).
+  It must be cheap and have no side effects: it claims nothing and changes nothing. The daemon calls it on
+  the runner's thread, between steps, only when it is about to exit for want of work (see "The idle exit").
 - ``shutdown(host, reason)`` runs on the runner's thread after its last step, whatever the reason: it
   gives back the job it holds (``return_job``: ``running`` goes back to ``queued``, and a ``cancelling``
   job is finished as ``cancelled``), removes the scratch files of the segment it abandoned, and releases
@@ -49,6 +52,17 @@ runner needs from the daemon comes through the ``RunnerHost`` it is handed.
 Leases taken with ``host.holder`` (``DAEMON_HOLDER``) outlive a daemon that dies only until their TTL, and
 the next daemon, holding the same name, may claim those keys again at once: the singleton makes the name
 unique to the store's one daemon.
+
+**The idle exit** (why ``has_work`` exists). A front-end that queues a job starts a daemon unless one says
+it serves (``idle`` or ``busy``). A daemon that exits for want of work would strand a job queued between its
+last empty ``step`` and the moment it says ``stopping``. So it says ``stopping`` first (``run/daemon.json``),
+then asks ``has_work`` once more:
+
+- work found: it says ``idle`` again and keeps serving; the job is taken by the next ``step``;
+- none: it exits. A job queued after that look finds the daemon ``stopping``, so the front-end starts
+  another daemon. That one waits (up to ``takeover_wait_s``) while the holder says ``stopping``, and takes
+  over once it has gone. If the holder says ``idle`` or ``busy`` again (it found work after all), the new
+  daemon gives up at once, exits 0 and writes nothing, as any second daemon does.
 """
 
 from __future__ import annotations
@@ -229,6 +243,11 @@ class JobRunner(Protocol):
         """Do at most one segment's worth of work; True if some was done, False if there was none."""
         ...
 
+    def has_work(self, host: RunnerHost) -> bool:
+        """Whether ``step`` would find work now: a job it would take, or the one it holds. Cheap, and with no
+        side effects (see "The idle exit" in the module docstring)."""
+        ...
+
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
         """After the last step: give back the job held, clean up its scratch files, release leases."""
         ...
@@ -241,6 +260,9 @@ class NullRunner:
     """
 
     def step(self, host: RunnerHost) -> bool:
+        return False
+
+    def has_work(self, host: RunnerHost) -> bool:
         return False
 
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:

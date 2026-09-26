@@ -7,6 +7,7 @@ exercised with the real entry point in ``test_process.py``.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -17,11 +18,12 @@ import pytest
 from narration.contracts.models import JobRecord
 from narration.daemon.seam import NullRunner, RunnerHost, ShutdownReason, return_job
 from narration.daemon.service import EXIT_OK
+from narration.daemon.sweep import read_status
 from narration.daemon.testing import SCRATCH_DIR, FakeWorkerRunner
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 
-from .conftest import UNREADABLE_STATUSES, DaemonFactory, make_job, plant_status, wait_until
+from .conftest import UNREADABLE_STATUSES, WAIT_S, DaemonFactory, make_job, plant_status, wait_until
 from .standin import StandInPlatform
 from .test_seam_and_sweep import NO_SUCH_PID, status
 
@@ -43,6 +45,9 @@ class LoadOnce:
         host.workers.load("qwen", {"device": "cpu"}, gpu=True, timeout_s=30)
         self.loaded = True
         return True
+
+    def has_work(self, host: RunnerHost) -> bool:
+        return not self.loaded
 
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
         return None
@@ -68,6 +73,9 @@ class HoldJob:
         host.sleep(0.05)
         return True
 
+    def has_work(self, host: RunnerHost) -> bool:
+        return self.job is not None or any(job.status == "queued" for job in host.store.queued_jobs())
+
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
         self.reasons.append(reason)
         if self.job is not None:
@@ -92,8 +100,50 @@ class RaisesTwice:
             raise RuntimeError("a bug in the runner")
         return False
 
+    def has_work(self, host: RunnerHost) -> bool:
+        return False
+
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
         return None
+
+
+class LooksAgain(FakeWorkerRunner):
+    """The fake runner, with hooks around the daemon's last look before an idle exit (``has_work``)."""
+
+    def __init__(self, *, before: threading.Event | None = None, after: threading.Event | None = None) -> None:
+        super().__init__()
+        self.before = before
+        """Set by the test when the look may be taken (a job may have been queued meanwhile)."""
+        self.after = after
+        """Set by the test when the daemon may go on once it has looked."""
+        self.looked = threading.Event()
+        self.states_seen: list[str | None] = []
+        self.answers: list[bool] = []
+
+    def has_work(self, host: RunnerHost) -> bool:
+        seen = read_status(host.store)
+        self.states_seen.append(seen.state if seen is not None else None)
+        if self.before is not None:
+            assert self.before.wait(WAIT_S), "the test never let the look be taken"
+        answer = super().has_work(host)
+        self.answers.append(answer)
+        self.looked.set()
+        if self.after is not None:
+            assert self.after.wait(WAIT_S), "the test never let the daemon go on"
+        return answer
+
+
+class LooksBadly(NullRunner):
+    """A runner whose ``has_work`` fails once (a bug), then finds no work."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def has_work(self, host: RunnerHost) -> bool:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("a bug in has_work")
+        return False
 
 
 def rendered(store: NarrationStore) -> int:
@@ -202,6 +252,86 @@ def test_a_stale_stop_does_not_stop_a_new_daemon_s4_1(run_daemon: DaemonFactory,
     assert daemon.thread.is_alive()
     daemon.command("stop")
     assert daemon.join() == EXIT_OK
+
+
+def test_a_daemon_gives_up_on_a_holder_that_stays_stopping_s4(
+    run_daemon: DaemonFactory, store: NarrationStore, platform: StandInPlatform
+) -> None:
+    with platform.hold(store.root):
+        planted = status("stopping", NO_SUCH_PID, utc_iso(time.time()))
+        store.put_daemon_status(planted)
+        started = time.monotonic()
+        daemon = run_daemon(NullRunner(), takeover_wait_s=0.5)
+        assert daemon.join(10) == EXIT_OK
+        assert time.monotonic() - started < 5.0, "it waits takeover_wait_s at most"
+        assert read_status(store) == planted, "it wrote nothing"
+
+
+# ---------------------------------------------------------------- the idle exit strands no job (seam, "The idle exit")
+def test_a_job_queued_as_the_daemon_turns_to_exit_is_run_by_it_s4(
+    run_daemon: DaemonFactory, store: NarrationStore
+) -> None:
+    arrived = threading.Event()
+    runner = LooksAgain(before=arrived)
+    daemon = run_daemon(runner, idle_exit_s=0.3)
+    daemon.wait_status(lambda s: s.state == "stopping", "the daemon to turn to exit")
+    job = make_job(store, "Queued as the daemon turned to exit.")  # a front-end saw "stopping" too late
+    arrived.set()
+    wait_until(lambda: job_status(store, job).status == "completed", what="the daemon to run the job")
+    assert daemon.join() == EXIT_OK
+    assert runner.states_seen[0] == "stopping", "it says stopping before it looks"
+    assert runner.answers[0] is True, "it found the job and stayed"
+
+
+def test_a_job_queued_after_the_last_look_is_run_by_the_next_daemon_s4(
+    run_daemon: DaemonFactory, store: NarrationStore
+) -> None:
+    go_on = threading.Event()
+    first = LooksAgain(after=go_on)
+    a = run_daemon(first, idle_exit_s=0.3)
+    assert first.looked.wait(WAIT_S) and first.answers == [False]
+    seen = read_status(store)
+    assert seen is not None and seen.state == "stopping", "a front-end sees the daemon on its way out"
+    job = make_job(store, "Queued after the last look.")
+    b = run_daemon(FakeWorkerRunner(), takeover_wait_s=20.0, idle_exit_s=0.5)
+    time.sleep(0.3)
+    assert b.thread.is_alive() and b.daemon.started_at is None, "B waits for A to go"
+    go_on.set()
+    assert a.join() == EXIT_OK
+    wait_until(lambda: job_status(store, job).status == "completed", what="B to run the job")
+    assert b.join() == EXIT_OK
+
+
+def test_a_daemon_waiting_to_take_over_gives_up_when_the_holder_stays_s4(
+    run_daemon: DaemonFactory, store: NarrationStore
+) -> None:
+    b_waits = threading.Event()
+    first = LooksAgain(before=b_waits)
+    a = run_daemon(first, idle_exit_s=0.3)
+    a_serving = a.wait_status(lambda s: s.state == "stopping", "A to turn to exit")
+    job = make_job(store, "Queued as A turned to exit.")
+    b = run_daemon(NullRunner(), takeover_wait_s=20.0)
+    time.sleep(0.3)
+    assert b.thread.is_alive(), "B waits while A says it is stopping"
+    b_waits.set()
+    started = time.monotonic()
+    assert b.join(10) == EXIT_OK
+    assert time.monotonic() - started < 5.0, "B gives up once A says idle or busy again"
+    assert b.daemon.started_at is None, "B wrote nothing"
+    wait_until(lambda: job_status(store, job).status == "completed", what="A to run the job")
+    assert a.join() == EXIT_OK
+    assert first.answers[0] is True
+    assert a.daemon.started_at == a_serving.started_at
+
+
+def test_a_has_work_that_fails_keeps_the_daemon_serving_s4(
+    run_daemon: DaemonFactory, caplog: pytest.LogCaptureFixture
+) -> None:
+    runner = LooksBadly()
+    daemon = run_daemon(runner, idle_exit_s=0.3)
+    assert daemon.join() == EXIT_OK
+    assert runner.calls == 2, "it stayed after the failed look, and exited after the next"
+    assert any("has_work failed" in record.getMessage() for record in caplog.records)
 
 
 # ---------------------------------------------------------------- release_gpu (section 7.6)

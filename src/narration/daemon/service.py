@@ -4,12 +4,14 @@
 
 1. takes the store's singleton (``Platform.singleton``). If another daemon holds it, this one exits
    quietly, unless that daemon says it is ``stopping``: then this one waits up to ``takeover_wait_s`` for
-   it to go, and takes over, so a job queued while a daemon was exiting is not left waiting;
+   it to go, and takes over, so a job queued while a daemon was exiting is not left waiting. If the holder
+   says ``idle`` or ``busy`` again meanwhile (it found work as it was about to exit), this one gives up;
 2. records its own pid and start time, sweeps up after the previous daemon (``sweep``), and writes
    ``run/daemon.json`` (``idle``);
 3. opens the worker supervisor (its kill-on-close group) and starts the runner thread, which drives the
    ``JobRunner`` one ``step`` at a time, unloads idle models after ``idle_unload_s``, and asks to exit
-   after ``idle_exit_s`` with nothing to do;
+   after ``idle_exit_s`` with nothing to do. It says ``stopping`` first, then asks the runner ``has_work``
+   once more, and stays if it has (``seam``, "The idle exit");
 4. on the main thread, answers commands from the store every ``poll_s``: ``release_gpu`` at once,
    ``stop`` by letting the step in flight finish, ``stop_now`` by killing every worker (the Job Object) so
    the step in flight fails and its job goes back to the queue;
@@ -376,7 +378,7 @@ class Daemon:
                 if did or self.board.current_job is not None:
                     self._busy()
                     continue
-                if self._idle():
+                if self._idle(host):
                     break
         finally:
             reason: ShutdownReason = self.stopping or "idle"
@@ -397,22 +399,43 @@ class Daemon:
             self._unload_reported = False
             self.board.set_unload_at(None)
 
-    def _idle(self) -> bool:
+    def _idle(self, host: _Host) -> bool:
         """Nothing to do: report when idle models will be unloaded, and decide the idle exit. True to exit."""
         idle_for = self._clock() - self._last_activity
         supervisor = self._supervisor
         if not self._unload_reported and supervisor is not None and supervisor.gpu_holder is not None:
             self._unload_reported = True
             self.board.set_unload_at(self._wall() + max(0.0, self.settings.idle_unload_s - idle_for))
-        if idle_for >= self.settings.idle_exit_s:
-            log.info("idle for %.1f s; exiting", idle_for)
-            self._request_stop("idle")
+        if idle_for >= self.settings.idle_exit_s and self._idle_exit(host, idle_for):
             return True
         waits = [self.settings.poll_s, self.settings.idle_exit_s - idle_for]
         if supervisor is not None and supervisor.loaded():
             waits.append(self.settings.idle_unload_s - idle_for)
         self.stop_event.wait(max(0.001, min(waits)))
         return False
+
+    def _idle_exit(self, host: _Host, idle_for: float) -> bool:
+        """Exit for want of work, without stranding a job queued meanwhile (``seam``, "The idle exit"): say
+        ``stopping`` first, then ask the runner once more. True to exit; False when work turned up."""
+        with self._state_lock:
+            if self._stopping is not None:
+                return True
+        self.board.set_state("stopping")
+        try:
+            work = self._runner.has_work(host)
+        except Exception:
+            log.exception("the job runner's has_work failed (a bug); the daemon keeps serving")
+            work = True
+        if work:
+            with self._state_lock:
+                if self._stopping is None:  # a stop asked meanwhile keeps "stopping"
+                    self.board.set_state("idle")
+            self._last_activity = self._clock()
+            log.info("idle for %.1f s, but work arrived as the daemon was about to exit; it keeps serving", idle_for)
+            return False
+        log.info("idle for %.1f s; exiting", idle_for)
+        self._request_stop("idle")
+        return True
 
     def _idle_unload(self) -> None:
         """Between steps: stop the workers once no job has used them for ``idle_unload_s`` (section 4)."""

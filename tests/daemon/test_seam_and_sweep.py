@@ -91,6 +91,21 @@ def test_the_seam_exports_the_residency_error_the_pool_raises() -> None:
     assert "ResidencyError" in seam.__all__
 
 
+def test_the_shipped_runners_look_for_work_without_side_effects_s4(store: NarrationStore) -> None:
+    host = SimpleNamespace(store=store)
+    assert NullRunner().has_work(cast(RunnerHost, host)) is False
+    runner = FakeWorkerRunner()
+    assert runner.has_work(cast(RunnerHost, host)) is False
+    running = make_job(store, "Run by another.", status="running")
+    assert runner.has_work(cast(RunnerHost, host)) is False, "only a job step would claim counts"
+    job = make_job(store, "Waiting.")
+    assert runner.has_work(cast(RunnerHost, host)) is True
+    assert runner.has_work(cast(RunnerHost, host)) is True
+    for record in (job, running):
+        after = store.get_job(record.job_id)
+        assert after is not None and after == record, "it claimed and changed nothing"
+
+
 class _Client:
     """A worker client that records its requests."""
 

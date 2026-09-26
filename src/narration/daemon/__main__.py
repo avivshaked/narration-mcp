@@ -120,7 +120,7 @@ def _serve(args: argparse.Namespace, config: Config) -> int:
             log.exception("cannot load the job runner %r", args.runner)
             return _EXIT_USAGE
         if not isinstance(runner, JobRunner):
-            log.error("%r is not a JobRunner (it needs step and shutdown)", args.runner)
+            log.error("%r is not a JobRunner (it needs step, has_work and shutdown)", args.runner)
             return _EXIT_USAGE
         try:
             return Daemon(settings=settings, config=config, store=store, platform=platform, runner=runner).run()

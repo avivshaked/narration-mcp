@@ -118,6 +118,10 @@ class FakeWorkerRunner:
         self._release(host)
         return True
 
+    def has_work(self, host: RunnerHost) -> bool:
+        """The job it holds, or a queued one ``step`` would claim; reads only."""
+        return self._job is not None or any(job.status == "queued" for job in host.store.queued_jobs())
+
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
         if self._job is None:
             return
