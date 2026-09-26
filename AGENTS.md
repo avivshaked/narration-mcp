@@ -188,7 +188,8 @@ State: active | review | blocked:<what>        Updated: <ISO date-time>
   golden *evidence*, used only in `evidence` tests.
 - Aim for tests that pin behaviour a user relies on: schemas, codes, keys, text rules, QA thresholds.
   Every bug fix gets a regression test.
-- Name tests after the design rule they check, e.g. `test_hint_possessive_matches_term_only_§9_1`.
+- Name tests after the design rule they check, e.g. `test_hint_possessive_matches_term_only_s9_1`
+  (`s9_1` for §9.1: `§` is not a legal character in a Python name).
 
 ## 7. Design invariants that are easy to break
 
