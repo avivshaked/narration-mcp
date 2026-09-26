@@ -55,6 +55,30 @@ class NarrationError(Exception):
         )
 
 
+class UnsupportedPlatform(NarrationError):
+    """An OS-specific operation on a platform v1 does not support (plan.md Q2: Windows first).
+
+    ``narration.platform`` raises it from every method on any other OS. The daemon cannot run there, so the
+    code is ``DAEMON_UNAVAILABLE``; it is not retryable, and ``narration-admin doctor`` reports the same.
+    """
+
+    HINT = (
+        "narration-mcp v1 runs on Windows only; other platforms are planned. "
+        "Run `narration-admin doctor` for what this machine supports."
+    )
+
+    def __init__(self, operation: str, platform: str) -> None:
+        super().__init__(
+            "DAEMON_UNAVAILABLE",
+            f"{operation} is not supported on {platform}",
+            hint=self.HINT,
+            details={"operation": operation, "platform": platform},
+            retryable=False,
+        )
+        self.operation = operation
+        self.platform = platform
+
+
 class ConfigError(ValueError):
     """The configuration file is missing, malformed, or has an unknown key or a value out of range."""
 

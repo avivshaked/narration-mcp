@@ -108,3 +108,13 @@ def test_retake_triggers_are_fails_cue_unaligned_and_head_insertion_s11_1(
 def test_every_retryable_error_says_to_wait_and_resend_dc2() -> None:
     for code in ("GPU_UNAVAILABLE", "QUEUE_FULL", "RATE_LIMITED"):
         assert "retry_after_s" in codes.ERRORS[code].hint
+
+
+def test_unsupported_platform_is_daemon_unavailable_not_retryable_q2() -> None:
+    from narration.contracts.errors import UnsupportedPlatform
+
+    exc = UnsupportedPlatform("singleton", "linux")
+    assert exc.code == "DAEMON_UNAVAILABLE"
+    assert exc.retryable is False
+    assert "Windows" in (exc.error.hint or "")
+    assert exc.error.details == {"operation": "singleton", "platform": "linux"}
