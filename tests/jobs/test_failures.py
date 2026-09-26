@@ -4,12 +4,16 @@ flight (design sections 4, 4.1, 10.1 and 14; plan.md WP31)."""
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import EngineProfile
-from narration.contracts.names import CanaryStatus
+from narration.contracts.names import CanaryStatus, GpuHolder
 from narration.contracts.worker import HelloReply
-from narration.jobs.host import RunnerHost
+from narration.jobs.host import ResidencyError, RunnerHost
 
 from .conftest import World
 from .support import KETTLE, LAMPS
@@ -48,3 +52,45 @@ def test_a_load_the_guard_refuses_is_unloaded_and_the_next_job_is_checked_again_
     render = world.store.get_render(done.items[0].attempts[0].render_key)
     assert render is not None and render.canary.batch_status == "hash_match"
     assert world.pool.texts() == [KETTLE]
+
+
+# ======================================================================== the pool's residency (section 4 item 1)
+
+
+def _refuse_qwen_loads(world: World, monkeypatch: pytest.MonkeyPatch, times: int) -> list[GpuHolder]:
+    real = world.pool.load
+    refused: list[GpuHolder] = []
+
+    def load(group: GpuHolder, payload: Any, **options: Any) -> dict[str, Any]:
+        if group == "qwen" and len(refused) < times:
+            refused.append(group)
+            raise ResidencyError("the pool has another group on the GPU")
+        return real(group, payload, **options)
+
+    monkeypatch.setattr(world.pool, "load", load)
+    return refused
+
+
+def test_a_residency_the_pool_disagrees_with_is_cleared_and_loaded_again_once_s4(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refused = _refuse_qwen_loads(world, monkeypatch, times=1)
+    job = world.submit(LAMPS, KETTLE)
+    world.run()
+    done = world.job(job.job_id)
+    assert refused == ["qwen"]
+    assert done.status == "completed" and [i.state for i in done.items] == ["passed", "passed"]
+    assert not any(f.severity == "error" for i in done.items for f in i.flags)  # not a take's failure
+
+
+def test_a_residency_the_pool_disagrees_with_twice_fails_the_job_s4(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refused = _refuse_qwen_loads(world, monkeypatch, times=10)
+    job = world.submit(LAMPS, KETTLE)
+    world.run()
+    failed = world.job(job.job_id)
+    assert len(refused) == 2  # the load, and one more after clearing the residency
+    assert failed.status == "failed" and failed.error is not None and failed.error.code == codes.INTERNAL
+    assert not any(f.severity == "error" for i in failed.items for f in i.flags)
+    assert world.pool.texts() == []

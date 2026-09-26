@@ -46,8 +46,8 @@ from narration.contracts.names import GpuHolder
 from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 
 from .core import EngineCore
-from .gpu import GroupNeed
-from .host import RunnerHost
+from .gpu import GroupNeed, Readiness
+from .host import GROUP_ROLES, ResidencyError, RunnerHost
 from .pins import call_cap, generation, qwen_load_payload
 from .state import Attempt, JobRun, Outcome, SegmentWork, label
 
@@ -172,21 +172,27 @@ class Stages:
         """Make the group ready; False while waiting for free VRAM. After a Qwen load, the engine guard runs.
 
         A load the worker refuses is a job-level failure (the models as pinned cannot run), except running out
-        of memory, which is retried (``failures``)."""
+        of memory, which is retried (``failures``). A load the pool refuses because it holds another group
+        on the GPU (``ResidencyError``: its bookkeeping and the residency's disagree) clears the GPU and is
+        tried once more; a second refusal fails the job with ``INTERNAL``, never a take."""
         core = self.core
         try:
-            state = core.residency.ensure(host, need, phase=lambda p: core.phase(host, run, p))
-        except WorkerFailure as exc:
-            if exc.code == "GPU_OOM":
-                raise
-            code = codes.BACKEND_NOT_INSTALLED if exc.code == "BACKEND_NOT_INSTALLED" else codes.INTERNAL
-            raise NarrationError(
-                code,
-                f"the {need.group} worker could not load {need.label}: {exc.message}",
-                details={"worker_code": exc.code, **exc.details},
-                retryable=False,
-                hint="Run narration-admin doctor; the models as pinned could not be loaded.",
-            ) from exc
+            state = self._ensure(host, run, need)
+        except ResidencyError as exc:
+            log.warning(
+                "job %s: the pool refused to load %s (%s); clearing the GPU, once more", run.job_id, need.label, exc
+            )
+            self._clear(host)
+            try:
+                state = self._ensure(host, run, need)
+            except ResidencyError as again:
+                raise NarrationError(
+                    codes.INTERNAL,
+                    f"the worker pool refused to load {need.label} twice, with the GPU cleared in between",
+                    details={"group": need.group, "exception": type(again).__name__},
+                    retryable=False,
+                    hint="This is a bug in the service; the daemon's log has the details. Nothing was rendered.",
+                ) from again
         if state == "waiting":
             run.message = f"waiting for free GPU memory to load {need.label}"
             return False
@@ -204,6 +210,30 @@ class Stages:
                 self.drop(host, "qwen")
                 raise
         return True
+
+    def _ensure(self, host: RunnerHost, run: JobRun, need: GroupNeed) -> Readiness:
+        core = self.core
+        try:
+            return core.residency.ensure(host, need, phase=lambda p: core.phase(host, run, p))
+        except WorkerFailure as exc:
+            if exc.code == "GPU_OOM":
+                raise
+            code = codes.BACKEND_NOT_INSTALLED if exc.code == "BACKEND_NOT_INSTALLED" else codes.INTERNAL
+            raise NarrationError(
+                code,
+                f"the {need.group} worker could not load {need.label}: {exc.message}",
+                details={"worker_code": exc.code, **exc.details},
+                retryable=False,
+                hint="Run narration-admin doctor; the models as pinned could not be loaded.",
+            ) from exc
+
+    def _clear(self, host: RunnerHost) -> None:
+        """Unload whatever group the pool says is on the GPU, and forget every group the residency knew."""
+        holder = host.workers.gpu_holder
+        if holder is not None:
+            self.drop(host, holder)
+        for group in GROUP_ROLES:
+            self.core.residency.forget(group)
 
     def drop(self, host: RunnerHost, group: GpuHolder) -> None:
         """Unload the group through the pool, and forget it was loaded, even if the unload fails."""
