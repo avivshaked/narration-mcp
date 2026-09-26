@@ -3,6 +3,7 @@ fake-worker supervisors, and a harness that runs a ``Daemon`` on a thread and al
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -17,16 +18,17 @@ from narration_worker.fake.faults import SPEC_ENV
 
 from narration.config import Config, parse_config
 from narration.contracts.models import DaemonCommand, DaemonStatus, JobRecord, Progress
-from narration.contracts.names import DaemonCommandKind, JobStatus
+from narration.contracts.names import DaemonCommandKind, JobStatus, WorkerRole
 from narration.daemon.seam import JobRunner
 from narration.daemon.service import Daemon
 from narration.daemon.settings import DaemonSettings
-from narration.daemon.supervisor import FAKE_ROLES, WorkerSupervisor
+from narration.daemon.supervisor import FAKE_ROLES, WorkerSupervisor, console_python
 from narration.daemon.sweep import read_status
 from narration.daemon.testing import job_request
 from narration.keys import Keys
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
+from narration.workers import WorkerCommand, worker_command
 
 from .standin import StandInPlatform
 
@@ -71,6 +73,17 @@ def fake_env(folder: Path, spec: dict[str, Any] | None = None) -> dict[str, str]
         path.write_text(json.dumps(spec), encoding="utf-8")
         env[SPEC_ENV] = str(path)
     return env
+
+
+def unstartable(config: Config, env: dict[str, str]) -> Callable[[WorkerRole, str | None], WorkerCommand]:
+    """A command factory whose fake worker cannot start: its handler cannot be imported, so it exits with
+    ``EXIT_START_FAILED`` before ``hello``, as a worker whose env is broken does (``BACKEND_NOT_INSTALLED``)."""
+
+    def command(role: WorkerRole, cublas: str | None) -> WorkerCommand:
+        made = worker_command(config, role, python=console_python(), base_env=env, cublas_workspace_config=cublas)
+        return dataclasses.replace(made, argv=(*made.argv, "--handler", "no_such_module_here:Handler"))
+
+    return command
 
 
 def make_job(store: NarrationStore, *texts: str, status: JobStatus = "queued", label: str | None = None) -> JobRecord:
@@ -175,6 +188,7 @@ def run_daemon(
         *,
         spec: dict[str, Any] | None = None,
         start: bool = True,
+        broken_workers: bool = False,
         **overrides: Any,
     ) -> DaemonHarness:
         env = fake_env(tmp_path, spec)
@@ -194,7 +208,13 @@ def run_daemon(
 
         def supervisor(on_change: Callable[[], None]) -> WorkerSupervisor:
             return WorkerSupervisor(
-                config, platform, roles=FAKE_ROLES, base_env=env, close_timeout_s=5.0, on_change=on_change
+                config,
+                platform,
+                roles=FAKE_ROLES,
+                base_env=env,
+                close_timeout_s=5.0,
+                on_change=on_change,
+                command_factory=unstartable(config, env) if broken_workers else None,
             )
 
         daemon = Daemon(

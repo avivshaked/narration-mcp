@@ -347,7 +347,7 @@ def test_a_worker_that_crashes_mid_job_is_started_again_appA(run_daemon: DaemonF
 
 def test_a_worker_that_cannot_start_fails_the_job_once_s14(run_daemon: DaemonFactory, store: NarrationStore) -> None:
     job = make_job(store, "One line.")
-    daemon = run_daemon(FakeWorkerRunner(), spec={"faults": "not a list"}, idle_exit_s=0.5)
+    daemon = run_daemon(FakeWorkerRunner(), broken_workers=True, idle_exit_s=0.5)
     assert daemon.join() == EXIT_OK
     failed = job_status(store, job)
     assert failed.status == "failed"

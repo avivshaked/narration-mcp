@@ -34,7 +34,7 @@ from narration.daemon.supervisor import (
 from narration.store import NarrationStore
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command
 
-from .conftest import fake_env
+from .conftest import fake_env, unstartable
 from .standin import StandInPlatform
 
 pytestmark = pytest.mark.timeout(120)
@@ -181,9 +181,9 @@ def test_a_worker_that_keeps_crashing_is_not_started_in_a_loop_appA(
 
 
 def test_a_worker_that_cannot_start_is_backend_not_installed_for_good_s14(
-    supervisors: SupervisorFactory, platform: StandInPlatform
+    supervisors: SupervisorFactory, platform: StandInPlatform, config: Config, tmp_path: Path
 ) -> None:
-    supervisor = supervisors({"faults": "not a list"})  # an invalid spec: the fake exits 2 at start
+    supervisor = supervisors(command_factory=unstartable(config, fake_env(tmp_path)))
     with pytest.raises(WorkerFailure) as first:
         supervisor.client("qa")
     assert first.value.code == "BACKEND_NOT_INSTALLED"
