@@ -22,7 +22,9 @@ swap, is the job engine's choice (WP31).
 which looks for the program in the current directory before ``PATH`` (KNOW, WP20's reading of qwen-tts
 0.1.1). The variable turns that search off, and the project folder is the operator's own. ``PATH`` itself is
 kept: it is the operator's, and a scrubbed ``PATH`` can break DLL loading. Its creation flags come from
-``ProcessPlatform.worker_creationflags`` (on Windows no console window, and below-normal priority).
+``ProcessPlatform.worker_creationflags`` (on Windows no console window, and below-normal priority). Its
+command line carries ``-P`` (its working folder is not put on ``sys.path``), and its environment has none of
+the ``PYTHON*`` variables that change imports (``settings.IMPORT_ENV_VARS``).
 """
 
 from __future__ import annotations
@@ -48,6 +50,7 @@ from narration.platform import ProcessPlatform
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command, worker_project
 
 from .seam import GROUP_ROLES
+from .settings import isolated, scrub_python_env
 
 log = logging.getLogger(__name__)
 
@@ -378,7 +381,11 @@ class WorkerSupervisor:
         except WorkerFailure as exc:
             self._fail_for_good(group, slot, exc)
             raise
-        command = dataclasses.replace(command, env={**command.env, **self._platform.hardening_env()})
+        command = dataclasses.replace(
+            command,
+            argv=isolated(command.argv),
+            env=scrub_python_env({**command.env, **self._platform.hardening_env()}),
+        )
         client = self._client_factory(
             command,
             cwd=worker_cwd(self._config, group, slot.role, Path(command.argv[0])),

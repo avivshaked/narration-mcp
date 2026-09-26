@@ -121,18 +121,20 @@ def test_a_worker_runs_in_its_project_folder_with_the_cmd_search_off_s17(
 
     project = config.service_root / "workers" / "qwen3tts" if config.service_root else None
     assert project is not None and project.is_dir()
-    with WorkerSupervisor(
-        config, platform, roles=FAKE_ROLES, base_env=fake_env(tmp_path), client_factory=Capture
-    ) as sup:
+    base = {**fake_env(tmp_path), "PythonPath": "planted", "PYTHONSTARTUP": "planted.py"}
+    with WorkerSupervisor(config, platform, roles=FAKE_ROLES, base_env=base, client_factory=Capture) as sup:
         client = sup.client("qwen")
         assert seen["cwd"] == project
+        assert seen["command"].argv[1:3] == ("-P", "-m"), "its working folder is not put on sys.path"
         env = seen["command"].env
+        assert not {name.upper() for name in env} & {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP"}
         hardening = dict(platform.hardening_env())
         assert {name: env.get(name) for name in hardening} == hardening
         assert env["PATH"] == os.environ["PATH"], "the operator's PATH is kept"
         # The process itself: its working directory and environment, read from the worker this test started.
         assert client.pid is not None
         process = psutil.Process(client.pid)
+        assert process.cmdline()[1] == "-P"
         assert os.path.normcase(process.cwd()) == os.path.normcase(str(project))
         names = {name.upper(): value for name, value in process.environ().items()}  # Windows: case-insensitive
         assert {name: names.get(name.upper()) for name in hardening} == hardening

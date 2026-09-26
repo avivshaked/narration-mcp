@@ -34,9 +34,10 @@ def live_status(state: str = "idle") -> DaemonStatus:
     )
 
 
-def test_the_command_line_carries_the_identity_marker_s4_1(tmp_path: Path) -> None:
+def test_the_command_line_carries_the_identity_marker_and_safe_path_s4_1(tmp_path: Path) -> None:
     argv = daemon_argv(tmp_path / "store", tmp_path / "narration.toml", python=Path(sys.executable))
     assert argv[1:] == [
+        "-P",  # the store root, the daemon's working directory, is not put on sys.path (section 17)
         "-m",
         "narration.daemon",
         "--store",
@@ -60,9 +61,25 @@ def test_a_detached_start_uses_the_platform_with_the_store_as_cwd_s4_1(tmp_path:
     assert pid == platform.spawn_pid
     assert root.is_dir(), "the store root exists before the daemon takes its singleton"
     ((argv, cwd, env),) = platform.spawned
-    assert argv[1:5] == ["-m", "narration.daemon", "--store", str(root)]
+    assert argv[1:6] == ["-P", "-m", "narration.daemon", "--store", str(root)]
     assert cwd == root
     assert env == {"A": "1"}
+
+
+def test_the_daemon_starts_without_the_variables_that_change_imports_s17(tmp_path: Path) -> None:
+    platform = StandInPlatform()
+    env = {
+        "A": "1",
+        "PYTHONPATH": "planted",
+        "PythonHome": "planted",  # Windows reads names without regard to case
+        "PYTHONSTARTUP": "planted.py",
+        "PYTHONUTF8": "1",
+        "OMP_NUM_THREADS": "4",
+        "HF_HUB_OFFLINE": "1",
+    }
+    start_detached(tmp_path / "store", tmp_path / "narration.toml", platform=platform, env=env)
+    ((_, _, passed),) = platform.spawned
+    assert passed == {"A": "1", "PYTHONUTF8": "1", "OMP_NUM_THREADS": "4", "HF_HUB_OFFLINE": "1"}
 
 
 def test_breakaway_refused_is_daemon_unavailable_and_nothing_else_starts_s4_1(tmp_path: Path) -> None:

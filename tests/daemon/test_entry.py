@@ -15,6 +15,7 @@ from narration_worker.threads import THREAD_ENV_VARS
 
 from narration.daemon.__main__ import DEFAULT_RUNNER
 from narration.daemon.seam import NullRunner
+from narration.daemon.start import daemon_argv
 
 pytestmark = pytest.mark.timeout(120)
 
@@ -91,6 +92,21 @@ def test_the_thread_cap_is_set_before_numpy_is_imported_s4_1(tmp_path: Path) -> 
     )
     assert seen.exists(), f"numpy was never imported: {done.stderr}"
     assert json.loads(seen.read_text(encoding="utf-8")) == dict.fromkeys(THREAD_ENV_VARS, "3")
+    if sys.platform == "win32":
+        assert done.returncode == 0, done.stderr
+
+
+def test_a_module_planted_in_the_store_root_is_never_imported_s17(tmp_path: Path) -> None:
+    """The daemon runs in the store root (``start_detached``'s cwd). ``python -m`` puts the working directory
+    first on ``sys.path``; with ``-P`` it does not, so a ``narration`` package planted there is never run."""
+    config = write_config(tmp_path / "service")
+    store = tmp_path / "service" / "store"
+    marker = tmp_path / "the planted package ran"
+    (store / "narration").mkdir(parents=True)
+    (store / "narration" / "__init__.py").write_text(f"open({str(marker)!r}, 'w').close()\n", encoding="utf-8")
+    argv = daemon_argv(store, config, python=Path(sys.executable), extra=["--idle-exit-s", "0", "--poll-s", "0.05"])
+    done = run(argv, store)
+    assert not marker.exists(), done.stderr
     if sys.platform == "win32":
         assert done.returncode == 0, done.stderr
 

@@ -37,6 +37,7 @@ from narration.contracts.interfaces import Store
 from narration.contracts.models import DaemonStatus
 from narration.platform import ProcessPlatform
 
+from .settings import isolated, scrub_python_env
 from .sweep import daemon_alive, read_status
 
 DAEMON_MODULE: Final = "narration.daemon"
@@ -45,18 +46,14 @@ RUNNING_STATES: Final = ("idle", "busy")
 
 
 def daemon_argv(store_root: Path, config_path: Path, *, python: Path, extra: Sequence[str] = ()) -> list[str]:
-    """The daemon's command line, run by ``python``; ``-m narration.daemon --store <store_root>`` is its identity
-    marker (section 4.1)."""
-    return [
-        str(python),
-        "-m",
-        DAEMON_MODULE,
-        "--store",
-        str(store_root),
-        "--config",
-        str(config_path),
-        *extra,
-    ]
+    """The daemon's command line, run by ``python`` with ``-P`` (``settings.SAFE_PATH_FLAG``: the store root,
+    its working directory, is not put on ``sys.path``); ``-m narration.daemon --store <store_root>`` is its
+    identity marker (section 4.1)."""
+    return list(
+        isolated(
+            [str(python), "-m", DAEMON_MODULE, "--store", str(store_root), "--config", str(config_path), *extra]
+        )
+    )
 
 
 def start_detached(
@@ -73,8 +70,10 @@ def start_detached(
     That pid is the first process of the command line, a launcher's under a venv; the daemon records its
     own pid in ``run/daemon.json``. The store root is created first (the singleton's name hashes its
     ``realpath``). The interpreter is ``platform.python_for(python, console=False)``, where ``python`` is
-    this interpreter by default. Raises ``NarrationError(DAEMON_UNAVAILABLE)`` when breakaway is refused, and
-    never falls back to a daemon that is not detached; on an OS v1 does not support, ``UnsupportedPlatform``.
+    this interpreter by default. Its environment is ``env`` (this process's by default) without the
+    ``PYTHON*`` variables that change imports (``settings.scrub_python_env``). Raises
+    ``NarrationError(DAEMON_UNAVAILABLE)`` when breakaway is refused, and never falls back to a daemon that is
+    not detached; on an OS v1 does not support, ``UnsupportedPlatform``.
     """
     if platform is None:
         from narration.platform import get_platform
@@ -84,7 +83,7 @@ def start_detached(
     root.mkdir(parents=True, exist_ok=True)
     interpreter = platform.python_for(Path(sys.executable) if python is None else python, console=False)
     argv = daemon_argv(root, Path(os.path.abspath(config_path)), python=interpreter, extra=extra)
-    return platform.spawn_detached(argv, cwd=root, env=dict(os.environ if env is None else env))
+    return platform.spawn_detached(argv, cwd=root, env=scrub_python_env(os.environ if env is None else env))
 
 
 def running_daemon(store: Store) -> DaemonStatus | None:

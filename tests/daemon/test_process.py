@@ -27,6 +27,7 @@ import psutil
 import pytest
 
 from narration.contracts.models import DaemonStatus
+from narration.daemon import start
 from narration.daemon.sweep import read_status
 from narration.store import NarrationStore
 
@@ -63,18 +64,9 @@ def real_store(service: Path) -> Iterator[NarrationStore]:
 
 
 def daemon_argv(service: Path, *extra: str) -> list[str]:
-    return [
-        sys.executable,
-        "-m",
-        "narration.daemon",
-        "--store",
-        str(service / "store"),
-        "--config",
-        str(service / "narration.toml"),
-        "--poll-s",
-        "0.05",
-        *extra,
-    ]
+    return start.daemon_argv(
+        service / "store", service / "narration.toml", python=Path(sys.executable), extra=["--poll-s", "0.05", *extra]
+    )
 
 
 @contextlib.contextmanager

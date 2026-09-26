@@ -7,6 +7,7 @@ pools, so nothing here may import numpy.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Final
@@ -15,6 +16,27 @@ from narration.config import Config
 
 DEFAULT_POLL_S: Final = 0.5
 """How often the daemon looks for commands, and for work when it has none."""
+
+SAFE_PATH_FLAG: Final = "-P"
+"""Python's ``-P``: do not put the working directory (for ``-m``) first on ``sys.path``. The daemon runs in the
+store root, and nothing there may shadow a module it imports (section 17). The daemon's and the workers'
+command lines both carry it."""
+IMPORT_ENV_VARS: Final = ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP")
+"""The ``PYTHON*`` variables that change what a Python process imports or runs at start. They are removed
+from the environment the daemon and its workers start with (section 17); the thread caps, the offline flags
+and the rest are kept."""
+
+
+def scrub_python_env(env: Mapping[str, str]) -> dict[str, str]:
+    """``env`` without ``IMPORT_ENV_VARS`` (matched without regard to case, as Windows reads names)."""
+    return {name: value for name, value in env.items() if name.upper() not in IMPORT_ENV_VARS}
+
+
+def isolated(argv: Sequence[str]) -> tuple[str, ...]:
+    """A Python command line with ``SAFE_PATH_FLAG`` right after the interpreter (once)."""
+    if len(argv) > 1 and argv[1] == SAFE_PATH_FLAG:
+        return tuple(argv)
+    return (argv[0], SAFE_PATH_FLAG, *argv[1:])
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
