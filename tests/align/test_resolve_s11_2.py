@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.util
+import inspect
 from pathlib import Path
 from typing import cast
 
@@ -398,6 +399,13 @@ def test_aligner_is_an_aligner_core_on_the_cpu_s11_2() -> None:
         CtcAligner(revision=REVISION, device="cuda:0")
     with pytest.raises(ValueError, match="pinned"):
         CtcAligner(revision="")
+
+
+def test_aligner_has_the_protocols_signatures_s11_2() -> None:
+    core_: AlignerCore = ALIGNER  # basedpyright checks the structure
+    for name in ("resolve", "guard", "guard_details", "build_transcript"):
+        assert inspect.signature(getattr(CtcAligner, name)) == inspect.signature(getattr(AlignerCore, name)), name
+    assert core_ is ALIGNER
 
 
 def test_method_id_names_the_model_revision_and_every_setting_s11_2() -> None:
