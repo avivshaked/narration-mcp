@@ -18,7 +18,7 @@ from typing import Any, Literal, get_args, get_origin, get_type_hints
 from .contracts.errors import ConfigError
 from .contracts.names import BENCHMARK, CORPUS, MODEL_ALIGNER, QA_PROFILE, TEXT_CHECKS_VERSION
 
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SHA256 = re.compile(r"[0-9a-f]{64}")  # used with fullmatch: $ would accept a final newline
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -254,7 +254,7 @@ def parse_config(data: dict[str, Any], *, base: Path, path: Path | None = None) 
         sections["workers"] = dataclasses.replace(current, **extra)
     config = Config(**sections, path=path)
     for sha in config.voices.allow_sha256:
-        if not _SHA256.match(sha):
+        if not isinstance(sha, str) or not _SHA256.fullmatch(sha):
             raise ConfigError(f"voices.allow_sha256: {sha!r} is not 64 lower-case hex characters")
     return config
 

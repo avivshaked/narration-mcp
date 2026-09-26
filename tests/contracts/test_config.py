@@ -51,6 +51,7 @@ def test_relative_paths_resolve_against_the_config_folder(tmp_path: Path) -> Non
         {"server": {"store_root": "s", "models_root": "m"}, "sever": {}},
         {"server": {"store_root": "s", "models_root": "m"}, "defaults": {"takes": 4}},
         {"server": {"store_root": "s", "models_root": "m"}, "voices": {"allow_sha256": ["not-a-hash"]}},
+        {"server": {"store_root": "s", "models_root": "m"}, "voices": {"allow_sha256": ["a" * 64 + "\n"]}},
         {"server": {"store_root": "s", "models_root": "m"}, "workers": {"priority": "high"}},
         {"server": {"store_root": "s", "models_root": "m"}, "workers": 5},
         {"server": {"store_root": "s", "models_root": "m"}, "workers": [1]},
