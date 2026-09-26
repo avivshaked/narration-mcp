@@ -275,6 +275,7 @@ dependencies = [
     { name = "jiwer" },
     { name = "jsonschema" },
     { name = "mcp" },
+    { name = "narration-worker" },
     { name = "numpy" },
     { name = "nvidia-ml-py" },
     { name = "psutil" },
@@ -289,7 +290,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
-    { name = "narration-worker" },
     { name = "pytest" },
     { name = "pytest-timeout" },
     { name = "ruff" },
@@ -300,6 +300,7 @@ requires-dist = [
     { name = "jiwer", specifier = "==4.0.0" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "mcp", specifier = "==2.2.0" },
+    { name = "narration-worker", editable = "workers/common" },
     { name = "numpy", specifier = ">=2.3,<3" },
     { name = "nvidia-ml-py", specifier = ">=12,<14" },
     { name = "psutil", specifier = ">=7,<8" },
@@ -314,7 +315,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = "==1.40.1" },
-    { name = "narration-worker", editable = "workers/common" },
     { name = "pytest", specifier = ">=9.1,<10" },
     { name = "pytest-timeout", specifier = ">=2.4,<3" },
     { name = "ruff", specifier = "==0.16.9" },

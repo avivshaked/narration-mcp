@@ -29,6 +29,7 @@ dependencies = [
     "regex>=2024.11",         # Apache-2.0: the vendored Whisper English normaliser (plan.md P2)
     "nvidia-ml-py>=12,<14",   # BSD-3-Clause: NVML free-VRAM check (section 4, GPU scheduler)
     "psutil>=7,<8",           # BSD-3-Clause: process liveness and disk checks
+    "narration-worker",       # this repository's workers/common: the worker protocol (a contract) and the fake worker
 ]
 
 [project.urls]
@@ -44,7 +45,6 @@ dev = [
     "pytest-timeout>=2.4,<3", # MIT
     "ruff==0.16.9",           # MIT
     "basedpyright==1.40.1",   # MIT: pyright with its Node runtime bundled, so nothing is fetched at run time
-    "narration-worker",       # this repository's workers/common: the fake worker used by the tests
 ]
 
 [tool.uv.sources]
