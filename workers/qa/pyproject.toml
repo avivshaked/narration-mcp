@@ -6,8 +6,10 @@ license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 requires-python = ">=3.12,<3.13"
 # Pins from the bakeoff's eval venv (plan.md P8), without praat-parselmouth (GPL; DC-1).
 # Licences: transformers Apache-2.0, torch/torchaudio BSD-3, soundfile BSD-3, numpy BSD-3, scipy BSD-3,
-# librosa ISC (f0 by pyin, DC-1; it brings soxr, LGPL-2.1+, replaceable), matplotlib (Matplotlib licence,
-# BSD-style: the profile's pictures), safetensors Apache-2.0.
+# librosa ISC (f0 by pyin, DC-1; it brings soxr, LGPL-2.1+, a separately installed, replaceable package, and
+# numba/llvmlite BSD-2), matplotlib (Matplotlib licence, BSD-style: the profile's pictures), safetensors
+# Apache-2.0, pyloudnorm MIT (BS.1770-4 loudness, as the server's delivery meter), nvidia-ml-py BSD-3 (lets
+# `hello` report the GPU and driver without starting CUDA, as the qwen3 worker does).
 dependencies = [
     "narration-worker",
     "transformers==5.17.0",
@@ -19,13 +21,29 @@ dependencies = [
     "scipy>=1.16,<2",
     "librosa>=0.11,<2",
     "matplotlib>=3.10,<4",
+    "pyloudnorm>=0.2,<0.3",
+    "nvidia-ml-py>=12,<14",
 ]
 
+[project.entry-points."narration_worker.roles"]
+# How `python -m narration_worker --role qa` finds this worker's handler (narration_worker.roles).
+qa = "narration_worker_qa.worker:QaHandler"
+
 [dependency-groups]
-dev = ["pytest>=9.1,<10"]
+# psutil (BSD-3-Clause): the aligner's memory spike reads its own process's peak memory.
+dev = ["pytest>=9.1,<10", "psutil>=7,<8"]
+
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "narration_worker_qa"
 
 [tool.uv]
-package = false
+# A package (with a src layout) so that its entry point registers the qa role's handler.
+package = true
+# Universal lock for the platforms with CUDA 12.8 wheels (plan.md Q2): Windows and Linux on x86-64.
 environments = [
     "sys_platform == 'win32' and platform_machine == 'AMD64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -42,7 +60,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--strict-markers", "-m", "not model and not gpu and not evidence and not slow"]
+addopts = ["-ra", "--strict-markers", "--import-mode=importlib", "-m", "not model and not gpu and not evidence and not slow"]
 markers = [
     "model: loads a model on the CPU (needs NARRATION_MODELS_ROOT)",
     "gpu: needs an NVIDIA GPU and the GPU lock",
