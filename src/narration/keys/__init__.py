@@ -149,11 +149,25 @@ def voice_hash_object(
     *, model: str, clip_sha256: str, transcript: str, language: str, x_vector_only_mode: bool
 ) -> dict[str, Any]:
     """The object ``voice_hash`` hashes: {schema, model, clip_sha256, transcript (NFC), language,
-    x_vector_only_mode}. The clip's path is not in it: a voice is its bytes and its words."""
+    x_vector_only_mode}. The clip's path is not in it: a voice is its bytes and its words.
+
+    ``model`` must be ``names.MODEL_QWEN_BASE``, the cloning model's repo id, and ``language`` must be
+    ``names.LANGUAGE``. Anything else (a revision, an engine profile id or hash, another spelling) is
+    refused rather than hashed: it would give the same voice a second hash, and a voice's hash must survive
+    a re-pin, because measurements are kept per voice (sections 10.1, 15). The transcript is taken as
+    received and put in NFC here.
+    """
     _check_text(model, "model")
+    if model != names.MODEL_QWEN_BASE:
+        raise ValueError(
+            f"model must be the cloning model's repo id {names.MODEL_QWEN_BASE!r} (not a revision or an engine "
+            f"profile), got {model!r}"
+        )
     _check_hex64(clip_sha256, "clip_sha256")
     _check_text(transcript, "transcript")
     _check_text(language, "language")
+    if language != names.LANGUAGE:
+        raise ValueError(f"language must be {names.LANGUAGE!r}, got {language!r}")
     if not isinstance(x_vector_only_mode, bool):
         raise TypeError("x_vector_only_mode must be a boolean")
     return {

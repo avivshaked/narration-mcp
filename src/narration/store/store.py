@@ -899,8 +899,8 @@ class NarrationStore:
 
     def put_engine_profile(self, profile: EngineProfile) -> EngineProfile:
         """Write ``engines/<engine_profile_id>.json``. A pinned profile's hashed fields never change: the same
-        id with another ``hash`` is refused (a new pin is a new id). The unhashed parts (``observed``, the
-        canary) may be updated."""
+        id with another ``hash`` is refused (a new pin is a new id). The unhashed parts (``observed``, ``tier``,
+        the canary) may be updated."""
         path = self._layout.engine_path(profile.engine_profile_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         stored = map_engine_profile(profile, self._to_rel)

@@ -292,8 +292,37 @@ def test_segment_id_not_in_seed_s10_3() -> None:
 
 def test_voice_hash_is_the_clip_bytes_and_words_not_its_path_s10_2() -> None:
     assert "path" not in inspect.signature(keys.voice_hash).parameters
-    nfc = unicodedata.normalize("NFC", "Café by the reef.")
+
+
+def test_voice_hash_puts_the_transcript_in_nfc_itself_s10_2() -> None:
+    # Callers pass the transcript as received; an NFD and an NFC spelling are one voice.
+    nfd = "Café by the reef."
+    nfc = "Café by the reef."
+    assert unicodedata.normalize("NFC", nfd) == nfc != nfd
+    assert keys.voice_hash(**voice_kwargs(transcript=nfd)) == keys.voice_hash(**voice_kwargs(transcript=nfc))
     assert keys.voice_hash(**voice_kwargs(transcript=nfc)) == VOICE_HASH
+    assert keys.Keys().voice_hash(**voice_kwargs(transcript=nfd)) == VOICE_HASH
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        names.MODEL_QWEN_DESIGN,
+        names.MODEL_QWEN_BASE + "@" + "f" * 40,  # a revision
+        "qwen3-base-1.7b.p1",  # an engine profile id
+        ENGINE_PROFILE_HASH,
+        names.MODEL_QWEN_BASE.lower(),
+    ],
+)
+def test_voice_hash_model_is_always_the_cloning_models_repo_id_s10_2(model: str) -> None:
+    # A voice's hash must survive a re-pin (measurements are kept per voice), so no pin-specific name is hashed.
+    with pytest.raises(ValueError, match="model"):
+        keys.voice_hash(**voice_kwargs(model=model))
+
+
+def test_voice_hash_language_is_the_services_language_s10_2() -> None:
+    with pytest.raises(ValueError, match="language"):
+        keys.voice_hash(**voice_kwargs(language="english"))
 
 
 def test_measurement_key_takes_the_corpus_from_its_version_not_the_setting_s10_2() -> None:
@@ -321,10 +350,8 @@ def _differs(a: str, b: str) -> bool:
 @pytest.mark.parametrize(
     "change",
     [
-        {"model": names.MODEL_QWEN_DESIGN},
         {"clip_sha256": "f" * 64},
         {"transcript": "Café by the reef!"},
-        {"language": "German"},
         {"x_vector_only_mode": True},
     ],
 )
