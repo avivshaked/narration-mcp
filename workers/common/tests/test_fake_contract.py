@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from narration_worker.fake.handler import FAKE_REVISION
 from narration_worker.testing.client import WorkerProcess
-from narration_worker.testing.contract import WorkerContract
+from narration_worker.testing.contract import DETERMINISM, WorkerContract
 
 TEXT = "When the loaves come out golden and crisp."
 VOICE = "sha256:" + "5" * 64
@@ -18,8 +19,19 @@ class TestFakeWorkerContract(WorkerContract):
     timeout_s = 30.0
 
     @pytest.fixture
-    def load_request(self) -> dict[str, Any] | None:
-        return {"device": "cpu"}
+    def load_request(self, store_root: Path) -> dict[str, Any] | None:
+        """A complete Qwen load, as the daemon sends one: the fake checks it as the qwen3 worker does."""
+        snapshot = store_root.parent / "models" / FAKE_REVISION
+        snapshot.mkdir(parents=True, exist_ok=True)
+        return {
+            "device": "cpu",
+            "model": {"repo": "narration-worker/fake", "revision": FAKE_REVISION, "snapshot_dir": str(snapshot)},
+            "engine_profile_id": "fake-contract",
+            "dtype": "bfloat16",
+            "attn_implementation": "sdpa",
+            "determinism": dict(DETERMINISM),
+            "settings": {"non_streaming_mode": False, "generation": {"max_new_tokens": 8192}},
+        }
 
     @pytest.fixture(params=["synthesize", "design"])
     def render_requests(self, request: pytest.FixtureRequest, store_root: Path) -> list[tuple[str, dict[str, Any]]]:

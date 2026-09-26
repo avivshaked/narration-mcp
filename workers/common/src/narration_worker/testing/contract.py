@@ -12,7 +12,9 @@ with the running interpreter, so run the tests from the worker's own venv. Overr
 is started (``worker_argv``, ``worker_env``) or to enable the tests that need a loaded model:
 
 - ``load_request``: a ``load`` request that succeeds here. The default ``None`` skips the tests that need
-  it, as for a real model on a machine without it;
+  it, as for a real model on a machine without it. For a role with ``synthesize`` or ``design``, it is a
+  complete Qwen load: ``model``, ``determinism`` and ``settings`` with the ceiling,
+  ``settings.generation.max_new_tokens`` (the ceiling test fails, not skips, without them);
 - ``render_requests``: for a role with ``synthesize`` or ``design``, the requests to send after that
   ``load`` so that one of those calls succeeds, that call last (for example a ``prepare_voice`` and then a
   ``synthesize``). The test sets the last call's ``max_new_tokens`` itself. A role with those ops that gives
@@ -27,6 +29,9 @@ What the contract says, beyond the message shapes:
 - malformed input and unknown ops get ``INVALID_REQUEST`` and the worker keeps serving;
 - model ops reply ``NOT_LOADED`` before ``load`` (and after ``unload``), before reading any file;
 - ``load`` with a snapshot directory that does not exist replies ``BACKEND_NOT_INSTALLED``;
+- a rendering role's ``load`` needs its ceiling, ``settings.generation.max_new_tokens`` (design section 10.1,
+  DC-4): a load whose ``settings``, ``settings.generation`` or ceiling is missing or malformed, or whose
+  ceiling is below 2, is ``INVALID_REQUEST`` with ``details.field`` naming that member, never defaulted;
 - ``synthesize`` and ``design`` need their own ``max_new_tokens`` (design section 10.1, DC-4): missing, not
   an integer, below 2 or above the loaded ceiling is ``INVALID_REQUEST`` for ``max_new_tokens``, before
   ``VOICE_NOT_PREPARED``;
@@ -57,6 +62,8 @@ DEFAULT_CEILING = 8192
 snapshots' value (a real Qwen worker's ``load`` always passes it)."""
 SAMPLE_CAP = 128
 """The ``max_new_tokens`` of the sample requests: the daemon's floor, so within any ceiling."""
+MISSING: Any = object()
+"""A request member left out (as opposed to one sent as null)."""
 
 DETERMINISM: dict[str, Any] = {
     "tf32": False,
@@ -260,6 +267,42 @@ class WorkerContract:
         model_ops = [op for op in OPS_BY_ROLE[self.role] if op not in COMMON_OPS]
         reply = worker.request(model_ops[0], timeout_s=self.timeout_s, **sample_requests(store_root)[model_ops[0]])
         assert reply["ok"] is False and reply["error"]["code"] == "NOT_LOADED"
+
+    def test_a_load_without_a_valid_ceiling_is_invalid_request_s10_1(
+        self, worker: WorkerProcess, load_request: dict[str, Any] | None
+    ) -> None:
+        """``load``'s ``settings.generation.max_new_tokens`` is the ceiling of every call's cap (DC-4). It is an
+        audio-changing setting, so it is always passed, never defaulted (section 10.1): a load that leaves it
+        out, or sets it below 2 (qwen-tts's ``min_new_tokens``), is refused, naming the member."""
+        if not any(op in OPS_BY_ROLE[self.role] for op in CALL_CAP_OPS):
+            pytest.skip(f"the {self.role} role has no synthesize or design")
+        if load_request is None:
+            pytest.skip(f"no loadable {self.role} models here: override the load_request fixture to run this")
+        settings = load_request.get("settings")
+        generation = settings.get("generation") if isinstance(settings, dict) else None
+        if "model" not in load_request or not isinstance(generation, dict) or "max_new_tokens" not in generation:
+            pytest.fail(
+                f"the {self.role} role renders, so its load_request must be a complete Qwen load: model, "
+                "determinism, and settings with settings.generation.max_new_tokens"
+            )
+        assert isinstance(settings, dict)
+        ceiling = "settings.generation.max_new_tokens"
+        cases: list[tuple[str, object]] = [
+            ("settings", MISSING),
+            ("settings", []),
+            ("settings.generation", {k: v for k, v in settings.items() if k != "generation"}),
+            ("settings.generation", {**settings, "generation": "every value"}),
+            (ceiling, {**settings, "generation": {k: v for k, v in generation.items() if k != "max_new_tokens"}}),
+        ]
+        for bad in (1, 0, -1, None, 1.5, True, "8192"):
+            cases.append((ceiling, {**settings, "generation": {**generation, "max_new_tokens": bad}}))
+        for field, value in cases:
+            body = {k: v for k, v in load_request.items() if k != "settings"}
+            if value is not MISSING:
+                body["settings"] = value
+            reply = worker.request("load", timeout_s=self.timeout_s, **body)
+            assert reply["ok"] is False and reply["error"]["code"] == "INVALID_REQUEST", (field, value, reply)
+            assert reply["error"].get("details", {}).get("field") == field, (field, value, reply)
 
     def test_a_call_without_a_valid_max_new_tokens_is_invalid_request_s10_1(
         self, worker: WorkerProcess, store_root: Path, load_request: dict[str, Any] | None
