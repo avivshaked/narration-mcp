@@ -75,7 +75,7 @@ and never copied into git (P6).
 | `eval/names_report.py` `name_spans`, `heard_for` (maps reference → hypothesis through `jiwer.process_words` and absorbs insertions at the edges) | Essentially §11.3 step 2 "Locate": the exact-span and term checks | WP14 |
 | `eval/audition_check.py` `median_f0` (parselmouth, 50–400 Hz), the int16 bit-identity check | The bit-identity check for spike (d). The f0 code is **not** ported: parselmouth is GPL (§1.3 item 3) | WP20 |
 | `eval/normaliser_check.py` + `.txt` (21 number-form cases, transformers 5.17.0) | Golden tests for the vendored normaliser | WP14 |
-| `outputs/qwen3-tts-1.7b-clone-{d2,d4}-seed{1,2,3}/r48_names_probe.{wav,json,eval.json}`: 6 real clone takes with per-segment sample boundaries and raw Whisper transcripts | Real audio for post-processing, alignment and QA tests; golden transcripts for `wer_adj`, terms and exact spans | WP13, WP14, WP15, WP22 |
+| `outputs/qwen3-tts-1.7b-clone-{d2-late-night_take1,d4-radio-drama_take2}-seed{1,2,3}/r48_names_probe.{wav,json,eval.json}`: 6 real clone takes (PCM_16 WAV) with per-segment sample boundaries and raw Whisper transcripts | Real audio for post-processing, alignment and QA tests; golden transcripts for `wer_adj`, terms and exact spans | WP13, WP14, WP15, WP22 |
 | `eval/results.csv`, `refs/auditions/voicelock.csv`, `index.csv`, `eval/r48_names_probe.names.md` | Golden numbers: WER 5.5–8.6 %, `spk_to_ref` d2 0.978–0.984 / d4 0.966–0.969, `spk_consist` 0.981–0.992, the VoiceDesign bit-identity row | WP14, WP22, WP33 |
 | `refs/auditions/qwen3-tts-voicedesign_d2-late-night_take1.wav` (sha256 `8ab91fd9…51ac`, seed 2001) and `…d4-radio-drama_take2.wav` (`e07a0199…ba75`, seed 4002); transcript = `REF_TEXT` in `generate.py` | The two allowlisted voices (§16), used for every GPU test and for Phase 0 (c) | WP20, WP33, WP39 |
 | `scripts/r48_*.json` | **Not** service material (it is a caller's script, §1). Evidence only, e.g. to reproduce the names probe | – |
@@ -381,16 +381,16 @@ error and on a planted `.wav`.
 
 | WP | Title | Design | Owns | Depends | GPU |
 |---|---|---|---|---|---|
-| WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `review` | `wp/12-store` | review round 2 fixed; the reviewer is re-verifying |
-| WP13 | Delivery post-processing | 1 | WP01 | – | `active` | `wp/13-post` | review: MERGE-WITH-FOLLOWUPS; fixing, with DC-8 (−23 LUFS) and DC-10 |
-| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | review: BLOCK; fixing, with DC-7 (reader @2) and DC-10 |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PR #10 | 2026-09-26; reviewed twice; low follow-ups a–c in HANDOFF |
-| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `active` | `wp/17-mcp` | review: MERGE-WITH-FOLLOWUPS; fixing (cancel shield, LIMIT_EXCEEDED, id shapes) |
+| WP10 | Text pipeline + negation lint | §7.2 canonical form/join/spoken length/exact spans, §9.1, §9.3, §3.5 | `narration.text`, `narration.lint`, `tests\text` | WP01 | no |
+| WP12 | Keys, seeds and store | §10.2, §10.3, §15, §17.2, §4 item 6, §6 | `narration.keys`, `narration.store`, `tests\store` | WP01 | no |
+| WP13 | Delivery post-processing | §13 | `narration.post`, `tests\post` | WP01 | no |
+| WP14 | QA logic (pure) | §11.1, §11.3, §8 (suggestion), consistency, listen-first, report | `narration.qa`, `tests\qa` | WP01 | no |
+| WP15 | Cue alignment | §11.2 | `narration.align` (pure) + the `align` op in `workers\qa` | WP01 | no (CPU model) |
+| WP16 | Worker protocol, common package, fake worker | App. A, §4 workers, §4.1 thread caps | `workers\common`, `narration.workers` (client), the `fake` role | WP01 | no |
+| WP17 | MCP front-end skeleton | §5, §7, §14 | `narration.mcp`, `tests\mcp` | WP01 | no |
 | WP18 | The service's own material | §3.2, §11.2, §10.1 canary, §15, Phase 4 demo | `material\` | WP01 (for the text rules) | no (listening: H1) |
-| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `active` | `wp/20-gpu-lane` | owner lifted the GPU hold 2026-09-26 evening; sets the tier |
+| WP19 | Platform seam (Windows only) | §4, §4.1, §17.2, Q2 | `narration.platform`, `tests\platform` | WP01 | no |
+| WP20 | GPU lane: Qwen worker + Phase 0 GPU spikes | §10.1, App. A, §20 (d)(e)(f)(h)(i) | `workers\qwen3tts`, `spikes\` | WP16 (protocol) | **yes** |
 
 **WP10 Text pipeline + lint.** Sanitise (control characters, `[` `]` `<|` `|>` → `TEXT_REFUSED`),
 canonical form, join, the `text` = join check, spoken length in code points, exact spans → word ranges
@@ -551,6 +551,9 @@ therefore records its own `os.getpid()` in `run\daemon.json`. Workers start with
 `BELOW_NORMAL_PRIORITY_CLASS` in their creation flags and go into the kill-on-close job (`add(pid)`) at
 once. Create the store root before taking the singleton, since its name hashes the root's `realpath`. The
 orphan sweep reads `daemon.json` and checks the pid: the singleton gives no "abandoned" signal.
+*From WP13 (KNOW, measured there):* post-processing runs in the daemon's own process, and numpy's import
+starts an OpenBLAS thread pool there. So the daemon sets the same CPU thread-cap environment for itself
+as for its workers (reuse WP16's), before anything imports numpy.
 
 **WP31 Job engine.** Also computes DC-2's `retry_after_s`, `poll_after_s`, queue drain estimates and
 the `admission` facts. The claim loop; the GPU scheduler (NVML free-VRAM check with the 1 GB margin,
@@ -641,21 +644,21 @@ Updated by the lead on `main` only.
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
 | WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
-| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.4 (PRs #7, #8, #9, #11) since |
+| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.5 (PRs #7, #8, #9, #11, #12) since |
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
-| WP10 | Text pipeline + lint | 1 | WP01 | – | `active` | `wp/10-text` | stacked on WP01 |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `active` | `wp/12-store` | stacked on WP01 |
-| WP13 | Delivery post-processing | 1 | WP01 | – | `ready` | worktree made | |
-| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | stacked on WP01 |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `todo` | – | |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `active` | `wp/16-workers` | stacked on WP01 |
-| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `active` | `wp/17-mcp` | spike (j) first; the rest after WP01 |
+| WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; reviewed twice; low follow-ups 1–5 in HANDOFF |
+| WP13 | Delivery post-processing | 1 | WP01 | – | `review` | `wp/13-post` | fixes done (DC-8 −23 LUFS, DC-10, its own WAV writer); the reviewer is verifying |
+| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | re-review: fixing A–D (window words, ranking, edge gain, reader @2 times/money/minus) |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PR #10 | 2026-09-26; follow-ups a–c on `wp/16-followups` |
+| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `review` | `wp/17-mcp` | fixes done (cancel shield, exact validator, LIMIT_EXCEEDED, id shapes); the reviewer is verifying |
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; every set `draft` until H1 freezes it |
-| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `active` | `wp/19-platform` | stacked on WP01 |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `blocked:owner` | worktree made | sets the tier; held after the 2026-09-26 crash |
+| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `review` | `wp/20-gpu-lane` | acceptance met; tier `bit_exact` (ADR 0002); DC-4 is ADR 0003, for the owner |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
-| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `todo` | – | |
+| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | started 2026-09-26 night |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `todo` | – | DC-2 |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
