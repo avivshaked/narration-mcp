@@ -183,5 +183,9 @@ are tracked here but no version is tagged; nothing described below is installabl
   but never in a loop. It writes `run/daemon.json` on every change, unloads an idle model after
   `idle_unload_s` and exits after `idle_exit_min` without work. It answers `release_gpu`, `stop`
   (finish the segment in flight, then exit) and `stop_now` (queue the job again and exit, leaving no
-  partial file). A daemon that died leaves its jobs running; the next daemon puts them back in the
-  queue.
+  partial file). A `stop` is for the service: whichever daemon reads it stops, even one that started
+  after it was posted. A daemon that died leaves its jobs running; the next daemon puts them back in the
+  queue, and a `run/daemon.json` left unreadable by a crash is taken as a daemon that died. A job
+  queued just as the daemon turns to exit for want of work is still run. The daemon and its workers
+  start with `-P` and without `PYTHONPATH`, `PYTHONHOME` or `PYTHONSTARTUP`, so nothing in their working
+  folder or the caller's environment is imported in their place.
