@@ -23,6 +23,7 @@ from narration.config import DeliveryConfig, MeasurementConfig
 from narration.contracts import names
 from narration.contracts.interfaces import AnalysisKeyInputs, KeyBuilder
 from narration.contracts.models import DeliveryTools
+from narration.keys import ulid
 from narration.keys.ulid import is_ulid
 
 # ---------------------------------------------------------------- the golden inputs
@@ -34,7 +35,27 @@ SPOKEN = (
     "are back in the rock."
 )
 CORPUS_VERSION = "narration-en.v1@sha256:" + "c07d" * 16
-TOOLS = DeliveryTools(resampler="soxr 0.5.0", loudness_meter="pyloudnorm 0.1.1")
+TOOLS = DeliveryTools(resampler="soxr 0.5.0", loudness_meter="pyloudnorm 0.1.1", post="narration.post/1")
+# The golden settings are literals, not today's defaults: a golden value pins the key function, and must not
+# move when a default changes (the delivery target moved from -16 to -20 LUFS in design revision 5.3).
+DELIVERY_PROFILE = DeliveryConfig(
+    sample_rate=48000,
+    subtype="PCM_24",
+    target_lufs=-16.0,
+    true_peak_dbtp=-1.0,
+    trim_rel_db=-40.0,
+    trim_pad_s=0.08,
+    fade_s=0.01,
+)
+MEASUREMENT_SETTINGS = MeasurementConfig(
+    corpus="narration-en.v1",
+    seeds=3,
+    length_ladder_spoken_chars=(80, 150, 250, 300, 350, 400, 450, 500, 560),
+    trend_band_max_chars=300,
+    pace_tol_min=0.10,
+    sim_warn_margin=0.01,
+    sim_fail_floor=0.90,
+)
 ASR = "openai/whisper-large-v3@" + "1" * 40
 SV = "microsoft/wavlm-base-plus-sv@" + "2" * 40
 
@@ -55,9 +76,9 @@ DELIVERY_BYTES = (
     '{"delivery_profile":{"fade_s":0.01,"sample_rate":48000,"subtype":"PCM_24","target_lufs":-16,'
     '"trim_pad_s":0.08,"trim_rel_db":-40,"true_peak_dbtp":-1},"raw_sha256":"' + "ab" * 32 + '",'
     '"schema":"narration.delivery-key/v1","stretch":null,"tools":{"loudness_meter":"pyloudnorm 0.1.1",'
-    '"resampler":"soxr 0.5.0"}}'
+    '"post":"narration.post/1","resampler":"soxr 0.5.0"}}'
 ).encode("utf-8")
-DELIVERY_KEY = "sha256:f6a3da135a4700ba8b78e29d544898638468a8b8985cd6b6cc9bae2c8e7f5fb5"
+DELIVERY_KEY = "sha256:05fe7c65c7549f5260a60666e2cfb22756907912eb9f6d70788a783e380afb05"
 
 MEASUREMENT_BYTES = (
     '{"corpus_version":"' + CORPUS_VERSION + '","engine_profile_hash":"' + ENGINE_PROFILE_HASH + '",'
@@ -107,7 +128,7 @@ def measurement_kwargs(**changes: Any) -> dict[str, Any]:
         "voice_hash": VOICE_HASH,
         "engine_profile_hash": ENGINE_PROFILE_HASH,
         "corpus_version": CORPUS_VERSION,
-        "settings": MeasurementConfig(),
+        "settings": MEASUREMENT_SETTINGS,
     }
     return base | changes
 
@@ -119,12 +140,14 @@ def analysis_inputs(**changes: Any) -> AnalysisKeyInputs:
         cue_spans=((0, 53), (54, 127)),
         exact_spans=((1, 3, 7),),
         hints_qa=(("Ossavine", ("Ossa vine", "Osavine"), None),),
-        qa_profile=names.QA_PROFILE,
-        text_checks_version=names.TEXT_CHECKS_VERSION,
-        number_reader=names.NUMBER_READER,
+        # Literals, not the service's current versions: a golden value pins the key function, and must not
+        # move when names.NUMBER_READER or another version is bumped.
+        qa_profile="default.v3",
+        text_checks_version="text-1.1.0",
+        number_reader="whisper-english-normalizer+nought@1",
         asr_model=ASR,
         sv_model=SV,
-        aligner_method_id=names.ALIGNMENT_METHOD,
+        aligner_method_id="ctc-forced-align+silence-snap",
         measurement_key=MEASUREMENT_KEY,
     )
     return dataclasses.replace(base, **changes)
@@ -182,7 +205,7 @@ def test_canonical_json_sorts_members_by_utf16_code_units_s10_2() -> None:
         {"a": math.inf},
         {"a": 2**53},
         {1: "not a string key"},
-        DeliveryTools(resampler="r", loudness_meter="m"),
+        DeliveryTools(resampler="r", loudness_meter="m", post="p"),
         {"a": object()},
     ],
 )
@@ -208,10 +231,10 @@ def test_render_key_golden_s10_2() -> None:
 
 
 def test_delivery_key_golden_s10_2() -> None:
-    obj = keys.delivery_key_object(raw_sha256="ab" * 32, profile=DeliveryConfig(), tools=TOOLS)
+    obj = keys.delivery_key_object(raw_sha256="ab" * 32, profile=DELIVERY_PROFILE, tools=TOOLS)
     assert keys.canonical_json(obj) == DELIVERY_BYTES
     assert sha(DELIVERY_BYTES) == DELIVERY_KEY
-    assert keys.delivery_key(raw_sha256="ab" * 32, profile=DeliveryConfig(), tools=TOOLS) == DELIVERY_KEY
+    assert keys.delivery_key(raw_sha256="ab" * 32, profile=DELIVERY_PROFILE, tools=TOOLS) == DELIVERY_KEY
 
 
 def test_measurement_key_golden_s10_2() -> None:
@@ -244,7 +267,7 @@ def test_seed_golden_s10_3() -> None:
 
 def test_ids_are_the_prefix_and_16_hex_of_their_key_s6() -> None:
     assert keys.render_id(RENDER_KEY) == "rn_0ed0f147896bf2cc"
-    assert keys.take_id(DELIVERY_KEY) == "tk_f6a3da135a4700ba"
+    assert keys.take_id(DELIVERY_KEY) == "tk_05fe7c65c7549f52"
     assert keys.analysis_id(ANALYSIS_KEY) == "an_f7fb5269b0291188"
     for bad in ("0ed0f147896bf2cca87ce7c629e305dc62d58c1dba177bcc37f3d08608ebd544", "sha256:XYZ", ""):
         with pytest.raises(ValueError):
@@ -270,7 +293,7 @@ def test_hashed_objects_carry_exactly_the_members_of_s10_2() -> None:
         "engine_text",
         "seed",
     }
-    delivery = keys.delivery_key_object(raw_sha256="ab" * 32, profile=DeliveryConfig(), tools=TOOLS)
+    delivery = keys.delivery_key_object(raw_sha256="ab" * 32, profile=DELIVERY_PROFILE, tools=TOOLS)
     assert set(delivery) == {"schema", "raw_sha256", "delivery_profile", "tools", "stretch"}
     assert set(delivery["delivery_profile"]) == {f.name for f in dataclasses.fields(DeliveryConfig)}
     assert delivery["stretch"] is None
@@ -326,7 +349,7 @@ def test_voice_hash_language_is_the_services_language_s10_2() -> None:
 
 
 def test_measurement_key_takes_the_corpus_from_its_version_not_the_setting_s10_2() -> None:
-    renamed = dataclasses.replace(MeasurementConfig(), corpus="another-corpus.v9")
+    renamed = dataclasses.replace(MEASUREMENT_SETTINGS, corpus="another-corpus.v9")
     assert keys.measurement_key(**measurement_kwargs(settings=renamed)) == MEASUREMENT_KEY
     with pytest.raises(ValueError, match="corpus_version"):
         keys.measurement_key(**measurement_kwargs(corpus_version="narration-en.v1"))
@@ -344,7 +367,7 @@ def test_analysis_key_does_not_depend_on_hint_order_s10_2() -> None:
 
 
 def _differs(a: str, b: str) -> bool:
-    return a != b and keys.KEY_PATTERN.match(a) is not None and keys.KEY_PATTERN.match(b) is not None
+    return a != b and keys.KEY_PATTERN.fullmatch(a) is not None and keys.KEY_PATTERN.fullmatch(b) is not None
 
 
 @pytest.mark.parametrize(
@@ -389,7 +412,7 @@ def test_the_delivery_changes_cover_every_field_of_the_profile() -> None:
 
 @pytest.mark.parametrize("change", _DELIVERY_CHANGES)
 def test_delivery_key_changes_with_each_profile_setting_s10_2(change: dict[str, Any]) -> None:
-    profile = dataclasses.replace(DeliveryConfig(), **change)
+    profile = dataclasses.replace(DELIVERY_PROFILE, **change)
     assert _differs(keys.delivery_key(raw_sha256="ab" * 32, profile=profile, tools=TOOLS), DELIVERY_KEY)
 
 
@@ -397,12 +420,13 @@ def test_delivery_key_changes_with_each_profile_setting_s10_2(change: dict[str, 
     "raw, tools",
     [
         ("ac" * 32, TOOLS),
-        ("ab" * 32, DeliveryTools(resampler="soxr 0.5.1", loudness_meter=TOOLS.loudness_meter)),
-        ("ab" * 32, DeliveryTools(resampler=TOOLS.resampler, loudness_meter="pyloudnorm 0.2.0")),
+        ("ab" * 32, dataclasses.replace(TOOLS, resampler="soxr 0.5.1")),
+        ("ab" * 32, dataclasses.replace(TOOLS, loudness_meter="pyloudnorm 0.2.0")),
+        ("ab" * 32, dataclasses.replace(TOOLS, post="narration.post/2")),
     ],
 )
 def test_delivery_key_changes_with_the_raw_audio_and_the_tools_s10_2(raw: str, tools: DeliveryTools) -> None:
-    assert _differs(keys.delivery_key(raw_sha256=raw, profile=DeliveryConfig(), tools=tools), DELIVERY_KEY)
+    assert _differs(keys.delivery_key(raw_sha256=raw, profile=DELIVERY_PROFILE, tools=tools), DELIVERY_KEY)
 
 
 _LADDER_CHANGES: list[dict[str, Any]] = [
@@ -427,7 +451,7 @@ def test_the_ladder_changes_cover_every_field_but_corpus() -> None:
         {"voice_hash": "sha256:" + "1" * 64},
         {"engine_profile_hash": "sha256:" + "0" * 64},
         {"corpus_version": "narration-en.v1@sha256:" + "0" * 64},
-        *({"settings": dataclasses.replace(MeasurementConfig(), **c)} for c in _LADDER_CHANGES),
+        *({"settings": dataclasses.replace(MEASUREMENT_SETTINGS, **c)} for c in _LADDER_CHANGES),
     ],
 )
 def test_measurement_key_changes_with_each_input_s10_2(change: dict[str, Any]) -> None:
@@ -492,7 +516,7 @@ def test_seed_changes_with_each_input_s10_3() -> None:
         lambda: keys.render_key(**render_kwargs(seed=-1)),
         lambda: keys.render_key(**render_kwargs(seed=2**31)),
         lambda: keys.render_key(**render_kwargs(seed=True)),
-        lambda: keys.delivery_key(raw_sha256="sha256:" + "ab" * 32, profile=DeliveryConfig(), tools=TOOLS),
+        lambda: keys.delivery_key(raw_sha256="sha256:" + "ab" * 32, profile=DELIVERY_PROFILE, tools=TOOLS),
         lambda: keys.seed(voice_hash=VOICE_HASH, engine_text=ENGINE_TEXT, attempt=-1),
         lambda: keys.analysis_key(analysis_inputs(measurement_key="c2fb0d03")),
         lambda: keys.analysis_key(analysis_inputs(cue_spans=((0, -1),))),
@@ -503,6 +527,52 @@ def test_keys_refuse_malformed_inputs(call: Any) -> None:
         call()
 
 
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda nl: keys.voice_hash(**voice_kwargs(clip_sha256=CLIP + nl)),
+        lambda nl: keys.render_key(**render_kwargs(voice_hash=VOICE_HASH + nl)),
+        lambda nl: keys.render_key(**render_kwargs(engine_profile_hash=ENGINE_PROFILE_HASH + nl)),
+        lambda nl: keys.measurement_key(**measurement_kwargs(corpus_version=CORPUS_VERSION + nl)),
+        lambda nl: keys.delivery_key(raw_sha256="ab" * 32 + nl, profile=DELIVERY_PROFILE, tools=TOOLS),
+        lambda nl: keys.analysis_key(analysis_inputs(delivery_sha256="cd" * 32 + nl)),
+        lambda nl: keys.analysis_key(analysis_inputs(measurement_key=MEASUREMENT_KEY + nl)),
+        lambda nl: keys.seed(voice_hash=VOICE_HASH + nl, engine_text=ENGINE_TEXT, attempt=0),
+        lambda nl: keys.take_id(DELIVERY_KEY + nl),
+        lambda nl: ulid.decode("01ARYZ6S41TSV4RRFFQ69G5FAV" + nl),
+    ],
+)
+def test_a_trailing_newline_is_refused(call: Any) -> None:
+    # ``$`` matches before a final newline; every check is a whole match, so a trailing newline is refused.
+    call("")  # the well-formed value passes
+    with pytest.raises((TypeError, ValueError)):
+        call("\n")
+
+
+def test_every_pattern_is_a_whole_match() -> None:
+    for pattern, value in (
+        (keys.HEX64_PATTERN, "ab" * 32),
+        (keys.KEY_PATTERN, VOICE_HASH),
+        (keys.CORPUS_VERSION_PATTERN, CORPUS_VERSION),
+        (ulid.ULID_PATTERN, "01ARYZ6S41TSV4RRFFQ69G5FAV"),
+    ):
+        assert pattern.fullmatch(value) and not pattern.fullmatch(value + "\n")
+    assert keys.KEY_PATTERN.pattern == names.ID_PATTERNS["voice_hash"]
+    assert ulid.ULID_PATTERN.pattern == names.ID_PATTERNS["design_id"]
+    assert is_ulid("01ARYZ6S41TSV4RRFFQ69G5FAV") and not is_ulid("01ARYZ6S41TSV4RRFFQ69G5FAV\n")
+
+
+def test_hint_aliases_must_be_a_sequence_not_a_string_s10_2() -> None:
+    # A bare string would be hashed as its characters.
+    with pytest.raises(TypeError, match="asr_aliases"):
+        keys.analysis_key(analysis_inputs(hints_qa=(("Ossavine", "Osavine", None),)))
+
+
+def test_repeated_hint_aliases_do_not_change_the_key_s10_2() -> None:
+    repeated = analysis_inputs(hints_qa=(("Ossavine", ("Osavine", "Ossa vine", "Osavine"), None),))
+    assert keys.analysis_key(repeated) == ANALYSIS_KEY
+
+
 # ---------------------------------------------------------------- the KeyBuilder
 
 
@@ -511,7 +581,7 @@ def test_keys_implements_the_keybuilder_contract() -> None:
     assert isinstance(builder, KeyBuilder)
     assert builder.voice_hash(**voice_kwargs()) == VOICE_HASH
     assert builder.render_key(**render_kwargs()) == RENDER_KEY
-    assert builder.delivery_key(raw_sha256="ab" * 32, profile=DeliveryConfig(), tools=TOOLS) == DELIVERY_KEY
+    assert builder.delivery_key(raw_sha256="ab" * 32, profile=DELIVERY_PROFILE, tools=TOOLS) == DELIVERY_KEY
     assert builder.measurement_key(**measurement_kwargs()) == MEASUREMENT_KEY
     assert builder.analysis_key(analysis_inputs()) == ANALYSIS_KEY
     assert builder.seed(voice_hash=VOICE_HASH, engine_text=ENGINE_TEXT, attempt=7) == SEEDS[7]

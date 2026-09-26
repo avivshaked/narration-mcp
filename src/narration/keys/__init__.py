@@ -13,8 +13,8 @@ Canonicalisation this module adds, beyond RFC 8785:
 
 - ``voice_hash``: the transcript is put in Unicode NFC (section 10.2).
 - ``analysis_key``: the hints' QA inputs are a set, so they are sorted (by term, then aliases, then
-  ``align_as``), and each hint's ``asr_aliases`` are sorted; the order a request lists them in does not
-  change the key.
+  ``align_as``), and each hint's ``asr_aliases`` are a set too: sorted, with repeats dropped. The order a
+  request lists them in, or a repeated alias, does not change the key.
 
 Nothing else is normalised: text is hashed exactly as the text pipeline (WP10) produced it.
 """
@@ -64,9 +64,9 @@ __all__ = [
     "voice_hash_object",
 ]
 
-HEX64_PATTERN: Final = re.compile(r"^[0-9a-f]{64}$")
+HEX64_PATTERN: Final = re.compile(r"[0-9a-f]{64}")
 """A file's sha256 as the service reports it: 64 lower-case hex digits, no prefix."""
-KEY_PATTERN: Final = re.compile(r"^" + re.escape(names.HASH_PREFIX) + r"[0-9a-f]{64}$")
+KEY_PATTERN: Final = re.compile(names.ID_PATTERNS["voice_hash"])
 """A key or a voice / engine profile hash: ``sha256:`` + 64 lower-case hex digits."""
 SEED_MASK: Final = 0x7FFFFFFF
 _MAX_ATTEMPT: Final = 1 << 31
@@ -119,12 +119,12 @@ def _plain(value: Any) -> Any:
 
 
 def _check_hex64(value: str, what: str) -> None:
-    if not isinstance(value, str) or not HEX64_PATTERN.match(value):
+    if not isinstance(value, str) or not HEX64_PATTERN.fullmatch(value):
         raise ValueError(f"{what} must be 64 lower-case hex digits (a file's sha256), got {value!r}")
 
 
 def _check_key(value: str, what: str) -> None:
-    if not isinstance(value, str) or not KEY_PATTERN.match(value):
+    if not isinstance(value, str) or not KEY_PATTERN.fullmatch(value):
         raise ValueError(f"{what} must be 'sha256:' + 64 lower-case hex digits, got {value!r}")
 
 
@@ -196,7 +196,7 @@ def voice_hash(*, model: str, clip_sha256: str, transcript: str, language: str, 
 # ---------------------------------------------------------------- measurement key (section 10.2)
 
 
-CORPUS_VERSION_PATTERN: Final = re.compile(r"^[^@\s]+@" + re.escape(names.HASH_PREFIX) + r"[0-9a-f]{64}$")
+CORPUS_VERSION_PATTERN: Final = re.compile(r"[^@\s]+@" + re.escape(names.HASH_PREFIX) + r"[0-9a-f]{64}")
 """``"<set id>@sha256:<hex>"``: the corpus set and the sha256 of its manifest, so its content is in the key."""
 
 
@@ -208,7 +208,7 @@ def measurement_key_object(
     content ``corpus_version`` already names)."""
     _check_key(voice_hash, "voice_hash")
     _check_key(engine_profile_hash, "engine_profile_hash")
-    if not isinstance(corpus_version, str) or not CORPUS_VERSION_PATTERN.match(corpus_version):
+    if not isinstance(corpus_version, str) or not CORPUS_VERSION_PATTERN.fullmatch(corpus_version):
         raise ValueError(f"corpus_version must be '<set id>@sha256:<64 hex>', got {corpus_version!r}")
     return {
         "schema": names.MEASUREMENT_KEY_SCHEMA,
@@ -275,15 +275,18 @@ def render_key(*, engine_profile_hash: str, voice_hash: str, engine_text: str, s
 def delivery_key_object(*, raw_sha256: str, profile: DeliveryProfile, tools: DeliveryTools) -> dict[str, Any]:
     """The object ``delivery_key`` hashes: {schema, raw_sha256, delivery_profile (every field of ``profile``:
     trim rule, target LUFS, true-peak ceiling, sample rate, subtype, fades), tools {resampler,
-    loudness_meter}, stretch: null}."""
+    loudness_meter, post}, stretch: null}. ``tools.post`` is the post-processing rules' version
+    (``names.POST_RULES``, design revision 5.3 section 10.2), kept with the tools as ``DeliveryTools`` and
+    App. B's take.json keep it."""
     _check_hex64(raw_sha256, "raw_sha256")
     _check_text(tools.resampler, "tools.resampler")
     _check_text(tools.loudness_meter, "tools.loudness_meter")
+    _check_text(tools.post, "tools.post")
     return {
         "schema": names.DELIVERY_KEY_SCHEMA,
         "raw_sha256": raw_sha256,
         "delivery_profile": _fields_object(profile),
-        "tools": {"resampler": tools.resampler, "loudness_meter": tools.loudness_meter},
+        "tools": {"resampler": tools.resampler, "loudness_meter": tools.loudness_meter, "post": tools.post},
         "stretch": None,
     }
 
@@ -301,11 +304,15 @@ def _hints_qa_object(hints_qa: Sequence[tuple[str, tuple[str, ...], str | None]]
     for i, hint in enumerate(hints_qa):
         term, aliases, align_as = hint
         _check_text(term, f"hints_qa[{i}].term")
+        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+            # A bare string would be read as a list of its characters.
+            raise TypeError(f"hints_qa[{i}].asr_aliases must be a sequence of strings, not {type(aliases).__name__}")
         for alias in aliases:
             _check_text(alias, f"hints_qa[{i}].asr_aliases[]", allow_empty=True)
         if align_as is not None:
             _check_text(align_as, f"hints_qa[{i}].align_as", allow_empty=True)
-        out.append({"term": term, "asr_aliases": sorted(aliases), "align_as": align_as})
+        # The aliases are a set: order and repeats do not change the key.
+        out.append({"term": term, "asr_aliases": sorted(set(aliases)), "align_as": align_as})
     out.sort(key=lambda h: (h["term"], h["asr_aliases"], h["align_as"] is not None, h["align_as"] or ""))
     return out
 

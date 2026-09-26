@@ -17,10 +17,13 @@ import time
 from collections.abc import Callable
 from typing import Final
 
+from narration.contracts import names
+
 CROCKFORD: Final = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 ULID_CHARS: Final = 26
-ULID_PATTERN: Final = re.compile(r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$")
-"""A canonical ULID: upper case, and the first character at most 7 (the value fits in 128 bits)."""
+ULID_PATTERN: Final = re.compile(names.ID_PATTERNS["design_id"])
+"""A canonical ULID: upper case, and the first character at most 7 (the value fits in 128 bits). It is
+``names.ID_PATTERNS["design_id"]``, unanchored: use it with ``fullmatch``."""
 
 _TIME_BITS: Final = 48
 _RANDOM_BITS: Final = 80
@@ -52,7 +55,7 @@ def decode(ulid: str) -> int:
 
 def is_ulid(text: str) -> bool:
     """Whether ``text`` is a canonical (upper-case) ULID."""
-    return bool(ULID_PATTERN.match(text))
+    return ULID_PATTERN.fullmatch(text) is not None
 
 
 def timestamp_ms(ulid: str) -> int:
