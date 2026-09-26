@@ -18,7 +18,7 @@ from narration.contracts import codes
 from narration.contracts.errors import WorkerFailure
 from narration.contracts.interfaces import AlignerCore
 from narration.contracts.models import Alignment, ErrorStats, Hint, MeasuredError
-from narration.contracts.names import ALIGNMENT_METHOD, MODEL_ALIGNER, MODEL_ASR
+from narration.contracts.names import ALIGNMENT_METHOD, MODEL_ALIGNER, MODEL_ALIGNER_ALTERNATIVE, MODEL_ASR
 from narration.contracts.schemas import record_schema
 from narration.contracts.serial import from_json, to_json
 from narration.contracts.worker import AlignReply
@@ -413,6 +413,15 @@ def test_method_id_names_the_model_revision_and_every_setting_s11_2() -> None:
     ids = {CtcAligner(revision=REVISION, params=p).method_id for p in changed}
     assert len(ids) == len(changed) and method not in ids
     assert CtcAligner(revision="0" * 40).method_id != method
+
+
+@pytest.mark.parametrize("model", [MODEL_ALIGNER_ALTERNATIVE, "facebook/wav2vec2-base-960h", ""])
+def test_only_the_pinned_ctc_model_is_labelled_ctc_snap_s11_2(model: str) -> None:
+    # Review nit: from_config took any model name, the Qwen forced aligner too, and labelled it ctc-snap.
+    with pytest.raises(ValueError, match="CTC"):
+        CtcAligner(revision=REVISION, model=model)
+    with pytest.raises(ValueError, match="CTC"):
+        CtcAligner.from_config(AlignmentConfig(model=model), revision=REVISION)
 
 
 def test_from_config_takes_every_threshold_s11_2() -> None:

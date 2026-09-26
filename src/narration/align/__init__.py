@@ -9,13 +9,14 @@ cues (null, never interpolated), and the Whisper cross-check. The model runs in 
 from __future__ import annotations
 
 from .alphabet import ALPHABET, WILDCARD, WORD_SEPARATOR, fold_letter, spell
-from .core import AlignerParams, CtcAligner
+from .core import CTC_MODELS, AlignerParams, CtcAligner
 from .crosscheck import Boundary, BoundaryCheck, cross_check, interval_distance, plain
 from .snap import Pause, PauseParams, find_pauses, frame_levels_db
 from .transcript import build_transcript, ctc_frames, guard, has_letters, repeats, wildcard_runs
 
 __all__ = [
     "ALPHABET",
+    "CTC_MODELS",
     "WILDCARD",
     "WORD_SEPARATOR",
     "AlignerParams",

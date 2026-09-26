@@ -90,6 +90,10 @@ from .transcript import build_transcript, guard, has_letters, repeats, wildcard_
 
 METHOD_PREFIX: Final = "ctc-snap"
 """The method id's family (App. B: ``ctc-snap/<model>@<revision>``)."""
+CTC_MODELS: Final = frozenset({MODEL_ALIGNER})
+"""The models ``CtcAligner`` runs: wav2vec2 CTC models with the English character vocabulary, whose
+thresholds spike (b) measured. Another model (the Qwen forced aligner, say) is another method, not
+``ctc-snap``; the worker also refuses a snapshot that is not a wav2vec2 CTC model."""
 DEVICE: Final = "cpu"
 LOW_CONFIDENCE: Final = "low_confidence"
 """``CUE_UNALIGNED``'s ``details.reason`` for a cue whose confidence is under ``unplaced_below``."""
@@ -185,6 +189,11 @@ class CtcAligner:
     ) -> None:
         if device != DEVICE:
             raise ValueError(f"the aligner runs on the CPU only, not {device!r} (design section 11.2)")
+        if model not in CTC_MODELS:
+            raise ValueError(
+                f"{model!r} is not a CTC model this aligner runs ({', '.join(sorted(CTC_MODELS))}); "
+                "set [alignment] model to it (design section 11.2)"
+            )
         if not revision:
             raise ValueError("the aligner's model revision must be pinned")
         self._model = model
@@ -196,7 +205,8 @@ class CtcAligner:
     @classmethod
     def from_config(cls, config: AlignmentConfig, *, revision: str, cross_check_model: str = MODEL_ASR) -> CtcAligner:
         """The aligner ``[alignment]`` describes (section 16), at the pinned ``revision``: its model, device and
-        thresholds (``disagree_threshold_s``, ``low_confidence_below``, ``unplaced_below``)."""
+        thresholds (``disagree_threshold_s``, ``low_confidence_below``, ``unplaced_below``). ``ValueError`` for
+        a model outside ``CTC_MODELS`` or a device other than the CPU."""
         params = AlignerParams(
             disagree_above_s=config.disagree_threshold_s,
             low_confidence_below=config.low_confidence_below,
