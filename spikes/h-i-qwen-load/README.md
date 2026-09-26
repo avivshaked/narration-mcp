@@ -34,6 +34,9 @@ WavLM) belongs to WP22.
    - compare the 16-bit PCM with the clip.
 6. Load each model a second time, then re-hash every file against the models manifest.
 
+*Note (2026-09-26):* the recorded canary run (`canary_design` in `results.json`) used the canary's first
+design text, which DC-13 has since replaced; a re-run with the new text gives other numbers.
+
 ## Results (KNOW, 2026-09-26: one 24 GB consumer NVIDIA GPU, shared; torch 2.11.0+cu128, CUDA 12.8)
 
 | | Base | VoiceDesign |
