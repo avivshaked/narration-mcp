@@ -93,9 +93,24 @@ after `1814b3b`. Resume in this order:
    one job at a time (priority, then first come; affinity keeps the resident group, never reorders);
    `embed`'s `"cuda"` is the QA group's device; cross-job grouping in a round (§4 item 3) is put to the
    owner as a scope question (about 2–3 days; saves one model swap per extra queued job per round).
-5. **WP22** (`wp/22-qa-worker`): building; paused mid-way. `status/WP22.md` has its next steps. Told:
-   accept `"English"` as the ASR language; embed on the loaded group's device; import the shared patterns
-   once WP16's follow-ups merge. Its GPU lock ran past the 30-minute bound; its status file says why.
+5. **WP22** (`wp/22-qa-worker`, 99ab00d, on main 7731587, not rebased): paused at a safe stop.
+   - Done: the `qa` role's handler (load, unload, transcribe, embed, f0, align, profile) passing the
+     shared contract; `"English"`/`"en"` accepted for ASR; `embed` on the loaded group's device; load
+     refusals matching the fake and qwen3; WP15's F4 (out of memory is not a broken install).
+   - KNOW: acceptance through the protocol matches the bake-off (WER exact on six takes; similarity and
+     52 voicelock pairs within 0.0001). WavLM revision `main` (`feb593a6`), whose weights equal
+     `refs/pr/8`'s. VRAM: Whisper + WavLM resident 3.6 GB; word timestamps about 3 GB more; WavLM
+     embedding grows with the square of clip length (0.6 GB at 30 s, 8.4 GB at 119 s).
+   - **Decisions for the lead:** ADR 0004 (proposed): the design's greedy decoding conditioned on the
+     previous window repeats itself on 2 of 6 takes (WER 0.40), so the worker uses five beams without
+     conditioning, which reproduces the bake-off. Also: a windowed embedding for clips over 30 s to cap
+     WavLM's memory (not built without a decision).
+   - Next steps are in `status/WP22.md` (two CPU spikes, the VRAM figure, the GPU tests under the lock,
+     the shared patterns after WP16's follow-ups merge, CHANGELOG, rebase, review).
+   - **The GPU lock, to check:** WP22 reports releasing it at 22:49:29 after each of its runs. The lead
+     read `status` as held by WP22 (start 22:38:51, pid 14180, not stale) at 23:45 and about 23:52, and
+     free at about 23:57. The two accounts disagree. Check `tools/gpu_lock.py`'s release and status
+     paths, and WP22's run scripts, before the next GPU work.
 6. **Gate H1**: 8 of 10 approved. `ladder-080` and `align-03` had an artefact at the start of take 1 only;
    the owner found both second takes clean, so it is most likely the sampling. The design already names
    this failure (`HEAD_INSERTION`, reference bleed, §11 step 7). The investigation was stopped after its
