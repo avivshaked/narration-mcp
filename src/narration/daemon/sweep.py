@@ -57,7 +57,7 @@ def read_status(
     read fails the way it can while the daemon renames a new file over it.
 
     KNOW (WP30, Windows): a reader that opens the file during that rename gets ``PermissionError`` (about
-    one read in twenty in a tight loop), and ``os.path.realpath``, which the store's path check uses, can
+    one read in 25 in a tight loop, spike g), and ``os.path.realpath``, which the store's path check uses, can
     return a ``\\\\?\\``-prefixed path for a file replaced during the call, which the check takes for a path
     outside the store (``StorePathError``). Both pass within milliseconds. Any other error, or either one
     ``attempts`` times running, is raised.

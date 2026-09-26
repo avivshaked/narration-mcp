@@ -21,6 +21,7 @@ breakaway? Does the daemon, or anything it starts, get a console?
 | `spike_g.py` | The script. With no arguments it runs every scenario and writes `results/`; with `--session <json>` it is the session stand-in |
 | `results/spike-g.json` | Every scenario's record: the session's Job Object facts, the start error if any, whether the daemon served before and after the session exited, a `release_gpu` round trip, a one-segment job rendered after the session exited, the daemon's process tree by role (names and `-m` arguments only, no paths), whether each process owns a window, and the `stop` result |
 | `results/summary.md` | The same as a table |
+| `status_read_race.py`, `results/status-read-race.json` | Part 2: what a reader of `run/daemon.json` gets while the daemon replaces it |
 
 Reproduce (about 20 s):
 
@@ -93,6 +94,24 @@ Labels as in AGENTS.md section 8. **KNOW** means shown by `spike_g.py`, with its
   Running the daemon as `pythonw.exe` avoids the question: it has no console to show or close. This is
   why `start.daemon_python` picks `pythonw.exe`, a deviation from design section 4.1's identity table,
   which names `python.exe`. The identity marker, `-m narration.daemon --store <root>`, is unchanged.
+
+### Reading `run/daemon.json` while the daemon replaces it (`status_read_race.py`)
+
+The front-end, `narration-admin` and a starting daemon read `run/daemon.json` while a daemon may be
+renaming a new one over it. `status_read_race.py` measures that for 8 s at a time
+(`results/status-read-race.json`; `uv run python spikes/g-detached-daemon/status_read_race.py`, about 30 s).
+
+- **KNOW** `NarrationStore.get_daemon_status` in one process, while another process keeps writing the
+  status with `put_daemon_status`, raised `PermissionError` on 417 of 10,983 reads (3.8 %). No other
+  error was seen.
+- **KNOW** `os.path.realpath` of a file that another thread renames away returned a `\\?\`-prefixed path
+  (so not under its folder, as the store's path check compares) for 6,716 of 25,071 calls. That is the
+  mechanism, at its worst: CPython's `ntpath.realpath` keeps the prefix when the file is gone by its
+  second look. `tests/daemon/test_process.py` once saw it on `run/daemon.json` itself: `get_daemon_status`
+  raised `StorePathError` ("… resolves to \\?\…, outside the store root"). That was one run in about ten,
+  before WP30 read the status through `read_status`.
+- **KNOW** Through `narration.daemon.sweep.read_status`, which reads again after 20 ms, ten reads at most,
+  5,440 reads under the same writer raised nothing.
 
 ### What was not tested
 
