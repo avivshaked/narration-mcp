@@ -334,3 +334,16 @@ def test_a_cached_analysis_holds_nothing_the_request_alone_gave_s10_2(world: Wor
     assert all(c.received == c.spoken for c in analysis.text.cues)
     assert all(f.segment_id is None for f in analysis.qa.flags)
     assert analysis.embedding is not None and len(analysis.embedding) == len(world.anchor)
+
+
+def test_a_cue_with_no_alignable_words_is_flagged_but_never_retaken_dc12(world: World) -> None:
+    job = world.submit("1947 2031.")
+    world.run()
+    item = world.job(job.job_id).items[0]
+    assert [a.attempt for a in item.attempts] == [0] and item.retakes_used == 0
+    analysis = world.store.get_analysis_by_id(item.attempts[0].analysis_id or "")
+    assert analysis is not None
+    (unaligned,) = [f for f in analysis.qa.flags if f.code == codes.CUE_UNALIGNED]
+    assert unaligned.details == {"reason": codes.CUE_NO_ALIGNABLE_WORDS} and unaligned.retake_trigger is False
+    assert all(c.start_s is None and c.end_s is None for c in analysis.alignment.cues)
+    assert world.pool.calls[("qa", "align")] == 0  # no letter to place: the aligner is not asked
