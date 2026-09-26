@@ -38,6 +38,7 @@ from .names import (
     SEGMENT_STATES,
     SEVERITIES,
     TOOL_NAMES,
+    id_schema_pattern,
 )
 
 Schema = dict[str, Any]
@@ -148,6 +149,7 @@ _CONTROLS: Final[Schema] = {
     "properties": {
         "pace": {
             "type": "object",
+            "additionalProperties": False,
             "properties": {
                 "factor": {"type": "number", "minimum": 0.94, "maximum": 1.06},
                 "mode": {"enum": ["native", "time_stretch"]},
@@ -233,7 +235,7 @@ _SEGMENT: Final[Schema] = {
     },
 }
 
-_JOB_ID: Final[Schema] = {"type": "string", "minLength": 1, "maxLength": 64, "description": "a job_id"}
+_JOB_ID: Final[Schema] = {"type": "string", "pattern": id_schema_pattern("job_id"), "description": "a job_id"}
 _ENGINE_REF: Final[Schema] = {"type": "object", "properties": {"id": _STR, "hash": _STR}}
 
 

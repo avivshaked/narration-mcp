@@ -529,7 +529,13 @@ class QaScorer(Protocol):
 
     def score(self, inputs: QaInputs) -> QaResult:
         """The take's verdict (section 11.1, thresholds ``default.v3``): signal, text match with the word-count
-        rule, exact spans (11.3), terms, insertions, speaker, pace; cue-alignment flags are included."""
+        rule, exact spans (11.3), terms, insertions, speaker, pace; cue-alignment flags are included.
+
+        The result is cached under the analysis key and reused by any request with the same key, so it must hold
+        nothing the key does not cover: every flag has ``segment_id`` None, and each ``ExactResult`` carries
+        its ``words``. The job assembler (WP36) stamps the current request's segment id on the flags and its
+        offsets on the exact results.
+        """
         ...
 
     def suggest(self, takes: Sequence[ScoredTake]) -> tuple[str | None, Suggestion | None]:
