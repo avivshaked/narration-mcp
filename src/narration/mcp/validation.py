@@ -4,19 +4,30 @@ The front-end validates a tool's arguments against the tool's own published inpu
 2020-12), inside the tool handler, so that a bad argument comes back as a tool error the model can act on
 (``isError: true``, ``INVALID_ARGUMENT`` with ``field`` and ``hint``), never as a JSON-RPC error.
 
-Every schema failure is ``INVALID_ARGUMENT`` (section 14: "schema or semantic failure"), a size bound such as
-``maxItems`` included; ``LIMIT_EXCEEDED`` is the backend's, for the configured ``[limits]``. Messages never
-repeat the caller's values: they name the field and the rule, and the hint says what to change.
+A schema failure is ``INVALID_ARGUMENT`` (section 14: "schema or semantic failure"), except a request-size
+bound: ``maxItems`` or ``maxLength`` on ``segments``, ``cues``, ``hints`` or ``text`` is ``LIMIT_EXCEEDED``
+(section 14: "request-size limits (segments, cues, characters, hints)"), with a hint to split or shorten.
+Neither is retryable. Messages never repeat the caller's values: they name the field and the rule, and the
+hint says what to change.
+
+The validator is Draft 2020-12 with three JSON rules made exact, so that what passes here is what the schema
+says: ``integer`` is an int and never a float such as ``2.0``; ``number`` is finite (no NaN or infinity);
+and a ``pattern``'s final ``$`` is the end of the string, as in ECMA-262, where Python's ``$`` would also
+match before a trailing newline.
 """
 
 from __future__ import annotations
 
+import functools
 import json
-from collections.abc import Iterable, Mapping, Sequence
+import math
+import re
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any, Final
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import ValidationError
+from jsonschema.protocols import Validator
 
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
@@ -57,6 +68,48 @@ TEXT_MODE_HINT: Final = (
 # 3.3 refusal), then a missing one.
 _RANK: Final = {"additionalProperties": 0, "required": 1}
 
+SIZE_RULES: Final = frozenset({"maxItems", "maxLength"})
+SIZE_FIELDS: Final = frozenset({"segments", "cues", "hints", "text"})
+"""A ``SIZE_RULES`` failure on a field of one of these names is ``LIMIT_EXCEEDED`` (section 14)."""
+
+
+# ---------------------------------------------------------------- the exact validator
+
+
+def _is_integer(checker: object, instance: object) -> bool:
+    return isinstance(instance, int) and not isinstance(instance, bool)
+
+
+def _is_number(checker: object, instance: object) -> bool:
+    if isinstance(instance, bool):
+        return False
+    if isinstance(instance, float):
+        return math.isfinite(instance)
+    return isinstance(instance, int)
+
+
+@functools.cache
+def _ecma_pattern(pattern: str) -> re.Pattern[str]:
+    """``pattern`` compiled so that a final unescaped ``$`` matches only at the end of the string."""
+    if pattern.endswith("$"):
+        backslashes = len(pattern[:-1]) - len(pattern[:-1].rstrip("\\"))
+        if backslashes % 2 == 0:
+            pattern = pattern[:-1] + r"\Z"
+    return re.compile(pattern)
+
+
+def _pattern(validator: Validator, pattern: str, instance: object, schema: object) -> Iterator[ValidationError]:
+    if isinstance(instance, str) and _ecma_pattern(pattern).search(instance) is None:
+        yield ValidationError(f"does not match {pattern!r}")
+
+
+ExactValidator: Final = validators.extend(
+    Draft202012Validator,
+    validators={"pattern": _pattern},
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine_many({"integer": _is_integer, "number": _is_number}),
+)
+"""Draft 2020-12 with ``integer``, ``number`` and ``pattern`` made exact (see the module doc)."""
+
 
 def field_path(parts: Iterable[str | int]) -> str:
     """``["voice", "path"]`` gives ``voice.path``; ``["segments", 0, "text"]`` gives ``segments[0].text``."""
@@ -86,13 +139,14 @@ def _required_branches(error: ValidationError) -> list[str] | None:
 class _Failure:
     """One schema failure, described without the caller's values."""
 
-    __slots__ = ("field", "hint", "message", "rule")
+    __slots__ = ("code", "field", "hint", "message", "rule")
 
-    def __init__(self, field: str, rule: str, message: str, hint: str) -> None:
+    def __init__(self, field: str, rule: str, message: str, hint: str, code: str = codes.INVALID_ARGUMENT) -> None:
         self.field = field
         self.rule = rule
         self.message = message
         self.hint = hint
+        self.code = code
 
     def as_json(self) -> dict[str, str]:
         return {"field": self.field, "rule": self.rule, "message": self.message}
@@ -155,8 +209,18 @@ def _describe(error: ValidationError) -> list[_Failure]:
     }
     describe = messages.get(rule)
     message = describe() if describe is not None else f"{where} does not satisfy the schema rule {rule!r}"
+    if rule in SIZE_RULES and parts and parts[-1] in SIZE_FIELDS:
+        size_hints = {
+            "segments": f"Split the request: send at most {value} segments, and the rest in another request.",
+            "cues": f"Split the segment: {where} takes at most {value} cues; put the rest in another segment.",
+            "hints": f"Send at most {value} hints: only those the text uses, or split the request.",
+        }
+        hint = size_hints.get(str(parts[-1]), "")
+        if rule == "maxLength" or not hint:
+            hint = f"Shorten {where} to at most {value} characters, or split it into more cues or segments."
+        return [_Failure(here, rule, message, hint, codes.LIMIT_EXCEEDED)]
     hints = {
-        "maxItems": f"Send at most {value} items in {where}; split a larger request into several.",
+        "maxItems": f"Send at most {value} items in {where}.",
         "maxLength": f"Shorten {where} to at most {value} characters.",
     }
     return [_Failure(here, rule, message, hints.get(rule, ""))]
@@ -178,9 +242,9 @@ class ArgumentValidator:
     """Validates one tool's arguments against its published input schema."""
 
     def __init__(self, tool: str, input_schema: Mapping[str, Any]) -> None:
-        Draft202012Validator.check_schema(input_schema)
+        ExactValidator.check_schema(input_schema)
         self.tool = tool
-        self._validator = Draft202012Validator(input_schema)
+        self._validator = ExactValidator(input_schema)
 
     def _failures(self, arguments: Mapping[str, Any]) -> list[_Failure]:
         errors = sorted(self._validator.iter_errors(dict(arguments)), key=_sort_key)
@@ -190,7 +254,8 @@ class ArgumentValidator:
         return out
 
     def validate(self, arguments: Mapping[str, Any]) -> None:
-        """Raise ``NarrationError(INVALID_ARGUMENT)`` naming the first failing field, with a hint."""
+        """Raise ``NarrationError`` naming the first failing field, with a hint: ``LIMIT_EXCEEDED`` for a
+        request-size bound, ``INVALID_ARGUMENT`` for everything else."""
         failures = self._failures(arguments)
         if not failures:
             return
@@ -199,7 +264,7 @@ class ArgumentValidator:
         if len(failures) > MAX_REPORTED_ERRORS:
             details["more_errors"] = len(failures) - MAX_REPORTED_ERRORS
         raise NarrationError(
-            codes.INVALID_ARGUMENT,
+            first.code,
             first.message,
             field=first.field or None,
             hint=_hint(first),
