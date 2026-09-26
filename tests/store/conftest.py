@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -13,10 +14,11 @@ from .standin import StandInPlatform
 
 
 class FakeClock:
-    """Unix seconds that only move when a test says so."""
+    """Unix seconds that only move when a test says so. It starts at the real time, so the ages ``gc``
+    reads from file modification times agree with it."""
 
-    def __init__(self, start: float = 1_790_000_000.0) -> None:
-        self.now = start
+    def __init__(self, start: float | None = None) -> None:
+        self.now = float(int(time.time())) if start is None else start
 
     def __call__(self) -> float:
         return self.now
