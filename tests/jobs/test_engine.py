@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
+from typing import Any
 
 import pytest
 
@@ -347,3 +348,21 @@ def test_a_cue_with_no_alignable_words_is_flagged_but_never_retaken_dc12(world: 
     assert unaligned.details == {"reason": codes.CUE_NO_ALIGNABLE_WORDS} and unaligned.retake_trigger is False
     assert all(c.start_s is None and c.end_s is None for c in analysis.alignment.cues)
     assert world.pool.calls[("qa", "align")] == 0  # no letter to place: the aligner is not asked
+
+
+def test_a_cancel_that_arrives_as_the_job_finishes_ends_it_cancelled_s8(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = world.submit(LAMPS)
+    update_job = world.store.update_job
+
+    def cancel_first(job_id: str, *, expect_status: Any = None, **changes: Any) -> Any:
+        if changes.get("status") == "completed":  # the caller's cancel lands just before the engine's write
+            update_job(job_id, expect_status="running", status="cancelling")
+        return update_job(job_id, expect_status=expect_status, **changes)
+
+    monkeypatch.setattr(world.store, "update_job", cancel_first)
+    world.run()
+    done = world.job(job.job_id)
+    assert done.status == "cancelled"  # never left cancelling
+    assert done.items[0].state == "passed" and done.items[0].attempts[0].take_id is not None

@@ -900,8 +900,8 @@ class JobEngine:
     # ------------------------------------------------------------------ the end of a job
     def finish(self, host: RunnerHost, run: JobRun) -> JobRecord | None:
         """Suggest a take per segment, report the request's consistency, decide the outcome, and complete the
-        job (section 8). Nothing here changes a verdict. Returns the job as written, or None when its status
-        changed meanwhile (a cancel), which then stands."""
+        job (section 8). Nothing here changes a verdict. A job cancelled meanwhile ends ``cancelled``, with
+        every segment's state. Returns the job as written, or None when its status changed otherwise."""
         self._phase(host, run, "suggesting")
         for seg in run.segments:
             self._decide(seg)
@@ -935,7 +935,21 @@ class JobEngine:
             message=run.message,
         )
         if updated is None:
-            log.info("job %s changed while it finished; its new status stands", run.job_id)
+            current = host.store.get_job(run.job_id)
+            if current is not None and current.status == "cancelling":  # cancelled as it finished: all is made
+                run.message = "cancelled as it finished; everything it made is kept in the cache"
+                updated = host.store.update_job(
+                    run.job_id,
+                    expect_status="cancelling",
+                    status="cancelled",
+                    phase=None,
+                    round=run.round,
+                    progress=self.progress(run, complete=True),
+                    items=self.items(run),
+                    message=run.message,
+                )
+            else:
+                log.info("job %s changed while it finished; its new status stands", run.job_id)
         self.release(run)
         return updated
 
