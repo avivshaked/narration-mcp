@@ -54,7 +54,7 @@ from narration.contracts.models import (
 from narration.contracts.names import GpuHolder, JobKind, JobPhase, Priority
 from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 from narration.jobs.gpu import VramReading
-from narration.jobs.host import DAEMON_HOLDER, GpuFacts, StopMode
+from narration.jobs.host import DAEMON_HOLDER, GpuFacts, StopMode, WorkerPool
 from narration.jobs.pins import ModelPin, QaPins
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
@@ -228,7 +228,7 @@ class Host:
 
     store: NarrationStore
     config: Config
-    workers: FakePool
+    workers: WorkerPool
     clock: MonotonicClock
     holder: str = DAEMON_HOLDER
     stop_mode: StopMode | None = None
@@ -475,14 +475,16 @@ def measurement(
     *,
     max_segment_chars: int | None = 400,
     intercept_wpm: float = 130.0,
+    corpus_hex: str = "0" * 64,
 ) -> MeasurementRecord:
     """A finished measurement of the test voice: the anchor the fake's embeddings of it sit near, a wide
-    pace tolerance, and the similarity baselines of a steady voice."""
+    pace tolerance, and the similarity baselines of a steady voice. Another ``corpus_hex`` gives another
+    measurement key, so the store replaces the measurement it has."""
     vh = voice_hash(clip_sha256)
     key = keys.measurement_key(
         voice_hash=vh,
         engine_profile_hash=ENGINE_HASH,
-        corpus_version=f"{names.CORPUS}@sha256:{'0' * 64}",
+        corpus_version=f"{names.CORPUS}@sha256:{corpus_hex}",
         settings=MeasurementConfig(),
     )
     return MeasurementRecord(
