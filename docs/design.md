@@ -1,13 +1,12 @@
 # Narration MCP server: design
 
-*Status: design complete at revision 5.1 (2026-09-26); nothing here is implemented. Next: the Phase 0
-spikes (section 20). Written 2026-09-25.*
+*Status: revision 5.2 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
-*This is the repository copy of revision 5.1, and the source of truth from here on. It differs from the
-original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence files it
-cites (`refs/`, `eval/`, `outputs/`, `scripts/`) belong to the private bake-off that preceded this project,
-and are not published. Changes proposed since then are listed in `plan.md` section 1.5, and enter this
-document as revision 5.2 once the owner approves them.*
+*This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
+bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
+files it cites (`refs/`, `eval/`, `outputs/`, `scripts/`) belong to the private bake-off that preceded this
+project, and are not published. Changes are proposed and approved in `plan.md` section 1.5 and then
+applied here, each listed in the revision history below.*
 
 *Revision history:*
 - *Revision 2 (the same day) applied the owner's Qwen-only decision and the consuming flow's
@@ -26,6 +25,13 @@ document as revision 5.2 once the owner approves them.*
   is the default, with Qwen3-ForcedAligner tested against it in Phase 0 (Q18); a written-text
   normaliser waits for a later phase (Q20); and no listening model in v1, so a voice profile is
   measurements and pictures only (Q22). No owner question is left open; Phase 0 is next.*
+- *Revision 5.2 (2026-09-26) applies three design changes the owner approved (`plan.md` section 1.5) for
+  a public project. **DC-1**: no GPL code, so the voice profile's pitch comes from `librosa.pyin`, its
+  harmonics-to-noise ratio from Boersma's autocorrelation method, and CPPS replaces jitter and shimmer
+  (sections 3.6, 4, 18). **DC-2**: a backoff contract for consumers: `retry_after_s` on every retryable
+  error, the retryable codes `QUEUE_FULL` and `RATE_LIMITED`, `poll_after_s` from `submit_job` and
+  `get_job`, and `admission` in `get_server_status` (sections 7.2–7.4, 7.6, 14). **DC-3**: the canary is
+  designed on the installing machine from shipped text, not shipped as audio (sections 6, 10.1, 15).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -477,9 +483,13 @@ An agent cannot hear a voice, so the service describes one in terms an agent can
 read; every designed candidate carries its profile already.
 
 - **Measurements** (CPU, seconds): pitch median and 10th–90th percentile range (Hz and semitones), which
-  is how deep and how varied the voice is; speaking rate in spoken words per minute; pause ratio;
-  integrated loudness; spectral centroid (brightness); harmonics-to-noise ratio, jitter and shimmer
-  (breathiness and roughness). Pitch uses parselmouth, as QA does.
+  is how deep and how varied the voice is; speaking rate in spoken words per minute (when the audio's
+  transcript is known); pause ratio; integrated loudness; spectral centroid (brightness);
+  harmonics-to-noise ratio (breathiness), by Boersma's (1993) autocorrelation method; and smoothed
+  cepstral peak prominence, CPPS (Hillenbrand 1994; voice quality and roughness), which holds up on
+  connected speech where jitter and shimmer, defined on sustained vowels, do not. Pitch comes from
+  `librosa.pyin` (ISC). Each measure is documented as what it is, not as another tool's, and validated
+  on synthetic signals with known values (revision 5.2, DC-1: no GPL code, so no parselmouth).
 - **Pictures**: a spectrogram and a pitch contour as PNG files, by path, which an agent can look at.
 
 The profile helps an agent shortlist candidates and notice drift between batches. It does not choose a
@@ -565,7 +575,8 @@ item, to add only if agents shortlist badly from the numbers.
   worker venv of its own). The silence snap and the Whisper cross-check apply to it unchanged.
 - Also on the CPU: WavLM for the **canary** check (section 10.1), so that the canary never forces a
   model swap.
-- parselmouth for f0, and the voice profile's measurements and pictures (section 3.6).
+- `librosa.pyin` for f0, and the voice profile's measurements and pictures (section 3.6; no GPL code,
+  revision 5.2).
 - Audio I/O uses soundfile, not torchaudio's torchcodec-based loader.
 - If `forced_align` ever becomes unavailable, a numpy CTC Viterbi pass (about 50 lines) is the fallback.
 
@@ -686,7 +697,7 @@ records a caller's script, choices or approvals.
 
 | Entity | Key fields |
 |---|---|
-| **EngineProfile** ⊘ | `engine_profile_id` (`qwen3-base-1.7b.p1`, `qwen3-design-1.7b.p1`), `hash`, `model_repo`, `model_revision` (40-hex), `snapshot_dir`, `weights` {file: sha256}, `worker_project`, `uv_lock_sha256`, package versions, dtype, `attn_implementation`, **determinism switches** (section 10.1), **audio-changing settings** (`non_streaming_mode`: False for Base, True for VoiceDesign; the effective sampling parameters incl. `max_new_tokens`), capabilities, licence, `vram_need_mb`. Observed but not hashed: GPU, driver, CUDA, cuDNN. |
+| **EngineProfile** ⊘ | `engine_profile_id` (`qwen3-base-1.7b.p1`, `qwen3-design-1.7b.p1`), `hash`, `model_repo`, `model_revision` (40-hex), `snapshot_dir`, `weights` {file: sha256}, `worker_project`, `uv_lock_sha256`, package versions, dtype, `attn_implementation`, **determinism switches** (section 10.1), **audio-changing settings** (`non_streaming_mode`: False for Base, True for VoiceDesign; the effective sampling parameters incl. `max_new_tokens`), capabilities, licence, `vram_need_mb`. Observed but not hashed: GPU, driver, CUDA, cuDNN. Also not hashed: `snapshot_dir` (a local path) and the **canary** {material, seed, raw hash, embedding, calibrated threshold}, which `engine pin` makes on the installing machine (section 10.1; revision 5.2, DC-3). |
 | **Candidate** | `design_id`, index, clip {path, sha256}, exact transcript, verbatim description, seed, engine profile, lint, profile. Kept for the retention period; the caller copies the clip it chooses. |
 | **Provenance entry** ⊘ | clip sha256, `design_id`, date. One per clip the service designed; never pruned (section 17). |
 | **Voice** *(not stored)* | What a request sends: clip path + sha256 + transcript. `voice_hash` is computed from them on every request (section 10.2). |
@@ -725,7 +736,9 @@ Server name: `narration`. Tools use snake_case, and `tools/list` returns them in
 | *later* | `stitch` | sequential or timeline stitch (section 13.1) | | *not in v1* |
 
 Every tool description states that the service keeps no caller state, that a paragraph's length is the
-caller's decision, and that a respelling is a hint.
+caller's decision, and that a respelling is a hint. Every tool that can return a retryable error also
+states the **backoff rule** (revision 5.2, DC-2): wait at least `retry_after_s`, add your own jitter, then
+send the identical request again, which is deduplicated. The service suggests; the caller decides.
 
 **Operator CLI (`narration-admin`)**, for the machine, not for any use of it: `install`, `engine
 pin|repin|bridge` (section 10.1), `gc` (dry-run default), `verify`, `bench alignment` (section 11.2),
@@ -748,9 +761,12 @@ comments below mark where a fragment goes.
   "retake_trigger": {"type": "boolean"}, "details": {"type": "object"}}}
 
 // Error (retryable: the same call may succeed later unchanged; false means the arguments must change)
+// retry_after_s (revision 5.2, DC-2): set on every retryable error; the server's minimum wait before the
+// identical request is sent again, like HTTP Retry-After. `details` carries the facts behind it.
 {"type": "object", "required": ["code", "message", "retryable"], "properties": {
   "code": {"type": "string"}, "message": {"type": "string"}, "retryable": {"type": "boolean"},
-  "hint": {"type": "string"}, "field": {"type": "string"}, "details": {"type": "object"}}}
+  "hint": {"type": "string"}, "field": {"type": "string"}, "details": {"type": "object"},
+  "retry_after_s": {"type": "number", "minimum": 0}}}
 
 // Voice: a clip the caller keeps, by location
 {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "transcript"],
@@ -862,6 +878,8 @@ comments below mark where a fragment goes.
      "analyses_needed": {"type": "integer"},
      "est_audio_s": {"type": "number"}, "est_wall_s": {"type": "number"},
      "queue_position": {"type": "integer"}}},
+   "poll_after_s": {"type": "number", "minimum": 0,
+     "description": "revision 5.2 (DC-2): the earliest get_job poll worth making; longer while waiting_for_gpu"},
    "text": {"type": "array", "description": "dry_run only: per segment, the same text echo and length check as check_text (R7, R8)"},
    "warnings": {"type": "array", "items": /* Flag: text warnings and SEGMENT_TOO_LONG */},
    "error": /* Error */}}
@@ -933,8 +951,9 @@ The exact span is "three thousand two hundred".
   - **`phase`**: waiting_for_gpu \| loading_model \| canary \| rendering \| postprocessing \| scoring
     (ASR, similarity, alignment) \| retaking \| suggesting;
   - `round`, `outcome` (all_passed\|needs_attention), `progress` {done_s, total_s, fraction,
-    segments_done, segments_total}, `eta_s`, `queue_position`, `message`, optional `segments[]`
-    {segment_id, state, takes_ok, retakes_used}, `error`, `updated_at`.
+    segments_done, segments_total}, `eta_s`, `queue_position`, **`poll_after_s`** (revision 5.2,
+    DC-2: the earliest poll worth making, longer while `waiting_for_gpu`), `message`, optional
+    `segments[]` {segment_id, state, takes_ok, retakes_used}, `error`, `updated_at`.
 
 ```json
 {"jsonrpc": "2.0", "method": "notifications/progress",
@@ -1036,7 +1055,9 @@ The `measured_error` values are Phase 0 output and unknown today.
   free_mb, **in_use**, **holder**, **unload_in_s**}, `cpu_threads`, queue, engine profiles {id, hash,
   installed, env_ok, determinism tier}, **capabilities** {controls, text_modes}, limits, `text_checks_version`, and **`alignment`** {method_id, model, revision,
   **measured_error** {p50_s, p95_s, n, by boundary kind}, benchmark {id, sha256, description},
-  measured_at} (R1, section 11.2).
+  measured_at} (R1, section 11.2). And **`admission`** (revision 5.2, DC-2), so a consumer can decide
+  before it submits: {accepting, queue {length, max, est_drain_s}, rate {remaining, resets_in_s}, gpu
+  {in_use, holder, free_mb, need_mb by group, waiting_since}}.
 - **`release_gpu`** `{}` → `{released: bool, holder_before, busy_job?}`. It unloads an idle model at
   once; while a job runs it changes nothing and names the job.
 - **`design_voice`** `{name, description ≤ 600, takes 1–4, design_text? ≤ 400}` → `{job_id, design_id,
@@ -1353,9 +1374,12 @@ The text tests use the service's own fixtures, never a caller's script:
        bytes, so a take id is stable only while its take is cached. The canary gate compares similarity
        only, and `CANARY_MISMATCH` is not raised on every batch. Callers keep their own copies (they do;
        R12), and the design says plainly that an attempt reproduces a delivery, not a file.
-4. **Canary gate** before every batch, on the **service's own canary**: a clip the service designed and
-   ships, with a fixed text and seed, whose raw hash and embedding are stored per engine profile. It
-   checks the engine, not any caller's voice.
+4. **Canary gate** before every batch, on the **service's own canary**: a clip designed **on the
+   installing machine** by `narration-admin engine pin` (revision 5.2, DC-3), from a description, a text
+   and a seed that ship with the source as text. Its raw hash and embedding are stored per engine
+   profile. No canary audio ships: nothing is promised across a GPU, driver or CUDA change, so a shipped
+   hash would not match on another machine. The gate checks this engine, on this machine, over time,
+   not any caller's voice.
    1. After loading Qwen, render the canary (a few seconds).
    2. **Hash equal**: proceed at once. No QA is needed and there is no model swap.
    3. **Hash different**: pause the batch. The QA worker computes the canary's similarity to its stored
@@ -1674,7 +1698,8 @@ None of these fields are in the v1 schemas.
 - an unknown tool (−32602);
 - a malformed request that is not a valid `CallToolRequest` (−32600 / −32602);
 - a missing resource (−32602);
-- an internal failure (−32603).
+- an internal failure outside a tool call (−32603). A failure inside a tool call is a tool error with
+  `INTERNAL`, so the model sees it (revision 5.2; ADR 0001).
 
 **Tool execution errors** are for everything about the *arguments*, including JSON-Schema validation
 failures. Following 2026-07-28's intent, the model gets actionable feedback: `isError: true`,
@@ -1690,7 +1715,7 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 | Code | Retryable | Meaning / hint |
 |---|---|---|
 | `INVALID_ARGUMENT` | no | schema or semantic failure, e.g. an unknown field, duplicate segment ids, `text` ≠ the join (R2), `text_mode: "written"`, an exact span that cuts a word |
-| `LIMIT_EXCEEDED` | no | request or queue limits |
+| `LIMIT_EXCEEDED` | no | request-size limits (segments, cues, characters, hints); a full queue is `QUEUE_FULL` |
 | `NOT_FOUND` | no | a job, design, take or measurement (e.g. expired after the retention period) |
 | `PATH_NOT_ALLOWED` | no | a clip or audio path that is not absolute, resolves to a network share or a device path, or is not a regular file (section 17) |
 | `UNSUPPORTED_AUDIO` | no | not a WAV the service reads, or longer than 30 s / larger than 20 MB for a voice clip |
@@ -1708,6 +1733,11 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 | `STORE_FULL` | yes | free disk below the minimum |
 | `JOB_NOT_CANCELLABLE` | no | the job is already terminal |
 | `INTERNAL` | maybe | a bug; the log path is included |
+| `QUEUE_FULL` | yes | the job queue is full; `retry_after_s` from the queue's drain estimate (revision 5.2, DC-2) |
+| `RATE_LIMITED` | yes | too many submissions in the rate window; `retry_after_s` until the window frees (revision 5.2, DC-2) |
+
+Every retryable error carries **`retry_after_s`** (revision 5.2, DC-2), and `details` the facts behind
+it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 
 **Flags** (inside results; "R" marks a retake trigger)
 
@@ -1771,9 +1801,11 @@ the service's own or a cache of work done; nothing in it is a caller's record.
   `provenance.jsonl`, `engines\` and `alignment\` are never collected.
 - Immutable files are read-only and re-hashed by `verify`.
 - `gc` is an operator command and a dry run by default.
-- The service's own material (the canary clip, the calibration corpus, the ladder texts, the alignment
-  benchmark's audio and hand marks, the text-check and QA fixtures) ships with its source, versioned and
-  hashed. None of it comes from a caller.
+- The service's own material (the canary's description, text and seed, the calibration corpus, the
+  ladder texts, the alignment benchmark's text and hand marks, the text-check and QA fixtures) ships with
+  its source, versioned and hashed. None of it comes from a caller. Audio is not shipped: the canary is
+  designed at install time (revision 5.2, DC-3), and the benchmark's audio is rendered by whoever runs
+  `bench alignment`.
 
 ---
 
@@ -1950,6 +1982,11 @@ alignment models.
 
 **Not to be used:** torchaudio's `MMS_FA` bundle (CC-BY-NC 4.0, per its docstring) and
 `facebook/mms-300m` (cc-by-nc-4.0, HF API). Their cue times would drive callers' published timing.
+
+**No GPL code** (revision 5.2, DC-1). The service's code is PolyForm Noncommercial, which is not
+GPL-compatible, so no GPL or AGPL library is used anywhere, tests included: `praat-parselmouth` (GPLv3)
+is replaced by `librosa.pyin` (ISC) and the service's own HNR and CPPS code (section 3.6). Every
+dependency's licence is checked before it is added (`plan.md` section 1.4).
 
 Voice clips are `synthetic` (Qwen VoiceDesign); real-person references are refused (section 17).
 
