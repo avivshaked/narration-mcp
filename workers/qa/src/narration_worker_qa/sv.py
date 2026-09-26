@@ -13,8 +13,15 @@ without a model swap. The copy is dropped with the model.
 **The pinned revision** is ``main`` (``feb593a6…``), whose weights are ``pytorch_model.bin``. KNOW (transformers
 5.17.0's source): with the library's default ``use_safetensors=None``, a repo without ``model.safetensors`` loads
 ``pytorch_model.bin``, so the bake-off's evidence was made from these weights; the Hub's safetensors conversion
-(``refs/pr/8``) is a by-product of that load, not what it read. The ``.bin`` is a pickle, so it loads with
-``weights_only=True``, which refuses anything but tensors.
+(``refs/pr/8``) is a by-product of that load (a background download "for next time"), not what it read. KNOW
+(2026-09-26): the two files hold the same 266 float32 tensors, bit for bit, and through this class the worker
+reproduces every similarity of ``refs/auditions/voicelock.csv`` (52 rows) and the bake-off's ``spk_to_ref`` and
+``spk_consist`` to within 0.0001 (``spikes/acceptance-wp22``). ``main`` is pinned because its snapshot is complete
+(``config.json``, ``preprocessor_config.json``); ``refs/pr/8`` holds only the weights. The ``.bin`` is a pickle,
+so it loads with ``weights_only=True``, which refuses anything but tensors.
+
+**Memory.** WavLM attends over the whole clip, so an embedding's memory grows with the square of its length:
+KNOW (``spikes/h-i-qa-load``) 0.6 GB above the resident models at 30 s, 2.2 GB at 60 s, 8.4 GB at 119 s.
 """
 
 from __future__ import annotations

@@ -1,0 +1,318 @@
+{
+  "spike": "h+i (QA half)",
+  "design_sections": [
+    "20 (h)",
+    "20 (i)",
+    "4",
+    "11.1"
+  ],
+  "ran_at": "2026-09-26T22:38:53+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "transformers": "5.17.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "determinism": {
+    "torch": true,
+    "tf32": false,
+    "cudnn_deterministic": true,
+    "cudnn_benchmark": false,
+    "deterministic_algorithms": "warn_only",
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8"
+  },
+  "cuda_context_mb_estimate": 448,
+  "cuda_context_note": "device-level used memory before and after this process started CUDA (NVML); other jobs on the shared GPU can move it, so it is an estimate",
+  "audio": {
+    "slice_40s": {
+      "take": "d2 seed1",
+      "seconds": 40.0
+    },
+    "whole_take": {
+      "take": "d2 seed1",
+      "seconds": 119.02
+    }
+  },
+  "models": {
+    "asr": {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "snapshot_named_by_sha": true,
+      "first_load": {
+        "load_s": 2.69,
+        "memory_after_load": {
+          "allocated_mb": 2944,
+          "reserved_mb": 3186,
+          "max_allocated_mb": 2944,
+          "max_reserved_mb": 3186,
+          "device_free_mb": 19740,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 3184,
+        "device_free_drop_mb": 3184
+      },
+      "transcribe": {
+        "slice_40s": {
+          "seconds": 8.67,
+          "peak_max_allocated_mb": 9814,
+          "peak_max_reserved_mb": 10348,
+          "warnings": [],
+          "rtf": 0.2167,
+          "words": 106,
+          "words_with_times": 106,
+          "last_word_end_s": 39.98
+        },
+        "whole_take": {
+          "seconds": 22.44,
+          "peak_max_allocated_mb": 9813,
+          "peak_max_reserved_mb": 11400,
+          "warnings": [],
+          "rtf": 0.1885,
+          "words": 271,
+          "words_with_times": 271,
+          "last_word_end_s": 118.96
+        }
+      },
+      "second_load_alone": {
+        "load_s": 2.42,
+        "memory_after_load": {
+          "allocated_mb": 2995,
+          "reserved_mb": 3238,
+          "max_allocated_mb": 2995,
+          "max_reserved_mb": 3238,
+          "device_free_mb": 19644,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 3182,
+        "device_free_drop_mb": 3182
+      },
+      "weights_verified": {
+        "files": 11,
+        "mismatched": [],
+        "hash_s": 2.2
+      }
+    },
+    "sv": {
+      "repo": "microsoft/wavlm-base-plus-sv",
+      "revision": "feb593a6c23c1cc3d9510425c29b0a14d2b07b1e",
+      "snapshot_named_by_sha": true,
+      "first_load": {
+        "load_s": 0.29,
+        "memory_after_load": {
+          "allocated_mb": 3331,
+          "reserved_mb": 3606,
+          "max_allocated_mb": 3331,
+          "max_reserved_mb": 3606,
+          "device_free_mb": 19320,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 420,
+        "device_free_drop_mb": 420
+      },
+      "embed_cuda": {
+        "slice_40s": {
+          "seconds": 0.22,
+          "peak_max_allocated_mb": 4395,
+          "peak_max_reserved_mb": 11400,
+          "warnings": [
+            "UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead."
+          ]
+        },
+        "whole_take": {
+          "seconds": 0.95,
+          "peak_max_allocated_mb": 11813,
+          "peak_max_reserved_mb": 20998,
+          "warnings": [
+            "UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead."
+          ]
+        }
+      },
+      "embed_cpu": {
+        "slice_40s": {
+          "seconds_including_any_copy_load": 2.27,
+          "cosine_to_cuda": 1.0
+        },
+        "whole_take": {
+          "seconds_including_any_copy_load": 10.76,
+          "cosine_to_cuda": 1.0
+        }
+      },
+      "second_load_alone": {
+        "load_s": 0.23,
+        "memory_after_load": {
+          "allocated_mb": 438,
+          "reserved_mb": 474,
+          "max_allocated_mb": 438,
+          "max_reserved_mb": 474,
+          "device_free_mb": 22408,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 418,
+        "device_free_drop_mb": 418
+      },
+      "weights_verified": {
+        "files": 3,
+        "mismatched": [],
+        "hash_s": 0.3
+      }
+    }
+  },
+  "group_memory_after_load": {
+    "allocated_mb": 3331,
+    "reserved_mb": 3606,
+    "max_allocated_mb": 3331,
+    "max_reserved_mb": 3606,
+    "device_free_mb": 19320,
+    "device_total_mb": 24563
+  },
+  "by_length": {
+    "resident_allocated_mb": 3364,
+    "transcribe": [
+      {
+        "seconds": 10.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1247,
+        "seconds_taken": 1.97
+      },
+      {
+        "seconds": 10.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 4851,
+        "seconds_taken": 2.3
+      },
+      {
+        "seconds": 20.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1292,
+        "seconds_taken": 3.6
+      },
+      {
+        "seconds": 20.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 5851,
+        "seconds_taken": 4.49
+      },
+      {
+        "seconds": 30.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1308,
+        "seconds_taken": 5.1
+      },
+      {
+        "seconds": 30.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6450,
+        "seconds_taken": 6.34
+      },
+      {
+        "seconds": 60.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1309,
+        "seconds_taken": 10.11
+      },
+      {
+        "seconds": 60.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6450,
+        "seconds_taken": 11.93
+      },
+      {
+        "seconds": 90.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1310,
+        "seconds_taken": 14.23
+      },
+      {
+        "seconds": 90.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6451,
+        "seconds_taken": 17.04
+      },
+      {
+        "seconds": 119.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1310,
+        "seconds_taken": 18.45
+      },
+      {
+        "seconds": 119.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6452,
+        "seconds_taken": 21.84
+      }
+    ],
+    "embed": [
+      {
+        "seconds": 10.0,
+        "peak_above_resident_mb": 126,
+        "peak_reserved_mb": 3774,
+        "seconds_taken": 0.04,
+        "windows_of_30s": 1,
+        "cosine_one_pass_to_window_mean": 1.0
+      },
+      {
+        "seconds": 20.0,
+        "peak_above_resident_mb": 288,
+        "peak_reserved_mb": 3986,
+        "seconds_taken": 0.06,
+        "windows_of_30s": 1,
+        "cosine_one_pass_to_window_mean": 1.0
+      },
+      {
+        "seconds": 30.0,
+        "peak_above_resident_mb": 602,
+        "peak_reserved_mb": 4328,
+        "seconds_taken": 0.08,
+        "windows_of_30s": 1,
+        "cosine_one_pass_to_window_mean": 1.0
+      },
+      {
+        "seconds": 60.0,
+        "peak_above_resident_mb": 2234,
+        "peak_reserved_mb": 6472,
+        "seconds_taken": 0.28,
+        "windows_of_30s": 2,
+        "cosine_one_pass_to_window_mean": 0.999039
+      },
+      {
+        "seconds": 90.0,
+        "peak_above_resident_mb": 4894,
+        "peak_reserved_mb": 9430,
+        "seconds_taken": 0.52,
+        "windows_of_30s": 3,
+        "cosine_one_pass_to_window_mean": 0.996473
+      },
+      {
+        "seconds": 119.0,
+        "peak_above_resident_mb": 8446,
+        "peak_reserved_mb": 13260,
+        "seconds_taken": 0.94,
+        "windows_of_30s": 4,
+        "cosine_one_pass_to_window_mean": 0.993957
+      }
+    ]
+  },
+  "memory_after_unload": {
+    "allocated_mb": 51,
+    "reserved_mb": 56,
+    "max_allocated_mb": 11810,
+    "max_reserved_mb": 13260,
+    "device_free_mb": 22826,
+    "device_total_mb": 24563
+  },
+  "network_attempts": [],
+  "loopback_connections": 0,
+  "offline_env": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1"
+  }
+}
