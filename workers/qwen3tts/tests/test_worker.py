@@ -322,7 +322,7 @@ def design_request(store: Path, **overrides: Any) -> dict[str, Any]:
         "id": 4,
         "op": "design",
         "description": "A warm, clear adult voice.",
-        "design_text": "Far below the surface.",
+        "design_text": "Good bread asks for patience.",
         "language": "English",
         "seed": 271828,
         "max_new_tokens": 128,

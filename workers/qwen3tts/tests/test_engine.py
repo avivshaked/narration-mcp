@@ -382,10 +382,10 @@ def test_settings_passed_explicitly_s10_1(tmp_path: Path, torch: FakeTorch) -> N
 def test_design_passes_its_streaming_mode_settings_and_cap_explicitly_s10_1(tmp_path: Path, torch: FakeTorch) -> None:
     engine = QwenEngine(torch)
     load(engine, snapshot(tmp_path, "voice_design"), settings=settings(True))
-    rendered = engine.design("A warm, clear voice.", "Far below the surface.", "English", 128)
+    rendered = engine.design("A warm, clear voice.", "Good bread asks for patience.", "English", 128)
     (speak,) = wrapper(engine).calls
     assert speak["non_streaming_mode"] is True
-    assert (speak["instruct"], speak["text"]) == ("A warm, clear voice.", "Far below the surface.")
+    assert (speak["instruct"], speak["text"]) == ("A warm, clear voice.", "Good bread asks for patience.")
     assert {key: speak[key] for key in GENERATION_KEYS} == {**GENERATION, "max_new_tokens": 128}
     assert rendered.max_new_tokens == 128
 
