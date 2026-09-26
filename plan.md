@@ -630,18 +630,18 @@ Updated by the lead on `main` only.
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
 | WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
-| WP01 | Contracts v1 | 0 | WP00 | – | `active` | – | |
+| WP01 | Contracts v1 | 0 | WP00 | – | `active` | `wp/01-contracts` | Fable review being applied; Wave 1 stacked on it |
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
-| WP10 | Text pipeline + lint | 1 | WP01 | – | `todo` | – | |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `todo` | – | |
+| WP10 | Text pipeline + lint | 1 | WP01 | – | `active` | `wp/10-text` | stacked on WP01 |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `active` | `wp/12-store` | stacked on WP01 |
 | WP13 | Delivery post-processing | 1 | WP01 | – | `ready` | worktree made | |
-| WP14 | QA logic (pure) | 1 | WP01 | – | `todo` | – | |
+| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | stacked on WP01 |
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `todo` | – | |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `todo` | – | |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `active` | `wp/16-workers` | stacked on WP01 |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `active` | `wp/17-mcp` | spike (j) first; the rest after WP01 |
-| WP18 | Service material | 1 | WP01 | – | `active` | `wp/18-material` | drafts; H1 to freeze |
-| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `todo` | – | |
+| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; every set `draft` until H1 freezes it |
+| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `active` | `wp/19-platform` | stacked on WP01 |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `blocked:owner` | worktree made | sets the tier; held after the 2026-09-26 crash |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `todo` | – | |
@@ -766,3 +766,11 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   deliberately not done). **WP02 done** (PR #2): CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG,
   issue and PR templates, `narration.example.toml`; `narration.toml` gitignored. The owner is asked to
   confirm GitHub's private vulnerability reporting as the security route.
+- 2026-09-26: **WP18 merged as drafts** (PR #3): the calibration corpus and ladder (`narration-en.v1`), the
+  alignment benchmark (`alignment-en.v1`), the canary's text (`canary.v1`), the Phase 4 demo
+  (`demo-en.v1`), and the text and planted-fault fixtures, each with a hashed manifest and 408 tests. Every
+  set stays `draft` until gate H1. Lead ruling for WP10: tab, LF and CR are whitespace (§7.2), and every
+  other C0/C1 control character is refused (§9.1).
+- 2026-09-26: **Wave 1 fanned out as a git stack** on `wp/01-contracts` while a Fable review of the
+  contracts runs: WP10, WP12, WP14, WP16 and WP19 (Opus 5.5 agents). They rebase onto `main` once WP01
+  merges. WP17 resumes after WP01; WP13 and WP15 start as slots free; WP20 stays held.

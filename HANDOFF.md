@@ -1,75 +1,105 @@
 # HANDOFF
 
-*Updated 2026-09-26. Read this first, then [plan.md](plan.md), [AGENTS.md](AGENTS.md), and the gitignored
-`AGENTS.local.md` (this machine's paths and facts).*
+*Updated 2026-09-26, evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
 
-- **Stage: WP00 done (merged to local `main`, not pushed yet); WP01 (contracts, lead) in progress;
-  WP02 and WP03 agents active.** Worktrees exist for WP01, WP02, WP03, WP13, WP17, WP18, WP19, WP20.
-- **Incident, 2026-09-26 ~17:14 local:** the machine froze hard or lost power (Kernel-Power 41, no
-  bugcheck, no dump, nothing logged in the minutes before). Our load at the time was light: two doc/CI
-  agents, one had just started basedpyright; no model on the GPU. The machine had an earlier blue screen
-  (bugcheck 0x3B) on 2026-09-22, before this project began. After the restart: `git fsck` clean, all 52
-  model files (16.1 GB) re-hashed and matching, worker venvs import, WP02's staged files intact, WP03's
-  work lost (nothing had been written). **GPU work (WP20) is on hold** until the owner says the machine is
-  fine to load models on (a driver check or memory test was suggested).
-- The repository is initialised locally (`main`), with `origin` = `git@github.com:avivshaked/narration-mcp.git`,
-  a **public** repository. `main` is pushed.
-- Tracked so far:
-  - `plan.md`: the plan, the decisions (§1.4), design changes (§1.5), and the status table (§4);
-  - `AGENTS.md` + `CLAUDE.md`: the agent rules; `CLAUDE.md` also imports `AGENTS.local.md`;
-  - this file;
-  - `README.md`;
-  - `docs/design.md`: design revision 5.1, the source of truth;
-  - licences: `LICENSE` (PolyForm Noncommercial 1.0.0), `LICENSE-DOCS` (CC BY-NC 4.0), `COMMERCIAL.md`,
-    `THIRD_PARTY_NOTICES`;
-  - `.gitignore`, `.gitattributes`.
-- Not tracked: `AGENTS.local.md`, which holds every machine-specific path and fact.
+- **Stage: Wave 0 is done except WP01. Wave 1 is fanned out.**
+  - Merged into `main` and pushed: WP00 (bootstrap), WP02 (scaffolding, PR #2), WP03 (CI, PR #1),
+    design revision 5.2 (DC-1 to DC-3), and WP18 (the service's own material as drafts, PR #3).
+  - **WP01 (contracts, lead)** is on `wp/01-contracts` in `worktrees\wp01-contracts`. A Fable review of it
+    is being applied; the fixes may still change the contracts.
+- **Wave 1 runs as a git stack.** WP10, WP12, WP14, WP16 and WP19 are branched from `wp/01-contracts`,
+  not from `main`, so they could start before WP01 merged.
+  - If a contract they use changes, message those agents.
+  - When WP01 merges, each of them rebases onto `main`. The commits already in `main` drop out.
+- **Agents working now:**
+
+  | WP | Worktree | Model |
+  |---|---|---|
+  | WP10 | `worktrees\wp10-text` | Opus 5.5 |
+  | WP12 | `worktrees\wp12-store` | Opus 5.5 |
+  | WP14 | `worktrees\wp14-qa` | Opus 5.5 |
+  | WP16 | `worktrees\wp16-workers` | Opus 5.5 |
+  | WP19 | `worktrees\wp19-platform` | Opus 5.5 |
+
+  Each agent's report lands in `status\WPnn.md` in its worktree.
+- **Waiting to start:**
+  - WP17 (the MCP front end) has spike (j) and ADR 0001 done on `wp/17-mcp`. It resumes after WP01 merges.
+  - WP13 and WP15 start as slots free.
+  - WP20 is held (see below).
+- **Incident, 2026-09-26 at about 17:14 local.** The machine froze hard or lost power (Kernel-Power 41).
+  There was no bugcheck and no dump, and nothing was logged in the minutes before.
+  - Our load at the time was light, and no model was on the GPU.
+  - The machine had an earlier blue screen (bugcheck 0x3B) on 2026-09-22, before this project began.
+  - After the restart: `git fsck` was clean, the model files re-hashed and matched, and nothing written
+    was lost except WP03's first attempt.
+  - **GPU work (WP20, and every GPU WP after it) is on hold** until the owner says the machine is fine to
+    load models on.
+  - Agents are asked to keep their load moderate: one test suite at a time, and no parallel pytest.
 
 ## Decided (details in plan.md §1.4 and §1.5)
 
-- **A public project** with a public project's rigour; **no local paths in tracked files**.
-- **Licences:** as the evolution simulator's; the project is source-available and non-commercial.
-- **Windows first.** Only the cheap preparation for other platforms now.
-- **Distribution:** a git clone + uv for v1. **Merges:** pull requests with CI.
-- **Models:** copy the cached snapshots into `<repo>\.dev\models\`, and download the missing two there.
-- **parselmouth (GPL) replaced** (DC-1, approved): f0 from `librosa.pyin`, HNR by Boersma's method,
-  CPPS instead of jitter and shimmer.
-- **GPU etiquette:** bounded runs; long ones with the owner's OK.
-- **Human gates:** the owner listens (H1) and marks (H2), possibly in DaVinci Resolve through its MCP.
-  Resolve markers snap to frames, so its timeline must run at ≥ 60 fps.
+- **A public project** with a public project's rigour, and **no local paths in tracked files**.
+- **Licences:** the same as the evolution simulator's. The project is source-available and
+  non-commercial.
+- **Windows first**, with only the cheap preparation for other platforms now.
+- **Distribution:** a git clone plus uv for v1. **Merges:** pull requests with CI, merged with
+  `--no-ff`.
+- **Models:** copied and downloaded into `<repo>\.dev\models\`, hash-verified.
+- **DC-1 to DC-3 are applied** (design revision 5.2):
+  - DC-1: no GPL code; pyin, Boersma HNR and CPPS;
+  - DC-2: the backoff contract;
+  - DC-3: the canary is designed at install time.
+- **Agents:** Opus 5.5 by default. Fable is kept for the hardest problems, such as the adversarial review
+  of the frozen contracts.
+- **Text (lead ruling, for WP10):**
+  - tab, LF and CR are whitespace, and the canonical form collapses them;
+  - every other C0 and C1 control character is refused (`TEXT_REFUSED`).
 
 ## Waiting on the owner
 
-- **Whether GPU work may start** after the 2026-09-26 crash (see "Where things stand"). `COMMERCIAL.md`, the README, DC-2 (backoff) and DC-3 (install-time canary) were
-approved on 2026-09-26. WP01 applies DC-1 to DC-3 to `docs/design.md` as revision 5.2.
-
-Coming later: DC-4 (`max_new_tokens`, from WP20's evidence); the GitHub description, which still says
-voices are "locked" (it is outward-facing, so it waits for the owner; WP44); the gates H1 to H4 as the
-work reaches them.
+- **Whether GPU work may start** after the crash.
+- **Gate H1:** listening to about 10 renders of the service's own texts before the corpus is frozen. The
+  suggested sample is in `status/WP18.md`. It needs the GPU.
+- Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
+- Later:
+  - DC-4 (`max_new_tokens`, from WP20's evidence);
+  - the GitHub description, which still says voices are "locked" (WP44);
+  - gates H2 to H4.
+- Low priority: the default `design_text` (§16) is the bakeoff's reference text. WP18 copied it into the
+  canary set as briefed. Keep it, or write a new default?
 
 ## Next steps
 
-1. ~~WP00 bootstrap~~ done 2026-09-26 (plan.md §9).
-2. **WP01 contracts (lead)**, in `worktrees\wp01-contracts`, while agents finish WP02 and WP03.
-3. Push `main` and open PRs once WP03's CI exists (Q4).
-4. **Wave 1 fan-out** after WP01 merges, in plan.md §7's order; the CPU-only WPs first, and fewer agents at
-   once than §7 allows until the machine's stability is understood. WP20 waits for the owner.
+1. Apply the review's confirmed findings to WP01. Merge it (PR), then tell the stacked agents to rebase.
+2. Resume WP17. Start WP13 and WP15 as agents finish.
+3. Review and merge each Wave 1 WP as it reaches `review` (plan.md §2.4).
+4. Wave 2's CPU-only WPs (WP30, WP31, WP36, WP37) once their dependencies merge. The GPU WPs wait for the
+   owner.
 
 ## Things a new session should know
 
 - The bakeoff that preceded this project is private and read-only. Its reusable code, golden numbers
-  and models are mapped in plan.md §1.2. The installed-code findings (the effective `max_new_tokens`
-  8192, the normaliser's spelling map, the proportional reference cut) are in §1.3.
+  and models are mapped in plan.md §1.2. The findings from its installed code are in §1.3: the effective
+  `max_new_tokens` of 8192, the normaliser's spelling map, and the proportional reference cut.
 - The consumer's requirements (R1–R14) are mapped in design §21. The service must never depend on that
   caller (the owner's principle, at the top of the design).
+- uv needs `UV_NATIVE_TLS=1` on this machine, because something intercepts TLS (`AGENTS.local.md`).
+- The PR flow:
+  1. Push the branch.
+  2. Write the PR body to `.dev\pr\<wp>.md`, and check it with `tools/check_tracked.py --msg-file`.
+  3. Run `gh pr create`, then `gh pr checks N --watch`.
+  4. Merge locally with `git merge --no-ff`, and push `main`.
+  5. Remove the worktree.
 - The Claude Code harness reports "file changed on disk" when a file is touched through `d:\` and then
   `D:\`. That is the path's case, not an outside edit.
 
 ## How to resume
 
 1. Read this file, then plan.md §4 (status), §1.5 (design changes) and §9 (log).
-2. Record any new answers from the owner in plan.md and here, then continue with the next step above.
-3. Keep this file current at the end of every session and every wave: the stage, what changed, what is
-   open, what is next.
+2. Check each active worktree's `status\WPnn.md`.
+3. Record any new answers from the owner in plan.md and here, then continue with the next step above.
+4. Keep this file current at the end of every session and every wave: the stage, what changed, what is
+   open, and what is next.
