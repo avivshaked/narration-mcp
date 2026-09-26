@@ -114,8 +114,8 @@ def test_schema_segment_id_follows_the_id_pattern_s7_2() -> None:
 
 
 def test_schema_get_job_wait_is_at_most_55_seconds_s7_4() -> None:
-    assert _valid("get_job", {"job_id": "job_01", "wait_s": 55})
-    assert not _valid("get_job", {"job_id": "job_01", "wait_s": 56})
+    assert _valid("get_job", {"job_id": "job_01JBXQ7Z3M8V4T2R9K6N5P0W1C", "wait_s": 55})
+    assert not _valid("get_job", {"job_id": "job_01JBXQ7Z3M8V4T2R9K6N5P0W1C", "wait_s": 56})
 
 
 def test_schema_design_voice_takes_one_to_four_s7_6() -> None:
@@ -147,3 +147,32 @@ def test_schema_copies_are_independent() -> None:
     assert schemas.TOOLS_BY_NAME["submit_job"].input_schema["properties"]["voice"]["properties"]["path"]["type"] == (
         "string"
     )
+
+
+def test_schema_controls_pace_refuses_unknown_fields_s3_3() -> None:
+    pace = schemas.fragment("Controls")["properties"]["pace"]
+    assert pace["additionalProperties"] is False, "no open object in any input schema (section 3.3)"
+
+
+def test_schema_job_id_inputs_have_the_id_pattern_s6() -> None:
+    for tool in ("get_job", "get_results", "cancel_job"):
+        job_id = schemas.TOOLS_BY_NAME[tool].input_schema["properties"]["job_id"]
+        assert job_id["pattern"] == names.id_schema_pattern("job_id"), tool
+
+
+def _open_objects(node: object, path: str = "") -> list[str]:
+    found: list[str] = []
+    if isinstance(node, dict):
+        if node.get("type") == "object" and "properties" in node and node.get("additionalProperties") is not False:
+            found.append(path or "/")
+        for key, value in node.items():
+            found += _open_objects(value, f"{path}/{key}")
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            found += _open_objects(value, f"{path}/{i}")
+    return found
+
+
+def test_schema_every_input_object_is_closed_s14() -> None:
+    for tool in schemas.TOOLS_BY_NAME.values():
+        assert _open_objects(tool.input_schema) == [], tool.name

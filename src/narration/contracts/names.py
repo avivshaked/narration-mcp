@@ -6,6 +6,7 @@ refer to ``docs/design.md``.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final, Literal, get_args
 
@@ -24,6 +25,33 @@ ID_HEX_CHARS: Final = 16
 """A content id is its prefix plus the first 16 hex characters of its key's sha256 (section 6)."""
 HASH_PREFIX: Final = "sha256:"
 """Keys and hashes the service reports carry this prefix (``voice_hash``, ``render_key``, …)."""
+
+IdKind = Literal["job_id", "design_id", "render_id", "take_id", "analysis_id", "voice_hash"]
+_ULID: Final = "[0-7][0-9A-HJKMNP-TV-Z]{25}"
+ID_PATTERNS: Final[dict[IdKind, str]] = {
+    "job_id": JOB_ID_PREFIX + _ULID,
+    "design_id": _ULID,
+    "render_id": RENDER_ID_PREFIX + f"[0-9a-f]{{{ID_HEX_CHARS}}}",
+    "take_id": TAKE_ID_PREFIX + f"[0-9a-f]{{{ID_HEX_CHARS}}}",
+    "analysis_id": ANALYSIS_ID_PREFIX + f"[0-9a-f]{{{ID_HEX_CHARS}}}",
+    "voice_hash": HASH_PREFIX + "[0-9a-f]{64}",
+}
+"""The shape of every id a caller can send back (section 6), without anchors. Job and design ids are ULIDs
+(Crockford base32, 26 characters, first one 0-7); content ids are a prefix plus 16 hex; hashes are
+``sha256:`` plus 64 hex. The store, the front end and the tool schemas all use these, so an id is
+refused at the edge before anything builds a path from it."""
+
+
+def is_id(kind: IdKind, value: object) -> bool:
+    """Whether ``value`` is a well-formed id of ``kind``: the whole string, so a trailing newline is refused."""
+    return isinstance(value, str) and re.fullmatch(ID_PATTERNS[kind], value) is not None
+
+
+def id_schema_pattern(kind: IdKind) -> str:
+    """``ID_PATTERNS[kind]`` anchored for a JSON Schema ``pattern`` (ECMA-262: ``^…$``). Python's ``re.search``
+    lets ``$`` match before a final newline, so code that must be exact uses ``is_id`` as well."""
+    return "^" + ID_PATTERNS[kind] + "$"
+
 
 # ---------------------------------------------------------------- schema ids of records and keys
 VOICE_SCHEMA: Final = "narration.voice/v2"
@@ -46,7 +74,10 @@ SEED_SCHEME: Final = "narration-seed/v1"
 # ---------------------------------------------------------------- versions of the service's rules
 TEXT_CHECKS_VERSION: Final = "text-1.1.0"
 QA_PROFILE: Final = "default.v3"
-NUMBER_READER: Final = "whisper-english-normalizer+nought@1"
+NUMBER_READER: Final = "whisper-english-normalizer+nought@2"
+"""The number reader of section 11.3. ``@2`` (plan.md DC-7): number words never merge across punctuation
+(each side is read in phrases split at punctuation, so "two thousand, forty" is 2000 and 40, not 2040), and
+’ ‘ ʼ are read as the straight apostrophe on both sides. ``@1`` was the vendored reader as-is."""
 ALIGNMENT_METHOD: Final = "ctc-forced-align+silence-snap"
 PROFILE_VERSION: Final = "profile-1"
 """The voice profile's measurement set (section 3.6 as changed by DC-1: pyin f0, Boersma HNR, CPPS)."""

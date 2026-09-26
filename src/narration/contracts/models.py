@@ -443,11 +443,18 @@ class Alignment:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ExactResult:
-    """One exact span's outcome (section 11.3): ``expected`` and ``heard`` in normalised form."""
+    """One exact span's outcome (section 11.3): ``expected`` and ``heard`` in normalised form.
+
+    ``words`` is the span's word range, [first, end) as in ``ExactWords``: the part the analysis key covers.
+    ``start`` and ``end`` are the offsets of a request, which the key does not cover, so an analysis reused
+    by another request may hold another request's offsets. The job assembler (WP36) restamps them from the
+    current request's ``ExactWords``, matched by ``cue`` and ``words``.
+    """
 
     cue: int
     start: int
     end: int
+    words: tuple[int, int]
     expected: str
     heard: str | None
     match: ExactMatch
