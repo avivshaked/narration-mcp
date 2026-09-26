@@ -1,0 +1,247 @@
+{
+  "checks": [
+    {
+      "mode": "auto",
+      "check": "what the SDK client sends first (method and _meta)",
+      "ok": true,
+      "observed": {
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "sdk-client-probe",
+              "version": "0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      }
+    },
+    {
+      "mode": "auto",
+      "check": "negotiated protocol version",
+      "ok": true,
+      "observed": "2026-07-28"
+    },
+    {
+      "mode": "auto",
+      "check": "list_tools",
+      "ok": true,
+      "observed": [
+        "check_line",
+        "wait_job",
+        "raise_demo"
+      ]
+    },
+    {
+      "mode": "auto",
+      "check": "success result passes the client's own outputSchema validation",
+      "ok": true,
+      "observed": {
+        "is_error": false,
+        "content_types": [
+          "text",
+          "resource_link"
+        ]
+      }
+    },
+    {
+      "mode": "auto",
+      "check": "unknown field comes back as a tool result (isError, INVALID_ARGUMENT, field instruct)",
+      "ok": true,
+      "observed": {
+        "code": "INVALID_ARGUMENT",
+        "message": "unknown field 'instruct'",
+        "retryable": false,
+        "field": "instruct",
+        "hint": "instruct is not an input of this service: a voice's delivery comes from its reference clip (design section 3.3). Remove the field.",
+        "details": {
+          "schema_rule": "additionalProperties"
+        }
+      }
+    },
+    {
+      "mode": "auto",
+      "check": "unknown tool raises MCPError -32602 in the client",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Unknown tool: no_such_tool"
+      }
+    },
+    {
+      "mode": "auto",
+      "check": "progress_callback: the SDK sends a progressToken (the request id) and gets our notifications",
+      "ok": true,
+      "observed": {
+        "progressToken": 6,
+        "calls": 4,
+        "last": [
+          1.0,
+          1.0,
+          "waited 1.00 of 1.00 s"
+        ]
+      }
+    },
+    {
+      "mode": "auto",
+      "check": "abandoning a call makes the SDK send notifications/cancelled",
+      "ok": true,
+      "observed": [
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/cancelled",
+          "params": {
+            "requestId": 7,
+            "reason": "caller cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "auto",
+      "check": "resources/read twice: sent over the wire (modern: once, ttlMs honoured by the client cache)",
+      "ok": true,
+      "observed": {
+        "reads_on_the_wire": 1
+      }
+    },
+    {
+      "mode": "auto",
+      "check": "get_prompt",
+      "ok": true,
+      "observed": "text"
+    },
+    {
+      "mode": "auto",
+      "check": "the server saw the cancellation",
+      "ok": true,
+      "observed": [
+        "spike_server: wait on j2 cancelled after 0.50 s"
+      ]
+    },
+    {
+      "mode": "legacy",
+      "check": "what the SDK client sends first (method and _meta)",
+      "ok": true,
+      "observed": {
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {},
+          "clientInfo": {
+            "name": "sdk-client-probe",
+            "version": "0"
+          },
+          "_meta": {}
+        }
+      }
+    },
+    {
+      "mode": "legacy",
+      "check": "negotiated protocol version",
+      "ok": true,
+      "observed": "2025-11-25"
+    },
+    {
+      "mode": "legacy",
+      "check": "list_tools",
+      "ok": true,
+      "observed": [
+        "check_line",
+        "wait_job",
+        "raise_demo"
+      ]
+    },
+    {
+      "mode": "legacy",
+      "check": "success result passes the client's own outputSchema validation",
+      "ok": true,
+      "observed": {
+        "is_error": false,
+        "content_types": [
+          "text",
+          "resource_link"
+        ]
+      }
+    },
+    {
+      "mode": "legacy",
+      "check": "unknown field comes back as a tool result (isError, INVALID_ARGUMENT, field instruct)",
+      "ok": true,
+      "observed": {
+        "code": "INVALID_ARGUMENT",
+        "message": "unknown field 'instruct'",
+        "retryable": false,
+        "field": "instruct",
+        "hint": "instruct is not an input of this service: a voice's delivery comes from its reference clip (design section 3.3). Remove the field.",
+        "details": {
+          "schema_rule": "additionalProperties"
+        }
+      }
+    },
+    {
+      "mode": "legacy",
+      "check": "unknown tool raises MCPError -32602 in the client",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Unknown tool: no_such_tool"
+      }
+    },
+    {
+      "mode": "legacy",
+      "check": "progress_callback: the SDK sends a progressToken (the request id) and gets our notifications",
+      "ok": true,
+      "observed": {
+        "progressToken": 6,
+        "calls": 4,
+        "last": [
+          1.0,
+          1.0,
+          "waited 1.00 of 1.00 s"
+        ]
+      }
+    },
+    {
+      "mode": "legacy",
+      "check": "abandoning a call makes the SDK send notifications/cancelled",
+      "ok": true,
+      "observed": [
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/cancelled",
+          "params": {
+            "requestId": 7,
+            "reason": "caller cancelled"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "legacy",
+      "check": "resources/read twice: sent over the wire (modern: once, ttlMs honoured by the client cache)",
+      "ok": true,
+      "observed": {
+        "reads_on_the_wire": 2
+      }
+    },
+    {
+      "mode": "legacy",
+      "check": "get_prompt",
+      "ok": true,
+      "observed": "text"
+    },
+    {
+      "mode": "legacy",
+      "check": "the server saw the cancellation",
+      "ok": true,
+      "observed": [
+        "spike_server: wait on j2 cancelled after 0.50 s"
+      ]
+    }
+  ],
+  "passed": 22,
+  "failed": 0
+}

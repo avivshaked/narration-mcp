@@ -1,0 +1,679 @@
+{
+  "checks": [
+    {
+      "session": "legacy",
+      "check": "initialize 2025-11-25 is answered",
+      "ok": true,
+      "observed": {
+        "capabilities": {
+          "experimental": {},
+          "prompts": {
+            "listChanged": false
+          },
+          "resources": {
+            "listChanged": false,
+            "subscribe": false
+          },
+          "tools": {
+            "listChanged": false
+          }
+        },
+        "instructions": "Spike server for plan.md WP17. The service keeps no caller state.",
+        "protocolVersion": "2025-11-25",
+        "serverInfo": {
+          "name": "narration-spike",
+          "version": "0.0.0+spike"
+        }
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "tools/list publishes our schemas with no $ref",
+      "ok": true,
+      "observed": [
+        "check_line",
+        "wait_job",
+        "raise_demo"
+      ]
+    },
+    {
+      "session": "legacy",
+      "check": "every outputSchema root is type object",
+      "ok": true,
+      "observed": {
+        "check_line": "object",
+        "wait_job": "object"
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "inputSchema published exactly as written (additionalProperties false kept, nested voice inlined)",
+      "ok": true,
+      "observed": false
+    },
+    {
+      "session": "legacy",
+      "check": "tools/list result keys besides tools",
+      "ok": true,
+      "observed": []
+    },
+    {
+      "session": "legacy",
+      "check": "success: structuredContent + text copy + resource_link, isError absent or false",
+      "ok": true,
+      "observed": {
+        "isError": false,
+        "content_types": [
+          "text",
+          "resource_link"
+        ]
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "unknown field instruct: a tool result, isError true, INVALID_ARGUMENT, field instruct, hint, text copy",
+      "ok": true,
+      "observed": {
+        "code": "INVALID_ARGUMENT",
+        "message": "unknown field 'instruct'",
+        "retryable": false,
+        "field": "instruct",
+        "hint": "instruct is not an input of this service: a voice's delivery comes from its reference clip (design section 3.3). Remove the field.",
+        "details": {
+          "schema_rule": "additionalProperties"
+        }
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "wrong type: isError with field takes",
+      "ok": true,
+      "observed": {
+        "code": "INVALID_ARGUMENT",
+        "message": "takes: '3' is not of type 'integer'",
+        "retryable": false,
+        "field": "takes",
+        "hint": "Fix takes to match the tool's inputSchema.",
+        "details": {
+          "schema_rule": "type"
+        }
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "unknown tool: JSON-RPC -32602",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Unknown tool: no_such_tool",
+        "data": {
+          "name": "no_such_tool"
+        }
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "arguments not an object: JSON-RPC -32602 from the SDK's params model",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Invalid request parameters",
+        "data": ""
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "uncaught handler exception: what the SDK sends",
+      "ok": true,
+      "observed": {
+        "code": 0,
+        "message": "raise_demo: an exception the handler did not catch"
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "progress: notifications/progress with our token, monotonic, then the result",
+      "ok": true,
+      "observed": {
+        "count": 4,
+        "first": [
+          {
+            "progressToken": "p-1",
+            "progress": 0.25,
+            "total": 1.0,
+            "message": "waited 0.25 of 1.00 s"
+          }
+        ],
+        "last": [
+          {
+            "progressToken": "p-1",
+            "progress": 1.0,
+            "total": 1.0,
+            "message": "waited 1.00 of 1.00 s"
+          }
+        ]
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "cancellation: no answer for the cancelled id, progress stops, the connection stays usable",
+      "ok": true,
+      "observed": {
+        "answered": [],
+        "progress_after_cancel": 0
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "resources/templates/list returns our template",
+      "ok": true,
+      "observed": {
+        "resources": {
+          "resources": [
+            {
+              "mimeType": "application/json",
+              "name": "status",
+              "uri": "spike://status"
+            }
+          ]
+        },
+        "templates": {
+          "resourceTemplates": [
+            {
+              "description": "a job (subscribable)",
+              "mimeType": "application/json",
+              "name": "job",
+              "uriTemplate": "spike://jobs/{job_id}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "resources/read through the template: contents, and (2026-07-28 only) ttlMs + cacheScope",
+      "ok": true,
+      "observed": {}
+    },
+    {
+      "session": "legacy",
+      "check": "missing resource: JSON-RPC -32602",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Resource not found",
+        "data": {
+          "uri": "spike://nothing/here"
+        }
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "prompts/list and prompts/get",
+      "ok": true,
+      "observed": {
+        "prompt": [
+          {
+            "arguments": [
+              {
+                "description": "the clip to narrate with",
+                "name": "voice_path",
+                "required": true
+              }
+            ],
+            "description": "Narrate a script (spike).",
+            "name": "narrate_script"
+          }
+        ],
+        "messages": [
+          {
+            "content": {
+              "text": "1. measure_voice for C:/voices/a.wav if it has no measurement. 2. check_text. 3. submit_job.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "a 2026 envelope on a legacy connection: -32600",
+      "ok": true,
+      "observed": {
+        "code": -32600,
+        "message": "this connection serves the handshake protocol era; requests carrying the 2026-07-28 envelope are not accepted on it"
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "resources/subscribe with no handler registered: -32601",
+      "ok": true,
+      "observed": {
+        "code": -32601,
+        "message": "Method not found",
+        "data": "resources/subscribe"
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "unknown method: -32601",
+      "ok": true,
+      "observed": {
+        "code": -32601,
+        "message": "Method not found",
+        "data": "no/such/method"
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "ping answered",
+      "ok": true,
+      "observed": {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "result": {}
+      }
+    },
+    {
+      "session": "legacy",
+      "check": "server saw the cancellation and exited cleanly",
+      "ok": true,
+      "observed": [
+        "spike_server: wait on j2 cancelled after 0.25 s"
+      ]
+    },
+    {
+      "session": "legacy-offer-2026",
+      "check": "initialize proposing 2026-07-28: the server counter-offers the newest handshake version",
+      "ok": true,
+      "observed": "2025-11-25"
+    },
+    {
+      "session": "modern",
+      "check": "server/discover: 2026-07-28, capabilities, instructions, resultType, ttlMs, cacheScope, serverInfo",
+      "ok": true,
+      "observed": {
+        "cacheScope": "private",
+        "capabilities": {
+          "prompts": {
+            "listChanged": true
+          },
+          "resources": {
+            "listChanged": true,
+            "subscribe": true
+          },
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "instructions": "Spike server for plan.md WP17. The service keeps no caller state.",
+        "resultType": "complete",
+        "supportedVersions": [
+          "2026-07-28"
+        ],
+        "ttlMs": 0,
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "narration-spike",
+            "version": "0.0.0+spike"
+          }
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "tools/list publishes our schemas with no $ref",
+      "ok": true,
+      "observed": [
+        "check_line",
+        "wait_job",
+        "raise_demo"
+      ]
+    },
+    {
+      "session": "modern",
+      "check": "every outputSchema root is type object",
+      "ok": true,
+      "observed": {
+        "check_line": "object",
+        "wait_job": "object"
+      }
+    },
+    {
+      "session": "modern",
+      "check": "inputSchema published exactly as written (additionalProperties false kept, nested voice inlined)",
+      "ok": true,
+      "observed": false
+    },
+    {
+      "session": "modern",
+      "check": "tools/list result keys besides tools",
+      "ok": true,
+      "observed": [
+        "_meta",
+        "cacheScope",
+        "resultType",
+        "ttlMs"
+      ]
+    },
+    {
+      "session": "modern",
+      "check": "success: structuredContent + text copy + resource_link, isError absent or false",
+      "ok": true,
+      "observed": {
+        "isError": false,
+        "content_types": [
+          "text",
+          "resource_link"
+        ]
+      }
+    },
+    {
+      "session": "modern",
+      "check": "unknown field instruct: a tool result, isError true, INVALID_ARGUMENT, field instruct, hint, text copy",
+      "ok": true,
+      "observed": {
+        "code": "INVALID_ARGUMENT",
+        "message": "unknown field 'instruct'",
+        "retryable": false,
+        "field": "instruct",
+        "hint": "instruct is not an input of this service: a voice's delivery comes from its reference clip (design section 3.3). Remove the field.",
+        "details": {
+          "schema_rule": "additionalProperties"
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "wrong type: isError with field takes",
+      "ok": true,
+      "observed": {
+        "code": "INVALID_ARGUMENT",
+        "message": "takes: '3' is not of type 'integer'",
+        "retryable": false,
+        "field": "takes",
+        "hint": "Fix takes to match the tool's inputSchema.",
+        "details": {
+          "schema_rule": "type"
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "unknown tool: JSON-RPC -32602",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Unknown tool: no_such_tool",
+        "data": {
+          "name": "no_such_tool"
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "arguments not an object: JSON-RPC -32602 from the SDK's params model",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Invalid request parameters",
+        "data": ""
+      }
+    },
+    {
+      "session": "modern",
+      "check": "uncaught handler exception: what the SDK sends",
+      "ok": true,
+      "observed": {
+        "code": -32603,
+        "message": "Internal server error"
+      }
+    },
+    {
+      "session": "modern",
+      "check": "progress: notifications/progress with our token, monotonic, then the result",
+      "ok": true,
+      "observed": {
+        "count": 4,
+        "first": [
+          {
+            "progressToken": "p-1",
+            "progress": 0.25,
+            "total": 1.0,
+            "message": "waited 0.25 of 1.00 s"
+          }
+        ],
+        "last": [
+          {
+            "progressToken": "p-1",
+            "progress": 1.0,
+            "total": 1.0,
+            "message": "waited 1.00 of 1.00 s"
+          }
+        ]
+      }
+    },
+    {
+      "session": "modern",
+      "check": "cancellation: no answer for the cancelled id, progress stops, the connection stays usable",
+      "ok": true,
+      "observed": {
+        "answered": [],
+        "progress_after_cancel": 0
+      }
+    },
+    {
+      "session": "modern",
+      "check": "resources/templates/list returns our template",
+      "ok": true,
+      "observed": {
+        "resources": {
+          "cacheScope": "private",
+          "resources": [
+            {
+              "mimeType": "application/json",
+              "name": "status",
+              "uri": "spike://status"
+            }
+          ],
+          "resultType": "complete",
+          "ttlMs": 60000,
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "name": "narration-spike",
+              "version": "0.0.0+spike"
+            }
+          }
+        },
+        "templates": {
+          "cacheScope": "private",
+          "resourceTemplates": [
+            {
+              "description": "a job (subscribable)",
+              "mimeType": "application/json",
+              "name": "job",
+              "uriTemplate": "spike://jobs/{job_id}"
+            }
+          ],
+          "resultType": "complete",
+          "ttlMs": 60000,
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "name": "narration-spike",
+              "version": "0.0.0+spike"
+            }
+          }
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "resources/read through the template: contents, and (2026-07-28 only) ttlMs + cacheScope",
+      "ok": true,
+      "observed": {
+        "cacheScope": "private",
+        "resultType": "complete",
+        "ttlMs": 2000,
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "narration-spike",
+            "version": "0.0.0+spike"
+          }
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "missing resource: JSON-RPC -32602",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Resource not found",
+        "data": {
+          "uri": "spike://nothing/here"
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "prompts/list and prompts/get",
+      "ok": true,
+      "observed": {
+        "prompt": [
+          {
+            "arguments": [
+              {
+                "description": "the clip to narrate with",
+                "name": "voice_path",
+                "required": true
+              }
+            ],
+            "description": "Narrate a script (spike).",
+            "name": "narrate_script"
+          }
+        ],
+        "messages": [
+          {
+            "content": {
+              "text": "1. measure_voice for C:/voices/a.wav if it has no measurement. 2. check_text. 3. submit_job.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    {
+      "session": "modern",
+      "check": "subscriptions/listen: acknowledged, then notifications/resources/updated tagged with the listen id",
+      "ok": true,
+      "observed": {
+        "ack": {
+          "jsonrpc": "2.0",
+          "method": "notifications/subscriptions/acknowledged",
+          "params": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 18
+            },
+            "notifications": {
+              "resourceSubscriptions": [
+                "spike://jobs/j-listen"
+              ]
+            }
+          }
+        },
+        "events": [
+          {
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/updated",
+            "params": {
+              "_meta": {
+                "io.modelcontextprotocol/subscriptionId": 18
+              },
+              "uri": "spike://jobs/j-listen"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "session": "modern",
+      "check": "envelope without clientCapabilities: -32602",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "params._meta is missing the required envelope key(s): io.modelcontextprotocol/clientCapabilities"
+      }
+    },
+    {
+      "session": "modern",
+      "check": "a request with no envelope on a modern connection: -32602",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys"
+      }
+    },
+    {
+      "session": "modern",
+      "check": "an unknown protocol version: -32022 with the supported list",
+      "ok": true,
+      "observed": {
+        "code": -32022,
+        "message": "Unsupported protocol version",
+        "data": {
+          "supported": [
+            "2026-07-28"
+          ],
+          "requested": "2027-01-01"
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "initialize on a modern connection: -32022",
+      "ok": true,
+      "observed": {
+        "code": -32022,
+        "message": "connection is serving the 2026-07-28 protocol; the initialize handshake is not accepted",
+        "data": {
+          "supported": [
+            "2026-07-28"
+          ],
+          "requested": "2025-11-25"
+        }
+      }
+    },
+    {
+      "session": "modern",
+      "check": "ping (removed in 2026-07-28)",
+      "ok": true,
+      "observed": {
+        "code": -32601,
+        "message": "Method not found",
+        "data": "ping"
+      }
+    },
+    {
+      "session": "modern",
+      "check": "server saw the cancellation and exited cleanly",
+      "ok": true,
+      "observed": [
+        "spike_server: wait on j2 cancelled after 0.25 s"
+      ]
+    },
+    {
+      "session": "modern-first-no-envelope",
+      "check": "a first request with no envelope opens a legacy connection, which then wants initialize",
+      "ok": true,
+      "observed": {
+        "code": -32602,
+        "message": "Invalid request parameters",
+        "data": ""
+      }
+    }
+  ],
+  "passed": 48,
+  "failed": 0
+}

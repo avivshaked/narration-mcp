@@ -1,0 +1,176 @@
+"""Tool results: ``structuredContent``, its text copy, ``resource_link`` items, and tool errors (sections 5, 14).
+
+A successful call returns the backend's structured result, a JSON text copy of it for clients that read only
+``content``, and a ``file:///`` ``resource_link`` for every file the result names (audio, pictures, the
+report); audio is never inlined. A tool error is ``isError: true`` with ``structuredContent: {"error":
+Error}`` and a text copy. Both must validate against the tool's ``outputSchema``, because the SDK client
+checks ``structuredContent`` against it.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from collections.abc import Iterator, Mapping
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
+from typing import Any, Final
+
+import mcp_types as types
+from jsonschema.protocols import Validator
+
+from narration.contracts import codes
+from narration.contracts.errors import NarrationError
+from narration.contracts.models import Error
+from narration.contracts.serial import to_json
+
+from .validation import field_path
+
+LINKED_KEYS: Final = frozenset({"path", "report_md"})
+"""Keys whose string value is a file the caller may open: a take's delivery, a clip, a measurement's JSON,
+the job report. Pictures are linked from inside a ``pictures`` object."""
+PICTURES_KEY: Final = "pictures"
+MIME_TYPES: Final = {
+    ".wav": "audio/wav",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".md": "text/markdown",
+    ".json": "application/json",
+}
+
+
+def _absolute(value: str) -> PurePath | None:
+    """The path as an absolute pure path of its own flavour (a Windows path is absolute on Linux too)."""
+    for flavour in (PureWindowsPath, PurePosixPath):
+        path = flavour(value)
+        if path.is_absolute():
+            return path
+    return None
+
+
+def _file_values(value: Any, *, in_pictures: bool = False) -> Iterator[str]:
+    """Every file path in a result, in document order."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(item, str) and (in_pictures or key in LINKED_KEYS):
+                yield item
+            elif isinstance(item, (Mapping, list)):
+                yield from _file_values(item, in_pictures=key == PICTURES_KEY)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _file_values(item)
+
+
+def resource_links(structured: Mapping[str, Any]) -> list[types.ResourceLink]:
+    """A ``file:///`` link for every absolute file path the result names, once each (section 5)."""
+    links: list[types.ResourceLink] = []
+    seen: set[str] = set()
+    for value in _file_values(structured):
+        path = _absolute(value)
+        if path is None:
+            continue
+        uri = path.as_uri()
+        if uri in seen:
+            continue
+        seen.add(uri)
+        name = "/".join(path.parts[-2:]) if len(path.parts) > 2 else path.name
+        links.append(
+            types.ResourceLink(type="resource_link", uri=uri, name=name, mime_type=MIME_TYPES.get(path.suffix.lower()))
+        )
+    return links
+
+
+def _text(structured: Mapping[str, Any]) -> types.TextContent:
+    return types.TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))
+
+
+def success(structured: dict[str, Any]) -> types.CallToolResult:
+    """A successful call: ``structuredContent``, its text copy, then a link for every file it names."""
+    content: list[types.ContentBlock] = [_text(structured), *resource_links(structured)]
+    return types.CallToolResult(content=content, structured_content=structured, is_error=False)
+
+
+def tool_error(error: Error) -> types.CallToolResult:
+    """A tool execution error: ``isError: true`` with ``structuredContent: {"error": Error}`` and a text copy."""
+    structured = {"error": to_json(error)}
+    return types.CallToolResult(content=[_text(structured)], structured_content=structured, is_error=True)
+
+
+def from_narration_error(exc: NarrationError) -> types.CallToolResult:
+    """The tool error for a ``NarrationError`` the backend or the validator raised."""
+    return tool_error(exc.error)
+
+
+def internal_error(tool: str, exc: BaseException, *, log_path: Path | None) -> Error:
+    """The ``INTERNAL`` error for an exception inside a tool call (ADR 0001; section 14).
+
+    The message names the exception's type only: its text may carry the caller's values or local paths,
+    and it goes to the log instead, whose path is in ``details.log``.
+    """
+    details: dict[str, Any] = {"tool": tool, "exception": type(exc).__name__}
+    if log_path is not None:
+        details["log"] = str(log_path)
+    return Error(
+        code=codes.INTERNAL,
+        message=f"{tool} failed inside the service ({type(exc).__name__})",
+        retryable=False,
+        hint=codes.error_code(codes.INTERNAL).hint,
+        details=details,
+    )
+
+
+def non_finite_paths(value: Any) -> list[str]:
+    """The path of every NaN or infinite number in a result, anywhere in it: JSON has no such values."""
+    found: list[str] = []
+    stack: list[tuple[list[str | int], Any]] = [([], value)]
+    while stack:
+        parts, item = stack.pop()
+        if isinstance(item, float) and not math.isfinite(item):
+            found.append(field_path(parts) or "$")
+        elif isinstance(item, Mapping):
+            stack.extend(([*parts, str(k)], v) for k, v in item.items())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(([*parts, i], v) for i, v in enumerate(item))
+    return sorted(found)
+
+
+def output_failures(validator: Validator, structured: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Where a result breaks its tool's ``outputSchema`` or holds a non-finite number: each failure's path
+    and rule (``finite`` for NaN or infinity), never its value."""
+    failures = [
+        {"path": field_path(e.absolute_path) or "$", "rule": str(e.validator)}
+        for e in validator.iter_errors(dict(structured))
+    ]
+    reported = {f["path"] for f in failures}
+    failures += [{"path": p, "rule": "finite"} for p in non_finite_paths(structured) if p not in reported]
+    return failures
+
+
+def deadline_error(tool: str, seconds: float, *, log_path: Path | None) -> Error:
+    """The ``INTERNAL`` error for a write the backend did not finish within the front-end's deadline."""
+    details: dict[str, Any] = {"tool": tool, "deadline_s": seconds}
+    if log_path is not None:
+        details["log"] = str(log_path)
+    return Error(
+        code=codes.INTERNAL,
+        message=f"{tool}: the backend did not answer in time (within {seconds:g} s)",
+        retryable=False,
+        hint=(
+            "The outcome is unknown: read get_server_status (and get_job for a job you expect) before you send "
+            "the request again. If it recurs, report it with the log path in 'details'."
+        ),
+        details=details,
+    )
+
+
+def output_mismatch_error(tool: str, failures: list[dict[str, str]], *, log_path: Path | None) -> Error:
+    """The ``INTERNAL`` error for a backend result that does not match the tool's ``outputSchema``."""
+    details: dict[str, Any] = {"tool": tool, "output_schema_failures": failures[:20]}
+    if log_path is not None:
+        details["log"] = str(log_path)
+    return Error(
+        code=codes.INTERNAL,
+        message=f"{tool} produced a result that does not match its outputSchema",
+        retryable=False,
+        hint=codes.error_code(codes.INTERNAL).hint,
+        details=details,
+    )

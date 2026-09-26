@@ -1,0 +1,2 @@
+{"dir": "->", "msg": {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}}
+{"dir": "<-", "msg": {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "Invalid request parameters", "data": ""}}}
