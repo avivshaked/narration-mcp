@@ -1,0 +1,19 @@
+{
+  "set": "canary.v1",
+  "language": "en",
+  "voice": {
+    "description": "A warm, clear adult voice with a steady mid-range pitch and crisp, precise consonants. The delivery is calm and even, at an unhurried, measured pace, with gentle, natural intonation, like documentary narration recorded close to the microphone in a quiet studio.",
+    "design_text": "Far below the surface, where the light grows thin, small things live quiet lives. Some of them thrive, and some of them simply disappear, and the water keeps no record of either.",
+    "seed": 271828
+  },
+  "gate": {
+    "text": "Rain moved across the hills in the early evening, and one by one the lamps in the valley came on.",
+    "seed": 314159
+  },
+  "notes": [
+    "voice: what `narration-admin engine pin` designs the canary clip from with Qwen VoiceDesign on the installing machine (plan.md DC-3; design section 10.1). The clip's transcript is design_text.",
+    "voice.design_text is the service's default `[voice_design] design_text`, copied verbatim from design section 16.",
+    "gate: the fixed text and seed the canary gate renders with Qwen Base, cloning the canary clip, before every batch (design section 10.1). Whether the gate uses gate.seed or the section 10.3 derivation is WP32's decision; the text is fixed either way.",
+    "The description is positive-only (design section 3.5): it names the qualities wanted and uses no word from the negation list."
+  ]
+}
