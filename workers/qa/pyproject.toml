@@ -1,0 +1,51 @@
+[project]
+name = "narration-worker-qa"
+version = "0.1.0"
+description = "narration-mcp's QA worker: Whisper-large-v3 ASR, WavLM speaker embeddings, the CTC aligner and voice profiles (design section 4)."
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+requires-python = ">=3.12,<3.13"
+# Pins from the bakeoff's eval venv (plan.md P8), without praat-parselmouth (GPL; DC-1).
+# Licences: transformers Apache-2.0, torch/torchaudio BSD-3, soundfile BSD-3, numpy BSD-3, scipy BSD-3,
+# librosa ISC (f0 by pyin, DC-1; it brings soxr, LGPL-2.1+, replaceable), matplotlib (Matplotlib licence,
+# BSD-style: the profile's pictures), safetensors Apache-2.0.
+dependencies = [
+    "narration-worker",
+    "transformers==5.17.0",
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    "safetensors>=0.5",
+    "soundfile>=0.13,<1",
+    "numpy>=2,<3",
+    "scipy>=1.16,<2",
+    "librosa>=0.11,<2",
+    "matplotlib>=3.10,<4",
+]
+
+[dependency-groups]
+dev = ["pytest>=9.1,<10"]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.sources]
+narration-worker = { path = "../common", editable = true }
+torch = [{ index = "pytorch-cu128" }]
+torchaudio = [{ index = "pytorch-cu128" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-markers", "-m", "not model and not gpu and not evidence and not slow"]
+markers = [
+    "model: loads a model on the CPU (needs NARRATION_MODELS_ROOT)",
+    "gpu: needs an NVIDIA GPU and the GPU lock",
+    "evidence: reads the bakeoff's local evidence (needs NARRATION_BAKEOFF_ROOT)",
+    "slow: takes over a minute",
+]

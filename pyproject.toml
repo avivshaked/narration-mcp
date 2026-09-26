@@ -1,0 +1,108 @@
+[project]
+name = "narration"
+version = "0.1.0.dev0"
+description = "A local MCP server that designs voices with Qwen3-TTS, measures them, and narrates paragraphs of cues in QA'd, cue-aligned takes."
+readme = "README.md"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "LICENSE-DOCS", "THIRD_PARTY_NOTICES"]
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "Aviv Shaked" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: Other/Proprietary License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+# Every server dependency is declared here once (plan.md P7) and licence-checked (AGENTS.md rule 9).
+# Licences as read on PyPI, 2026-09-26.
+dependencies = [
+    "mcp>=2.2,<3",            # MIT: the MCP Python SDK (v2 line; spike j pins the exact version)
+    "jsonschema>=4.26,<5",    # MIT: in-handler argument validation (design section 14)
+    "rfc8785>=0.1.4,<0.2",    # Apache-2.0: RFC 8785 canonical JSON for every key (section 10.2)
+    "numpy>=2.3,<3",          # BSD-3-Clause
+    "scipy>=1.16,<2",         # BSD-3-Clause: resampling, filters (section 13)
+    "soundfile>=0.13,<1",     # BSD-3-Clause: audio I/O (never torchaudio.load/save)
+    "pyloudnorm>=0.2,<0.3",   # MIT: BS.1770-4 integrated loudness (section 13)
+    "jiwer==4.0.0",           # Apache-2.0: word alignment for WER and exact spans (section 11)
+    "rapidfuzz>=3.9,<4",      # MIT: fuzzy term matching (section 11.1); also jiwer's own dependency
+    "regex>=2024.11",         # Apache-2.0: the vendored Whisper English normaliser (plan.md P2)
+    "nvidia-ml-py>=12,<14",   # BSD-3-Clause: NVML free-VRAM check (section 4, GPU scheduler)
+    "psutil>=7,<8",           # BSD-3-Clause: process liveness and disk checks
+]
+
+[project.urls]
+Repository = "https://github.com/avivshaked/narration-mcp"
+
+[project.scripts]
+narration-mcp = "narration.mcp.__main__:main"
+narration-admin = "narration.admin.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1,<10",        # MIT
+    "pytest-timeout>=2.4,<3", # MIT
+    "ruff==0.16.9",           # MIT
+    "basedpyright==1.40.1",   # MIT: pyright with its Node runtime bundled, so nothing is fetched at run time
+    "narration-worker",       # this repository's workers/common: the fake worker used by the tests
+]
+
+[tool.uv.sources]
+narration-worker = { path = "workers/common", editable = true }
+
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"
+
+# ---------------------------------------------------------------- tests
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests", "workers/common/tests"]
+# The default run needs no GPU, no model and no bakeoff (AGENTS.md section 6). A later -m on the
+# command line replaces this one, e.g. `uv run pytest -m gpu`.
+addopts = ["-ra", "--strict-markers", "--import-mode=importlib", "-m", "not model and not gpu and not evidence and not slow"]
+markers = [
+    "model: loads a model on the CPU (needs NARRATION_MODELS_ROOT)",
+    "gpu: needs an NVIDIA GPU and the GPU lock",
+    "evidence: reads the bakeoff's local evidence (needs NARRATION_BAKEOFF_ROOT)",
+    "slow: takes over a minute",
+]
+timeout = 300
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+# ---------------------------------------------------------------- lint and format
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [".dev", "worktrees", ".pytest-tmp"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "TID", "S602", "S604", "S605", "S606"]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # curly quotes, dashes and other non-ASCII text are this project's subject
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"msvcrt".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"fcntl".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"winreg".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"ctypes.windll".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"ctypes.WinDLL".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"win32api".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"win32con".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"win32event".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"win32job".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"win32process".msg = "OS-specific code lives only in narration.platform (AGENTS.md section 6)"
+"torchaudio.load".msg = "Use soundfile for audio I/O (AGENTS.md section 6)"
+"torchaudio.save".msg = "Use soundfile for audio I/O (AGENTS.md section 6)"
+
+[tool.ruff.lint.per-file-ignores]
+"src/narration/platform/**" = ["TID251"]
+
+# ---------------------------------------------------------------- types
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["src", "tests", "tools", "workers/common"]
+exclude = ["**/.venv", ".dev", "worktrees", ".pytest-tmp", "**/__pycache__"]
+reportMissingModuleSource = "none"

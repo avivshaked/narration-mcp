@@ -55,6 +55,8 @@ These are the lead's choices where the design leaves room. The owner can overtur
 | P6 | **No audio, weights or checkpoints in git, ever**, unless the owner approves a specific file. The service's own **text** material (corpus, benchmark text, canary description, fixtures) and spike results (JSON/CSV/MD) *are* committed: they are part of the product (§15; Q5). Audio the service needs is generated on the installing machine (DC-3), or tracked by a manifest (path, sha256, how it was made) and kept under `.dev\`. | The owner's standing rule; the remote is public. |
 | P7 | **The server's dependencies are declared once, in Wave 0**, and only the lead edits `pyproject.toml` / `uv.lock` on `main` afterwards. A WP that needs a new package asks in its status file. | The lock file would otherwise conflict in every merge. |
 | P8 | **Worker pins start from the bakeoff's working venvs**: `qwen3tts` = Python 3.12, qwen-tts 0.1.1, transformers 4.57.3, accelerate 1.12.0, torch/torchaudio 2.11.0+cu128 (qwen-tts pins transformers and accelerate exactly); `qa` = Python 3.12, transformers 5.17.0 (the version the eval evidence used), torch/torchaudio 2.11.0+cu128, jiwer 4.0.0, soundfile; **not** praat-parselmouth, which the bakeoff used but is GPL (§1.3 item 3). Both use the `pytorch-cu128` index as the bakeoff's `pyproject.toml` does. | The evidence in §1 was made with these versions. The two transformers versions cannot share one venv. |
+| P9 | **The type checker is basedpyright** (MIT), a pyright fork, run as `uv run basedpyright` in `standard` mode. | pyright's PyPI wrapper downloads Node.js and the pyright package into the user's cache on first run, which is a write outside the project and a network fetch at check time; basedpyright ships both in its wheel. |
+| P10 | **Lint enforces two conventions**: ruff's banned-API rule refuses `msvcrt`, `fcntl`, `winreg`, `ctypes.windll`, the `win32*` modules and `torchaudio.load/save` outside `narration.platform`. | AGENTS.md §6 states them; a rule a machine checks is not forgotten in review. |
 
 ### 1.2 What the bakeoff gives us
 
@@ -627,10 +629,10 @@ Updated by the lead on `main` only.
 
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
-| WP00 | Bootstrap | 0 | – | – | `ready` | – | H0 answered 2026-09-26 |
-| WP01 | Contracts v1 | 0 | WP00 | – | `todo` | – | |
-| WP02 | Public project scaffolding | 0 | WP00 | – | `todo` | – | licences, README, design already in; beside WP01 |
-| WP03 | CI | 0 | WP00 | – | `todo` | – | can run beside WP01 |
+| WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
+| WP01 | Contracts v1 | 0 | WP00 | – | `active` | – | |
+| WP02 | Public project scaffolding | 0 | WP00 | – | `ready` | – | licences, README, design already in; beside WP01 |
+| WP03 | CI | 0 | WP00 | – | `ready` | – | can run beside WP01 |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `todo` | – | |
 | WP12 | Keys, seeds, store | 1 | WP01 | – | `todo` | – | |
 | WP13 | Delivery post-processing | 1 | WP01 | – | `todo` | – | |
@@ -747,3 +749,11 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   revision 2.
 - 2026-09-26: the owner approved `COMMERCIAL.md`, the README, DC-2 (backoff) and DC-3 (install-time
   canary), and asked for the push. `main` pushed to `origin`.
+- 2026-09-26: **WP00 done** (lead). Server project `narration` (uv, `uv_build`, Python 3.12) with every
+  server dependency declared and licence-checked (P7); worker projects `workers/qwen3tts` and `workers/qa`
+  locked universally for Windows and Linux x86-64 with the P8 pins; `workers/common` (`narration_worker`,
+  standard library only). pytest (markers, temp files kept in the checkout), ruff (with the banned-API rule,
+  P10) and basedpyright (P9). Tools: `gpu_lock.py`, `check_tracked.py` (now with tests), `new_worktree.py`,
+  `dev_models.py`. The dev models are copied and downloaded into `.dev\models`, hash-verified against the
+  Hub. Found on this machine: uv needs `UV_NATIVE_TLS=1` (TLS interception; design §17.8), recorded in
+  `AGENTS.local.md`.
