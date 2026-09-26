@@ -61,7 +61,7 @@ def test_relative_paths_resolve_against_the_config_folder(tmp_path: Path) -> Non
         {"server": {"store_root": "s", "models_root": "m"}, "engines": {"qwen3_base": {"typo": True}}},
         {"server": {"store_root": "s", "models_root": "m"}, "alignment": {"unplaced_below": 0.9}},
         {"server": {"store_root": "s", "models_root": "m"}, "alignment": {"low_confidence_below": 1.5}},
-        {"server": {"store_root": "s", "models_root": "m"}, "engines": {"qwen3_base": {"max_new_tokens_floor": 0}}},
+        {"server": {"store_root": "s", "models_root": "m"}, "engines": {"qwen3_base": {"max_new_tokens_floor": 1}}},
         {
             "server": {"store_root": "s", "models_root": "m"},
             "engines": {"qwen3_design": {"max_new_tokens_per_char": 0}},

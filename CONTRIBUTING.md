@@ -47,6 +47,13 @@ The pre-commit hook runs `tools/check_tracked.py`, which refuses local paths and
 weights, checkpoints, databases) in anything you stage. The commit-msg hook runs the same check on your
 commit message. If a hook refuses your change, fix the content — do not bypass the hook.
 
+The hooks also run `tools/check_private.py`, and the pre-push hook runs both checks on every commit you
+push. It matters if you work beside text that must not be published, such as someone's unreleased
+script. List its folders in the gitignored file `.dev/private-text.txt`, and optionally its invented
+names in `.dev/private-terms.txt`. The check then refuses any commit that copies a passage, a name or a
+distinctive number from that text. Nothing private is written into the repository. With no folders
+listed, the check does nothing.
+
 ## Test tiers
 
 The default suite needs no GPU, no downloaded model and no private evidence. It is what CI runs, and it

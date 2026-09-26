@@ -2215,8 +2215,11 @@ daemon computes the hashes. All times are in seconds.
 ← {"id":3,"ok":true}
 → {"id":4,"op":"synthesize","voice_hash":"sha256:…","engine_text":"…","language":"English","seed":1834112093,
     "max_new_tokens":868,"out_path":"…\\scratch\\job_…\\p03_a0.wav"}   // the call's cap (DC-4)
-← {"id":4,"ok":true,"sample_rate":24000,"samples":222240,"gen_s":21.3,"hit_token_cap":false}
-→ {"id":5,"op":"design","description":"…","design_text":"…","seed":2001,"max_new_tokens":400,"out_path":"…"}   // VoiceDesign
+← {"id":4,"ok":true,"sample_rate":24000,"samples":222720,"gen_s":21.3,"new_tokens":116,"max_new_tokens":868,
+    "hit_token_cap":false}   // new_tokens: decoded frames (at most the cap − 1); hit_token_cap: the last
+                             // token sampled was not the end token; max_new_tokens echoes the call's cap
+→ {"id":5,"op":"design","description":"…","design_text":"…","language":"English","seed":2001,"max_new_tokens":400,
+    "out_path":"…"}   // VoiceDesign
 → {"id":6,"op":"unload"}   → {"id":7,"op":"shutdown"}
 ← {"id":n,"ok":false,"error":{"code":"GPU_OOM","message":"CUDA out of memory …"}}
 // QA worker: transcribe {wav, word_timestamps, long_form} (GPU) · embed {wav, device} · f0 {wav}

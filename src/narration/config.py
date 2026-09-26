@@ -225,9 +225,9 @@ _RANGES: dict[tuple[str, str], tuple[float, float]] = {
     ("alignment", "low_confidence_below"): (0, 1),
     ("alignment", "unplaced_below"): (0, 1),
     ("engines.qwen3_base", "max_new_tokens_per_char"): (0.1, 100),
-    ("engines.qwen3_base", "max_new_tokens_floor"): (1, 8192),
+    ("engines.qwen3_base", "max_new_tokens_floor"): (2, 8192),
     ("engines.qwen3_design", "max_new_tokens_per_char"): (0.1, 100),
-    ("engines.qwen3_design", "max_new_tokens_floor"): (1, 8192),
+    ("engines.qwen3_design", "max_new_tokens_floor"): (2, 8192),
 }
 
 

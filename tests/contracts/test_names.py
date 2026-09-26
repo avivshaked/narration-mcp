@@ -52,12 +52,22 @@ def test_max_new_tokens_is_the_per_call_cap_dc4_s10_1(text: str, expected: int) 
 
 
 def test_max_new_tokens_counts_code_points_and_honours_a_lower_ceiling_dc4() -> None:
-    assert names.max_new_tokens_for("é" * 100, per_char=2.5, floor=1, ceiling=8192) == 250
+    assert names.max_new_tokens_for("é" * 100, per_char=2.5, floor=2, ceiling=8192) == 250
     assert names.max_new_tokens_for("a" * 1000, per_char=2.5, floor=128, ceiling=2048) == 2048
     assert names.MAX_NEW_TOKENS_CEILING == 8192
 
 
-@pytest.mark.parametrize(("per_char", "floor", "ceiling"), [(0.0, 128, 8192), (2.5, 0, 8192), (2.5, 128, 0)])
+def test_max_new_tokens_is_exact_decimal_arithmetic_dc4() -> None:
+    # A float ceil(1.1 * 50) is 56 (1.1 * 50 = 55.00000000000001); the cap reads 1.1 as 11/10, so it is 55.
+    assert names.max_new_tokens_for("a" * 50, per_char=1.1, floor=2, ceiling=8192) == 55
+    assert names.max_new_tokens_for("a" * 5, per_char=2.4, floor=2, ceiling=8192) == 12
+    assert names.max_new_tokens_for("a" * 10, per_char=0.7, floor=2, ceiling=8192) == 7
+    assert names.max_new_tokens_for("a", per_char=0.1, floor=2, ceiling=8192) == 2
+
+
+@pytest.mark.parametrize(
+    ("per_char", "floor", "ceiling"), [(0.0, 128, 8192), (2.5, 1, 8192), (2.5, 128, 1), (-1.0, 128, 8192)]
+)
 def test_max_new_tokens_refuses_a_meaningless_rule_dc4(per_char: float, floor: int, ceiling: int) -> None:
     with pytest.raises(ValueError, match="per_char"):
         names.max_new_tokens_for("text", per_char=per_char, floor=floor, ceiling=ceiling)

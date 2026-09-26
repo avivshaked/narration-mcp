@@ -1,4 +1,4 @@
 #!/bin/sh
-# Refuses a commit that stages a local path or binary data (AGENTS.md, hard rules 2 and 4).
+# Refuses a commit that stages a local path, binary data or private text (AGENTS.md, hard rules 1, 2 and 4).
 . "$(git rev-parse --show-toplevel)/tools/githooks/_python.sh"
-run_check --staged
+run_check --staged && run_tool check_private.py --staged
