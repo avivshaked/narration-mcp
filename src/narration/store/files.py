@@ -16,6 +16,7 @@ import hashlib
 import os
 import secrets
 import stat
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Final
@@ -100,11 +101,24 @@ def write_temp(
     return tmp, digest.hexdigest(), size
 
 
+REPLACE_ATTEMPTS: Final = 20
+"""How often a rename onto a file is tried. On Windows a reader that has the old file open makes the rename
+fail with "access denied" until it closes it (Python opens files without delete-sharing); readers of the
+store's files hold them for milliseconds, so a short retry rides that out."""
+
+
 def publish_temp(tmp: Path, path: Path) -> None:
     """Rename a finished temporary file into place, replacing a file already there (read-only or not)."""
-    if os.path.lexists(path):
-        make_writable(path)
-    os.replace(tmp, path)
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            if os.path.lexists(path):
+                make_writable(path)
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.005 * (attempt + 1))
 
 
 def write_atomic(path: Path, data: bytes | Iterable[bytes], *, readonly: bool, durable: bool = True) -> tuple[str, int]:

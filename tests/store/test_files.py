@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -94,3 +95,18 @@ def test_remove_tree_never_follows_a_link_out_of_the_store_s17_2(tmp_path: Path)
 def test_discard_is_quiet_about_a_missing_file(tmp_path: Path) -> None:
     files.discard(tmp_path / "missing")
     assert not os.path.lexists(tmp_path / "missing")
+
+
+def test_a_reader_holding_the_old_file_only_delays_a_replace(tmp_path: Path) -> None:
+    # On Windows the rename is refused while the old file is open; the write waits for the reader to close.
+    path = tmp_path / "daemon.json"
+    files.write_atomic(path, b'{"state":"idle"}', readonly=False, durable=False)
+    reader = open(path, "rb")  # noqa: SIM115 - held open on purpose, closed by the timer
+    timer = threading.Timer(0.05, reader.close)
+    timer.start()
+    try:
+        files.write_atomic(path, b'{"state":"busy"}', readonly=False, durable=False)
+    finally:
+        timer.join(timeout=10)
+        reader.close()
+    assert path.read_bytes() == b'{"state":"busy"}'
