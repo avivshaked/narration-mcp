@@ -4,10 +4,13 @@
 
 - it starts the worker from an argument list (never a shell), with the environment ``launch.worker_env``
   builds, and exchanges ``hello`` (the role and protocol version must match);
-- a worker that cannot start (no handler for its role, a handler that fails to import, a bad store: exit
-  code ``EXIT_START_FAILED``; or a venv without ``narration_worker``), a missing venv, or a role or protocol
-  mismatch is ``WorkerFailure`` (``BACKEND_NOT_INSTALLED``): the worker env is missing or broken (section
-  14), so it is not retryable and the daemon does not respawn the worker;
+- a worker that cannot start is ``WorkerFailure`` (``BACKEND_NOT_INSTALLED``): the worker env is missing
+  or broken (section 14), so it is not retryable and the daemon does not respawn the worker. That is a
+  missing venv; a worker that exits with ``EXIT_START_FAILED`` before ``hello`` (no handler for its role, a
+  handler or a dependency that cannot be imported, a bad command line); a venv without
+  ``narration_worker``; a venv whose base Python is gone (Windows' venv launcher says "No Python at");
+  a ``hello`` that replies ``BACKEND_NOT_INSTALLED`` (say, torch that cannot load); or a role or protocol
+  mismatch. Any other exit during start-up is ``WorkerCrashed``;
 - a writer thread sends requests, and a reader thread correlates replies with them by id, so requests may
   come from several threads; a request's timeout counts from the call, so a request queued behind a long
   one (or a large one the worker is not reading yet) never waits past its own timeout;
@@ -15,7 +18,10 @@
   reply comes in time (the worker is then stopped), and ``WorkerCrashed`` when the worker exits or writes
   anything that is not a protocol message (with its exit code and the tail of its stderr);
 - a crash is reported as soon as the worker's stdout closes, and, should a grandchild keep that pipe open,
-  within a fraction of a second of the process exiting; it is never waited out to the request's timeout;
+  within a fraction of a second of the process exiting; it is never waited out to the request's timeout.
+  A worker that stops reading its stdin while it runs on is stopped as soon as a write fails;
+- once the worker has failed (a crash, a timeout, a protocol break), the writer thread ends and our end of
+  its stdin is closed, whether or not ``close`` is ever called;
 - ``close`` sends ``shutdown``, waits, and kills the worker if it does not exit in time. It never blocks on
   a pipe a grandchild of the worker still holds open.
 
@@ -68,6 +74,12 @@ RELEASE_JOIN_S: Final = 2.0
 """How long ``close`` waits, in all, for the pipe threads to finish before leaving their streams open."""
 _NO_WORKER_PACKAGE: Final = re.compile(r"No module named '?narration_worker'?\s*$", re.MULTILINE)
 """What Python says when the venv has no ``narration_worker`` at all (it then exits with code 1)."""
+_NO_BASE_PYTHON: Final = re.compile(r"^No Python at '", re.MULTILINE)
+"""What Windows' venv launcher says when the venv's base Python is gone (it then exits with code 103)."""
+LAUNCHER_EXIT_CODES: Final = range(101, 110)
+"""The exit codes of Windows' venv launcher for its own failures (``RC_CREATE_PROCESS`` 101 and on)."""
+WRITE_FAILURE_GRACE_S: Final = 1.0
+"""After a write to the worker fails, how long it has to exit before the client stops it."""
 STDERR_CATCH_UP_S: Final = 1.0
 """How long a crash report waits for the worker's last stderr lines once its stdout has closed."""
 
@@ -328,6 +340,7 @@ class SubprocessWorkerClient:
             self._failure = (message, exit_code)
             waiting = list(self._pending.values())
             self._pending.clear()
+        self._outbox.put(None)  # the writer ends and closes our end of stdin, closed or not
         tail = self.stderr_tail()
         if not self._closing:
             log.error("%s; stderr tail:\n%s", message, tail[-2000:])
@@ -383,9 +396,24 @@ class SubprocessWorkerClient:
                 stream.write(data)
                 stream.flush()
         except (OSError, ValueError) as exc:
-            log.debug("writing to the %s worker failed (%s); its exit will be reported", self.role, exc)
+            self._write_failed(exc)
         finally:
             _close_quietly(stream)
+
+    def _write_failed(self, exc: BaseException) -> None:
+        """A write to the worker failed. If it is exiting, its exit is reported as usual; if it runs on
+        without reading its stdin, it is stopped now, so waiting requests fail at once, not at their timeout."""
+        proc = self._proc
+        if proc is None or self._failure is not None:
+            return
+        try:
+            proc.wait(timeout=WRITE_FAILURE_GRACE_S)
+        except subprocess.TimeoutExpired:
+            self._stop(
+                f"the {self.role} worker could not be written to ({exc}) and kept running; the client stopped it"
+            )
+            return
+        log.debug("writing to the %s worker failed (%s) as it exited; its exit is reported", self.role, exc)
 
     def _pump_stdout(self, stream: IO[bytes]) -> None:
         reason: str | None = None
@@ -458,8 +486,11 @@ class SubprocessWorkerClient:
 
 def _start_failed(exc: WorkerCrashed) -> bool:
     """Whether a worker that exited before ``hello`` could not start: its env is missing or broken."""
-    return exc.exit_code == EXIT_START_FAILED or (
-        exc.exit_code == 1 and _NO_WORKER_PACKAGE.search(exc.stderr_tail) is not None
+    code, tail = exc.exit_code, exc.stderr_tail
+    return (
+        code == EXIT_START_FAILED
+        or (code == 1 and _NO_WORKER_PACKAGE.search(tail) is not None)
+        or (code in LAUNCHER_EXIT_CODES and _NO_BASE_PYTHON.search(tail) is not None)
     )
 
 

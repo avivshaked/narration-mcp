@@ -113,6 +113,46 @@ def test_deterministic_algorithms_refuse_to_run_without_the_cublas_workspace_s10
     assert caught.value.code == "INTERNAL"
 
 
+@pytest.fixture
+def broken_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Modules that are installed but cannot be loaded, the ways real ones fail."""
+    sources = {
+        "narration_test_dll_fails": "raise OSError('[WinError 126] The specified module could not be found')\n",
+        "narration_test_dependency_missing": "import narration_test_absent_dependency\n",
+        "narration_test_extension_fails": "raise ImportError('DLL load failed while importing _C')\n",
+    }
+    for name, source in sources.items():
+        (tmp_path / f"{name}.py").write_text(source, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+
+def test_a_module_that_is_not_installed_is_none_s4(broken_modules: None) -> None:
+    assert determinism.import_optional("narration_test_not_installed_at_all") is None
+    assert determinism.import_optional("narration_test_not_installed_at_all.sub") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "error"),
+    [
+        ("narration_test_dll_fails", "OSError: [WinError 126] The specified module could not be found"),
+        (
+            "narration_test_dependency_missing",
+            "ModuleNotFoundError: No module named 'narration_test_absent_dependency'",
+        ),
+        ("narration_test_extension_fails", "ImportError: DLL load failed while importing _C"),
+    ],
+)
+def test_a_module_installed_but_unloadable_is_backend_not_installed_s4(
+    broken_modules: None, name: str, error: str
+) -> None:
+    """torch's DLLs failing on Windows raise OSError: that is a broken env, not "no torch" and not INTERNAL."""
+    with pytest.raises(OpError) as caught:
+        determinism.import_optional(name)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert caught.value.details == {"module": name, "error": error}
+    assert "narration-admin install" in caught.value.message
+
+
 def test_without_torch_nothing_is_applied_s10_1(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(determinism, "import_optional", lambda name: None)
     assert determinism.apply_determinism(determinism.parse_determinism(dict(SWITCHES))) == {"torch": False}

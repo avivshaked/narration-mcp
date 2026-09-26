@@ -114,7 +114,7 @@ class FakeHandler(WorkerHandler):
         self.registry = Registry(context.store_root)
         self.tally = Tally(context.store_root)
         self.spec_source = SpecSource()
-        self.spec_source.current()  # a broken spec stops the worker at start-up
+        self.spec_source.current()  # a broken spec crashes the worker at start-up (SpecError)
         self.loaded = False
         self.max_new_tokens = DEFAULT_MAX_NEW_TOKENS
         self.voices: dict[str, str] = {}

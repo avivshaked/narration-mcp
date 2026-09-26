@@ -8,6 +8,9 @@
       qwen3 = "narration_qwen3tts.worker:Qwen3Handler"
 
 - ``--handler module:Class`` names a class directly (development and tests).
+
+A handler module that cannot be imported, whether it raises ``ImportError`` or ``OSError`` (on Windows, a
+native library such as torch's DLLs failing to load), is ``RoleUnavailable``: the worker's env is broken.
 """
 
 from __future__ import annotations
@@ -42,8 +45,8 @@ def resolve_handler(role: WorkerRole, spec: str | None = None) -> type[WorkerHan
     try:
         module = importlib.import_module(module_name)
         cls = getattr(module, attr)
-    except (ImportError, AttributeError) as exc:
-        raise RoleUnavailable(f"cannot load the {role!r} handler {target!r}: {exc}") from exc
+    except (ImportError, AttributeError, OSError) as exc:
+        raise RoleUnavailable(f"cannot load the {role!r} handler {target!r}: {type(exc).__name__}: {exc}") from exc
     if not (isinstance(cls, type) and issubclass(cls, WorkerHandler)):
         raise RoleUnavailable(f"{target!r} is not a WorkerHandler subclass")
     if cls.role != role:

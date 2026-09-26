@@ -64,14 +64,14 @@ def main(argv: list[str] | None = None) -> int:
     from .loop import serve
     from .roles import RoleUnavailable, resolve_handler
 
+    # Only a missing or unloadable handler, or a dependency its constructor cannot import, means the worker's
+    # env is missing or broken (EXIT_START_FAILED, which the daemon reports as BACKEND_NOT_INSTALLED and does
+    # not retry). Any other exception from a constructor crashes the worker like any other crash.
     try:
         handler_cls = resolve_handler(args.role, args.handler)
         handler = handler_cls(WorkerContext(role=args.role, store_root=store.resolve(), cpu_threads=args.cpu_threads))
-    except RoleUnavailable as exc:
-        log.error("%s", exc)
-        return EXIT_START_FAILED
-    except Exception:
-        log.exception("the %s handler could not start", args.role)
+    except (RoleUnavailable, ImportError) as exc:
+        log.error("the %s worker cannot start: %s", args.role, exc, exc_info=isinstance(exc, ImportError))
         return EXIT_START_FAILED
     return serve(handler, streams.reader, streams.writer)
 

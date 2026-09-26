@@ -8,6 +8,10 @@ replies to it and calls ``shutdown()`` first). A method returns the reply's memb
 
 **Contract every role keeps** (the shared contract tests check it):
 
+- the constructor (``__init__``) is cheap and must not touch the GPU: no CUDA, no model, no torch import
+  (``self.torch()`` imports torch on first use; models load in ``load``). An ``ImportError`` from it (a
+  missing dependency) stops the worker with ``EXIT_START_FAILED``, which the daemon reports as
+  ``BACKEND_NOT_INSTALLED`` and does not retry; any other exception crashes the worker like any other crash;
 - an op that needs a model replies ``NOT_LOADED`` before ``load``, and after ``unload``, before it reads
   any file or checks its other fields;
 - ``load`` checks that each snapshot directory it is given exists before anything else, and replies

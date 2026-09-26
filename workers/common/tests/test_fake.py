@@ -532,10 +532,11 @@ def test_stdout_noise_never_reaches_the_protocol_stream_appA(store: Path) -> Non
         assert f"planted noise on {source}" in stderr or f"planted noise from {source}" in stderr, source
 
 
-def test_an_invalid_spec_stops_the_worker_at_start_with_exit_code_two(store: Path) -> None:
+def test_an_invalid_spec_crashes_the_worker_at_start_wp40(store: Path) -> None:
+    """A bad spec is the test's mistake, not a missing env: a crash (exit 1), not ``EXIT_START_FAILED``."""
     with fake(store, {"faults": [{"kind": "explode"}]}) as worker:
-        assert worker.wait(TIMEOUT) == 2
-        assert "explode" in worker.stderr_text() or "kind" in worker.stderr_text()
+        assert worker.wait(TIMEOUT) == 1
+        assert "SpecError: faults[0].kind must be one of" in worker.stderr_text()
 
 
 def test_a_spec_file_edited_while_running_takes_effect_wp40(store: Path) -> None:
