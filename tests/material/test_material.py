@@ -31,6 +31,7 @@ from narration.contracts import codes, names, schemas
 from narration.contracts.models import Hint, SegmentIn, SegmentText
 from narration.contracts.serial import from_json, to_json
 from narration.lint import lint
+from narration.qa.profile import QaProfile
 from narration.text import TextPipeline, canonical_form, spoken_length, words
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -558,8 +559,9 @@ def test_qa_spec_is_well_formed_s20(spec: dict[str, Any]) -> None:
     assert "unsure" not in spec, "every open point is settled; a spec's note says which rule it pins"
 
 
-def test_the_reference_bleed_spec_plants_words_of_its_voices_transcript_s11_1() -> None:
-    """The bleed the spec plants is the tail of the transcript it names: the canary's design text."""
+def test_the_reference_bleed_spec_isolates_the_bleed_rule_s11_1() -> None:
+    """The spec plants the tail of the transcript it names (the canary's design text), and too few words for
+    a head insertion to fail on its count alone, so only the bleed rule can fail it (QA's profile)."""
     spec = next(s for s in qa_specs() if s["name"] == "fault_head_insertion_reference_bleed")
     transcript = spec["voice_transcript"]
     assert transcript == load(CANARY, "canary.json")["voice"]["design_text"]
@@ -567,3 +569,5 @@ def test_the_reference_bleed_spec_plants_words_of_its_voices_transcript_s11_1() 
     assert spec["render"]["text"].endswith(spoken) and spec["asr"]["text"].endswith(spoken)
     bleed = spec["render"]["text"][: -len(spoken)].strip()
     assert bleed and transcript.lower().endswith(bleed.lower())
+    profile = QaProfile()
+    assert profile.bleed_min_words <= len(words(bleed)) < profile.insertion_fail_words

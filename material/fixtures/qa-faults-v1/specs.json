@@ -63,7 +63,7 @@
       "name": "fault_head_insertion_reference_bleed",
       "kind": "fault",
       "design": ["11.1", "20 (Phase 3)"],
-      "about": "Words of the voice's own transcript are heard before cue 0: reference bleed, a known ICL failure.",
+      "about": "The last two words of the voice's own transcript are heard before cue 0: reference bleed, a known ICL failure. Two extra words alone only warn (a head insertion fails at three), so only the bleed rule fails it.",
       "segment": {
         "segment_id": "fault-head-insertion-reference-bleed",
         "cues": [
@@ -74,13 +74,13 @@
       "hints": [],
       "voice_transcript": "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen.",
       "render": {
-        "text": "A gentle warmth fills the whole kitchen. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+        "text": "Whole kitchen. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
       },
       "asr": {
-        "text": "A gentle warmth fills the whole kitchen. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+        "text": "Whole kitchen. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
       },
       "expect": {"flags": [{"code": "HEAD_INSERTION", "severity": "fail"}], "retake_trigger": true, "verdict": "fail"},
-      "note": "voice_transcript is the design text of canary.v1, standing in for any voice's transcript."
+      "note": "voice_transcript is the design text of canary.v1, standing in for any voice's transcript. The two extra words also raise WER_HIGH; the spec pins HEAD_INSERTION, which fails here only through the bleed rule."
     },
     {
       "name": "boundary_head_insertion_one_word",
