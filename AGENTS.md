@@ -21,6 +21,19 @@ Base. Every take comes back QA'd and cue-aligned.
 1. **Nothing leaves this machine except source code pushed to `origin`** (`git@github.com:avivshaked/narration-mcp.git`,
    a **public** repo). Never upload, post or sync audio, model weights, checkpoints, datasets, secrets, or
    files the user owns. Only the lead pushes.
+   - **Private text counts.** The bake-off's scripts, transcripts and outputs are the owner's private
+     story. Never put a sentence, fragment, paraphrase, name or distinctive number from them in any tracked
+     file (code, tests, spike results, READMEs, status files, ADRs) or in a commit message.
+     - Evidence tests read such text at run time from `NARRATION_BAKEOFF_ROOT` and never embed it, not even
+       in a comment or an assertion message.
+     - Spike results keep numbers keyed by the bake-off's ids (n05, d2, seed1), never text.
+     - Unit tests use invented sentences and invented names.
+     - Names that `docs/design.md` itself cites may be cited where it cites them.
+   - `tools/check_private.py` enforces this in the git hooks, on every commit you make and every commit
+     that is pushed. Run it on your branch before you ask for review:
+     `py -3.12 tools/check_private.py --commits main..HEAD --base main`.
+   - A commit that carries private text must be **rewritten** out of the branch before the branch is
+     pushed. A later commit that removes the text does not unpublish it.
 2. **No audio, weights or binary data in git.** `*.wav`, `*.flac`, `*.mp3`, `*.safetensors`, `*.bin`,
    `*.pt`, `*.pth`, `*.onnx` and `*.sqlite` are gitignored; never force-add them. Audio the service ships
    (such as the canary clip) is tracked by a manifest (path, sha256, how it was made) and kept under
@@ -78,7 +91,7 @@ spikes/<letter>-<slug>/     Phase 0 spikes: script + results (JSON/CSV/MD) + REA
 docs/decisions/NNNN-*.md    ADRs: one decision each, with evidence labelled KNOW / BELIEVE / ASSUME
 tests/<area>/               tests per area; worker tests under workers/<role>/tests/
 status/WPnn.md              your WP's status report (only you edit yours)
-tools/                      dev tools: check_tracked.py, githooks/ (enable: git config core.hooksPath tools/githooks), gpu_lock.py, worktree helper
+tools/                      dev tools: check_tracked.py, check_private.py, githooks/ (enable: git config core.hooksPath tools/githooks), gpu_lock.py, worktree helper
 .dev/        (gitignored)   uv-cache/ models/ stores/<worktree>/ gpu.lock/ fixtures/
 worktrees/   (gitignored)   one git worktree per active WP
 ```
@@ -106,6 +119,7 @@ up as a request in your status file.
    - your WP's acceptance tests pass;
    - the whole default suite passes (`uv run pytest`);
    - `uv run ruff check`, `uv run ruff format --check` and `uv run basedpyright` are clean;
+   - `py -3.12 tools/check_private.py --commits main..HEAD --base main` exits 0 (no private text);
    - you have rebased onto `main`;
    - the status file says `review`.
    Then stop and report. Do not merge.

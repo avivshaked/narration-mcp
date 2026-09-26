@@ -10,6 +10,9 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `tools/check_private.py`, run by the git hooks and by a new pre-push hook on every pushed commit: it
+  refuses a commit that copies a passage, a name or a distinctive number from private text the
+  developer lists locally (`.dev/private-text.txt`). It does nothing when no private text is listed.
 - Each Qwen render passes its own generation cap, min(8192, max(128, ceil(2.5 × characters))), set by
   `max_new_tokens_per_char` and `max_new_tokens_floor` under `[engines.*]`. A render that runs away
   stops after about a minute, not twenty, and is flagged `TOKEN_CAP_HIT`. A render that ends under its

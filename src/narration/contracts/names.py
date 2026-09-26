@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Final, Literal, get_args
 
 from narration_worker.protocol import WorkerRole as WorkerRole
@@ -211,6 +212,10 @@ MAX_NEW_TOKENS_CEILING: Final = 8192
 1.3): the most any render may generate. The engine profile records the effective value; pass that."""
 
 
+MIN_MAX_NEW_TOKENS: Final = 2
+"""The smallest cap a Qwen worker accepts: qwen-tts hard-codes ``min_new_tokens=2``."""
+
+
 def max_new_tokens_for(text: str, *, per_char: float, floor: int, ceiling: int) -> int:
     """The cap one ``synthesize`` or ``design`` call passes (design section 10.1, DC-4).
 
@@ -219,7 +224,11 @@ def max_new_tokens_for(text: str, *, per_char: float, floor: int, ceiling: int) 
     ``max_new_tokens_per_char``/``max_new_tokens_floor``, hashed into its engine profile. ``len`` counts
     code points of the NFC text. The cap only truncates (ADR 0003), so a render that ends under its cap is
     the same with any cap; a render that reaches it is ``TOKEN_CAP_HIT``.
+
+    The product is exact: ``per_char`` is read as the decimal it is written as (2.4 is 12/5), so the cap
+    never depends on binary rounding (a float ``ceil(1.1 * 50)`` is 56, not 55). ``floor`` and ``ceiling`` are at
+    least ``MIN_MAX_NEW_TOKENS``, since qwen-tts always generates two tokens.
     """
-    if per_char <= 0 or floor < 1 or ceiling < 1:
-        raise ValueError("per_char must be positive, and floor and ceiling at least 1")
-    return min(ceiling, max(floor, math.ceil(per_char * len(text))))
+    if per_char <= 0 or floor < MIN_MAX_NEW_TOKENS or ceiling < MIN_MAX_NEW_TOKENS:
+        raise ValueError(f"per_char must be positive, and floor and ceiling at least {MIN_MAX_NEW_TOKENS}")
+    return min(ceiling, max(floor, math.ceil(Fraction(repr(per_char)) * len(text))))

@@ -1,4 +1,4 @@
 #!/bin/sh
-# Refuses a commit message that contains a local path (AGENTS.md, hard rule 4).
+# Refuses a commit message that contains a local path or private text (AGENTS.md, hard rules 1 and 4).
 . "$(git rev-parse --show-toplevel)/tools/githooks/_python.sh"
-run_check --msg-file "$1"
+run_check --msg-file "$1" && run_tool check_private.py --msg-file "$1"
