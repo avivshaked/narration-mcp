@@ -182,7 +182,13 @@ class HintApplied:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ExactWords:
-    """An exact span with its word range: ``words`` = [first word, end word), half-open (App. B)."""
+    """An exact span with its word range (App. B).
+
+    ``start`` and ``end`` are code-point offsets into the cue as sent, echoed as the caller gave them.
+    ``words`` = [first word, end word), half-open, counting the cue's spoken words as
+    ``narration.text.words`` defines them (a token of punctuation only is not a word). QA and the aligner
+    use the same indices.
+    """
 
     start: int
     end: int

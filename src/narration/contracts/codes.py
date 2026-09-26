@@ -215,6 +215,7 @@ HEAD_INSERTION: Final = "HEAD_INSERTION"
 END_INSERTION: Final = "END_INSERTION"
 SILENCE_LONG: Final = "SILENCE_LONG"
 CLIPPING: Final = "CLIPPING"
+SIGNAL_INVALID: Final = "SIGNAL_INVALID"
 TOKEN_CAP_HIT: Final = "TOKEN_CAP_HIT"
 CUE_UNALIGNED: Final = "CUE_UNALIGNED"
 CUE_LOW_CONFIDENCE: Final = "CUE_LOW_CONFIDENCE"
@@ -280,6 +281,12 @@ FLAGS: Final[dict[str, FlagCode]] = {
         FlagCode(END_INSERTION, ("warn", "fail"), "at_fail", "words after the last cue"),
         FlagCode(SILENCE_LONG, ("warn", "fail"), "at_fail", "longest internal silence"),
         FlagCode(CLIPPING, ("warn",), "never", "raw samples at full scale"),
+        FlagCode(
+            SIGNAL_INVALID,
+            ("warn", "fail"),
+            "at_fail",
+            "non-finite samples (fail) or a DC offset (warn) in the raw take (section 11.1 step 1; plan DC-5)",
+        ),
         FlagCode(TOKEN_CAP_HIT, ("fail",), "always", "generation stopped at max_new_tokens"),
         FlagCode(CUE_UNALIGNED, ("warn",), "always", "cue not placed; times null; never interpolated"),
         FlagCode(CUE_LOW_CONFIDENCE, ("warn",), "never", "alignment posterior below threshold"),

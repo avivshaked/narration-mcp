@@ -46,6 +46,14 @@ def test_the_fake_role_implements_every_op_of_both_real_workers_app_a() -> None:
         assert set(worker.COMMON_OPS) <= set(role_ops)
 
 
+def test_worker_protocol_optional_keys_are_optional_at_run_time_appA() -> None:
+    import narration_worker.protocol as protocol
+
+    assert protocol.Reply.__required_keys__ == {"id", "ok"}
+    assert protocol.Reply.__optional_keys__ == {"error"}
+    assert "controls" in protocol.Capabilities.__optional_keys__
+
+
 def test_worker_protocol_is_one_definition_appA() -> None:
     import narration_worker.protocol as protocol
 
