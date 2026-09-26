@@ -78,7 +78,13 @@ after `1814b3b`. Resume in this order:
    stop a waiter; `[0-9]` in `_STORE_TIME`); see `status/WP30.md` for which are done. The lead checks
    that diff, renumbers the contract to 1.6.4 on rebase, and merges with design text for §4, §4.1 and
    §17 item 9 (the lead's drafted edit; next revision).
-4. **WP31** (`wp/31-jobs`, b98d4a5): fixed; its reviewer's re-verification was cut short (re-run it).
+4. **WP31** (`wp/31-jobs`, b98d4a5, status handoff 2cb9905): fixed; its reviewer's re-verification was cut
+   short. Done: both checks, `tests/jobs` once (107 passed), a full read (F1–F5 closed on reading, the F9
+   replay and the invariants sound). A candidate Medium, not yet confirmed: the lease keeper starts a
+   thread per piece of work, and the store opens one connection per thread and closes it only at
+   `store.close()`, so each renewal may leave a connection open for the daemon's life. Resume with the
+   reviewer's probes P1–P8 in the worktree's gitignored `.pytest-tmp/review31/test_review31b.py` (P6 is
+   the connection count), then `tests/jobs` twice more, ruff, basedpyright and the full suite.
    After WP30 merges: rebase, contracts 1.6.5, the seam re-export, `DEFAULT_RUNNER`, `host.platform`,
    `CUDA_DEVICE_ORDER=PCI_BUS_ID`, one exported log name. The lead's decisions are in `status/WP31.md`:
    one job at a time (priority, then first come; affinity keeps the resident group, never reorders);
