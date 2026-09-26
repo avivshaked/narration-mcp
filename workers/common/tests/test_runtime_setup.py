@@ -7,12 +7,15 @@ is that the right switches are set, not torch itself. The worker venvs' own test
 from __future__ import annotations
 
 import random
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from narration_worker import determinism, fingerprint, threads
+from narration_worker import handler as handler_module
 from narration_worker.errors import OpError
+from narration_worker.handler import WorkerContext, WorkerHandler
 
 
 class _FakeTorch:
@@ -200,3 +203,28 @@ def test_an_unreadable_fact_is_unknown_not_a_failure_s10_1() -> None:
     nvml = SimpleNamespace(nvmlInit=broken, nvmlShutdown=broken)
     fp = fingerprint.collect(cpu_threads=4, nvml=nvml, environ={})
     assert (fp["gpu"], fp["driver"]) == (None, None)
+
+
+def test_a_torch_role_gets_torch_with_the_thread_cap_applied_once_s4_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    torch = _FakeTorch()
+    imports: list[str] = []
+
+    def fake_import(name: str) -> Any:
+        imports.append(name)
+        return torch if name == "torch" else None
+
+    monkeypatch.setattr(handler_module, "import_optional", fake_import)
+
+    class _TorchQa(WorkerHandler):
+        role = "qa"
+
+    worker = _TorchQa(WorkerContext(role="qa", store_root=tmp_path, cpu_threads=6))
+    assert worker.torch() is torch
+    assert worker.torch() is torch
+    assert (torch.threads, torch.interop) == (6, 4)
+    assert imports.count("torch") == 1
+    fingerprint = worker.fingerprint()
+    assert (fingerprint["cuda"], fingerprint["cudnn"]) == ("12.8", "91002")
+    assert imports.count("torch") == 1

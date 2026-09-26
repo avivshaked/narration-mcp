@@ -16,7 +16,10 @@ replies to it and calls ``shutdown()`` first). A method returns the reply's memb
 - file paths in a request are absolute and inside ``<store_root>``; outputs are written only there.
 
 The helpers below validate request members and paths, so each role reports a bad request the same way:
-``INVALID_REQUEST`` with ``details.field``.
+``INVALID_REQUEST`` with ``details.field``. A role that uses torch gets it from ``self.torch()``, which applies
+the CPU thread cap once (section 4.1); its ``load`` applies the request's switches with
+``determinism.apply_determinism(determinism.parse_determinism(request["determinism"]), self.torch())``, and each
+render seeds with ``determinism.seed_everything(seed, torch=self.torch())`` (sections 10.1, 10.3).
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from .determinism import import_optional
 from .errors import OpError
 from .fingerprint import collect
 from .protocol import OPS_BY_ROLE, PROTOCOL_VERSION, Capabilities, Controls, Fingerprint, WorkerRole
+from .threads import cap_torch_threads
 
 Request = Mapping[str, Any]
 """A decoded request: ``id``, ``op`` and the op's members."""
@@ -54,12 +58,26 @@ class WorkerHandler:
     fingerprint_packages: ClassVar[tuple[str, ...]] = ()
     """Distributions whose versions go in the fingerprint (``narration-worker`` is always there)."""
     uses_torch: ClassVar[bool] = True
-    """Whether the fingerprint reads torch and NVML. A role without torch (the fake) sets it False."""
+    """Whether the role uses torch (and the fingerprint reads torch and NVML). The fake sets it False."""
 
     def __init__(self, context: WorkerContext) -> None:
         if context.role != self.role:
             raise ValueError(f"{type(self).__name__} serves role {self.role!r}, not {context.role!r}")
         self.context = context
+        self._torch: Any | None = None
+
+    def torch(self) -> Any | None:
+        """torch, imported on first use with the CPU thread cap applied (section 4.1); None if the role does
+        not use torch or it is not installed."""
+        if not self.uses_torch:
+            return None
+        if self._torch is None:
+            module = import_optional("torch")
+            if module is None:
+                return None
+            cap_torch_threads(self.context.cpu_threads, module)
+            self._torch = module
+        return self._torch
 
     # ------------------------------------------------------------------ the framework's side
     @property
@@ -125,9 +143,10 @@ class WorkerHandler:
 
     def fingerprint(self) -> Fingerprint:
         """The fingerprint (``fingerprint.collect``), with torch and NVML facts when ``uses_torch``."""
-        torch = import_optional("torch") if self.uses_torch else None
         nvml = import_optional("pynvml") if self.uses_torch else None
-        return collect(cpu_threads=self.context.cpu_threads, packages=self.fingerprint_packages, torch=torch, nvml=nvml)
+        return collect(
+            cpu_threads=self.context.cpu_threads, packages=self.fingerprint_packages, torch=self.torch(), nvml=nvml
+        )
 
     # ------------------------------------------------------------------ paths inside the store
     def input_file(self, request: Request, name: str) -> Path:
