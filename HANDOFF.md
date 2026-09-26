@@ -1,52 +1,25 @@
 # HANDOFF
 
-*Updated 2026-09-26, evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-26, late evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
 
-- **Stage: Wave 0 is done except WP01. Wave 1 is fanned out.**
-  - Merged into `main` and pushed: WP00 (bootstrap), WP02 (scaffolding, PR #2), WP03 (CI, PR #1),
-    design revision 5.2 (DC-1 to DC-3), and WP18 (the service's own material as drafts, PR #3).
-  - **WP01 (contracts, lead)** is on `wp/01-contracts` in `worktrees\wp01-contracts`. A Fable review of it
-    is being applied; the fixes may still change the contracts.
-- **Wave 1 runs as a git stack.** WP10, WP12, WP14, WP16 and WP19 are branched from `wp/01-contracts`,
-  not from `main`, so they could start before WP01 merged.
-  - If a contract they use changes, message those agents.
-  - When WP01 merges, each of them rebases onto `main`. The commits already in `main` drop out.
-- **Agents working now:**
-
-  | WP | Worktree | Model |
-  |---|---|---|
-  | WP10 | `worktrees\wp10-text` | Opus 5.5 |
-  | WP12 | `worktrees\wp12-store` | Opus 5.5 |
-  | WP14 | `worktrees\wp14-qa` | Opus 5.5 |
-  | WP16 | `worktrees\wp16-workers` | Opus 5.5 |
-  | WP19 | `worktrees\wp19-platform` | Opus 5.5 |
-
-  Each agent's report lands in `status\WPnn.md` in its worktree.
-- **Waiting to start:**
-  - WP17 (the MCP front end) has spike (j) and ADR 0001 done on `wp/17-mcp`. It resumes after WP01 merges.
-  - WP13 and WP15 start as slots free.
-  - WP20 is held (see below).
-- **Incidents on 2026-09-26: two hard hangs, cause found.** The first was at about 17:14 and the second at
-  about 18:16. Both were Kernel-Power 41 with no bugcheck and no dump.
-  - **The cause (KNOW, from the logs):** Avast's Auto-Sandbox took full custody of a venv launcher `.exe`
-    1 to 3 minutes before each hang: `basedpyright.exe` the first time, `basedpyright.exe` and
-    `pytest.exe` the second. It did that only three times all month.
-  - **The fix:**
-    - Agents run every tool as `uv run python -m pytest|basedpyright|ruff`, never through the launchers.
-      This is in `AGENTS.local.md` and `.dev\brief-common.md`.
-    - The owner turned Avast's shields off for the session. With them off, the same launchers ran
-      cleanly and Avast logged nothing.
-    - The durable fix is the owner's: an Auto-Sandbox exception for the projects folder, or
-      Auto-Sandbox off.
-  - Not the cause: memory (64 GB, no low-memory events), GPU load (we used none), and the 5-minute
-    Hyper-V VM cycle (a coincidence the first time; absent the second time). The machine's older display
-    watchdog dumps and GPU timeouts (August to 25 Sep) predate this project.
-  - After each restart, `git fsck` was clean. Uncommitted work in the worktrees survived on disk.
-  - **GPU work (WP20 and every GPU WP after it) is still on hold** until the owner says the machine is
-    fine to load models on.
+- **Stage: Wave 0 done; Wave 1 mostly in review; the GPU lane is running.**
+  - Merged into `main` and pushed: WP00, WP01 (contracts, PR #4), WP02, WP03, WP10 (text, PR #6),
+    WP18 (material drafts, PR #3) and WP19 (platform, PR #5).
+  - **Contracts 1.1** (PR #7) is in CI: the Wave 1 reviews' requests, plus the lead gap-fills DC-5 and DC-6.
+  - **In review:** WP12 (store), WP14 (QA), WP16 (workers) and WP17 (MCP front end). A read-only reviewer
+    agent is checking each branch (WP16 and WP17 share one). After that: merge each (PR), after
+    contracts 1.1.
+  - **Running:** WP13 (post-processing), WP15 (alignment, CPU) and **WP20 (the Qwen worker and GPU
+    spikes)**.
+- **GPU:** the owner lifted the hold on 2026-09-26 evening ("proceed with a working service"). Avast's
+  shields are off, and the owner is at the machine to investigate any freeze. WP20 holds the GPU lock in
+  bounded runs of 30 minutes or less.
+- **Hangs:** two hard hangs on 2026-09-26, caused by Avast's Auto-Sandbox taking custody of venv launcher
+  `.exe`s. Agents run every tool as `uv run python -m …`. Details: plan.md §9 and `AGENTS.local.md`.
+- **Agents:** at most 6 at once. Opus 5.5 by default; Fable for the hardest problems.
 
 ## Decided (details in plan.md §1.4 and §1.5)
 
@@ -69,7 +42,9 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Waiting on the owner
 
-- **Whether GPU work may start** after the crash.
+- **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
+  the hangs.
+- **DC-5 and DC-6** (lead gap-fills, plan.md §1.5): the owner may overrule either.
 - **Gate H1:** listening to about 10 renders of the service's own texts before the corpus is frozen. The
   suggested sample is in `status/WP18.md`. It needs the GPU.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
@@ -82,26 +57,23 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps
 
-0. **Resume point after the second hang (2026-09-26, 18:30).** Every agent was stopped mid-work, and their
-   work is on disk. Resume each one by `SendMessage` to its agent id; the transcripts are saved. Tell each
-   one to use `python -m` for every tool, and to re-read its worktree's `AGENTS.local.md`.
-
-   | WP | State | Agent id |
-   |---|---|---|
-   | WP10 | Uncommitted text, lint and tests. Its `material/` copy is untracked and identical to `main`: delete it before rebasing onto `main`. | `aa4257c5ade2b7a92` |
-   | WP12 | Keys committed (d53bcd9); store uncommitted. | `ae9960d6968fad493` |
-   | WP14 | QA code uncommitted. | `a8afe69ab845d6718` |
-   | WP16 | The whole worker package uncommitted. | `a66dcf85f3bbf472e` |
-   | WP17 | Phase 2 just started; ADR 0001 edit uncommitted. | `a7fc4e8bbedc32ede` |
-   | WP19 | Seam committed (e14dcb8); tests uncommitted. Its process and Job Object tests have **never run yet**. | `a5266d36bbeec76db` |
-   | WP01 | Its Fable records-keys review was interrupted. | `a332abe3753e402f0` (read-only, no file writes) |
-
-   Then merge WP01.
-1. Apply the review's confirmed findings to WP01. Merge it (PR), then tell the stacked agents to rebase.
-2. Resume WP17. Start WP13 and WP15 as agents finish.
-3. Review and merge each Wave 1 WP as it reaches `review` (plan.md §2.4).
-4. Wave 2's CPU-only WPs (WP30, WP31, WP36, WP37) once their dependencies merge. The GPU WPs wait for the
-   owner.
+1. Merge contracts 1.1 (PR #7). Then, as their reviews come back, merge WP12, WP14, WP16 and WP17
+   (rebase onto `main`, PR, CI, `--no-ff`). Tell WP13, WP15 and WP20 to rebase after each merge they
+   need (WP20 needs WP16, and WP15 needs WP10 and WP16).
+2. Open follow-ups:
+   - WP17: schema size bounds on `segments`, `cues` and `hints` become `LIMIT_EXCEEDED` (§14 names
+     them request-size limits).
+   - WP14: switch its word adapter to `narration.text.words`, and its local signal code to
+     `codes.SIGNAL_INVALID`.
+   - WP12: refuse a reused `idempotency_key` (DC-6).
+   - WP18: the fixture changes WP10 listed; switch `tests/material` to `narration.text`.
+3. Wave 2 on the CPU once its dependencies merge:
+   - WP30 (daemon: WP12, WP16, WP19);
+   - WP31 (job engine: WP12 to WP14, WP16);
+   - then WP36 (front end to daemon) and WP37 (CLI).
+   On the GPU: WP22 (QA worker) after WP15 and WP16, then WP32 (engine profiles and canary). This is the
+   path to a working service.
+4. Gate H1 (the owner listens to about 10 renders) once WP20's worker renders.
 
 ## Things a new session should know
 

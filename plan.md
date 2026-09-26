@@ -375,16 +375,16 @@ error and on a planted `.wav`.
 
 | WP | Title | Design | Owns | Depends | GPU |
 |---|---|---|---|---|---|
-| WP10 | Text pipeline + negation lint | §7.2 canonical form/join/spoken length/exact spans, §9.1, §9.3, §3.5 | `narration.text`, `narration.lint`, `tests\text` | WP01 | no |
-| WP12 | Keys, seeds and store | §10.2, §10.3, §15, §17.2, §4 item 6, §6 | `narration.keys`, `narration.store`, `tests\store` | WP01 | no |
-| WP13 | Delivery post-processing | §13 | `narration.post`, `tests\post` | WP01 | no |
-| WP14 | QA logic (pure) | §11.1, §11.3, §8 (suggestion), consistency, listen-first, report | `narration.qa`, `tests\qa` | WP01 | no |
-| WP15 | Cue alignment | §11.2 | `narration.align` (pure) + the `align` op in `workers\qa` | WP01 | no (CPU model) |
-| WP16 | Worker protocol, common package, fake worker | App. A, §4 workers, §4.1 thread caps | `workers\common`, `narration.workers` (client), the `fake` role | WP01 | no |
-| WP17 | MCP front-end skeleton | §5, §7, §14 | `narration.mcp`, `tests\mcp` | WP01 | no |
+| WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `review` | `wp/12-store` | reviewer running; DC-6 |
+| WP13 | Delivery post-processing | 1 | WP01 | – | `active` | `wp/13-post` | |
+| WP14 | QA logic (pure) | 1 | WP01 | – | `review` | `wp/14-qa` | reviewer running; DC-5 |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `review` | `wp/16-workers` | reviewer running |
+| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `review` | `wp/17-mcp` | reviewer running; ADR 0001 accepted |
 | WP18 | The service's own material | §3.2, §11.2, §10.1 canary, §15, Phase 4 demo | `material\` | WP01 (for the text rules) | no (listening: H1) |
-| WP19 | Platform seam (Windows only) | §4, §4.1, §17.2, Q2 | `narration.platform`, `tests\platform` | WP01 | no |
-| WP20 | GPU lane: Qwen worker + Phase 0 GPU spikes | §10.1, App. A, §20 (d)(e)(f)(h)(i) | `workers\qwen3tts`, `spikes\` | WP16 (protocol) | **yes** |
+| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `active` | `wp/20-gpu-lane` | owner lifted the GPU hold 2026-09-26 evening; sets the tier |
 
 **WP10 Text pipeline + lint.** Sanitise (control characters, `[` `]` `<|` `|>` → `TEXT_REFUSED`),
 canonical form, join, the `text` = join check, spoken length in code points, exact spans → word ranges
@@ -635,7 +635,7 @@ Updated by the lead on `main` only.
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
 | WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
-| WP01 | Contracts v1 | 0 | WP00 | – | `active` | `wp/01-contracts` | Fable review being applied; Wave 1 stacked on it |
+| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; two Fable review passes applied; contracts 1.1 in PR #7 |
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `active` | `wp/10-text` | stacked on WP01 |
@@ -799,3 +799,14 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - The durable fix (an exception, or Auto-Sandbox off) is the owner's.
   - Nothing committed was lost. The Wave 1 agents were resumed from their worktrees.
 
+- 2026-09-26, evening: **WP01 merged (PR #4); WP19 (PR #5) and WP10 (PR #6) merged.**
+  - WP01's second Fable pass (records, keys, protocol) had 5 findings, all applied: `voice_hash`'s model
+    is the Base repo id and it applies NFC itself; `Alignment.model`/`revision` are optional; `JobRecord.request`
+    is a dict; `EngineProfile.tier` is unhashed; `QaInputs.hints` are the hints used in the segment.
+  - `CHANGELOG.md` now merges with the union driver (`.gitattributes`), since every WP adds a line.
+  - **The owner lifted the GPU hold** ("proceed with a working service"; Avast off, owner at the machine).
+    WP20 started, holding the GPU lock in bounded runs.
+  - WP12, WP14, WP16 and WP17 reached `review`; one read-only reviewer per branch (WP16 and WP17 share
+    one). WP13 and WP15 are running.
+  - Contracts 1.1 (PR #7) answers the reviews' requests, with two lead gap-fills, DC-5 (`SIGNAL_INVALID`)
+    and DC-6 (a reused `idempotency_key` with a different request is refused).
