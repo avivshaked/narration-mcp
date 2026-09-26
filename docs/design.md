@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.8 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.9 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -62,6 +62,12 @@ applied here, each listed in the revision history below.*
   text, written for it in place of the bake-off's reference text, since the bake-off's texts are private
   (section 16; it is also the canary's text, DC-3). Section 3.1 and the examples in section 7.3 and
   Appendices A and B follow.*
+- *Revision 5.9 (the same day) describes the cue aligner as built (section 11.2).
+  - DC-11: a word that cannot be spelled, such as a number in digits, becomes a wildcard token that
+    absorbs its speech.
+  - A cue next to an unplaceable cue's speech snaps only to a pause within reach of its own words.
+  - Confidence counts letters and apostrophes.
+  - The method id also covers the reaches, the wildcard and the versions of the rules.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -599,7 +605,7 @@ item, to add only if agents shortlist badly from the numbers.
 - On the GPU: Whisper-large-v3 and WavLM-base-plus-sv, the same models as `eval/`.
 - On the CPU: the **CTC aligner**, `facebook/wav2vec2-large-960h-lv60-self` (apache-2.0; the default,
   owner decision Q18). It is an English character model, so it spells invented names letter by letter.
-  It runs through `torchaudio.functional.forced_align`, BELIEVED to run on this build's CPU (section 1).
+  It runs through `torchaudio.functional.forced_align`, on this build's CPU (KNOW; spike (b)).
 - Only if Phase 0 chooses it: `Qwen/Qwen3-ForcedAligner-0.6B` instead, on the GPU in the QA group,
   through the `qwen-asr` package (in the QA worker's venv if its library versions agree, otherwise in a
   worker venv of its own). The silence snap and the Whisper cross-check apply to it unchanged.
@@ -1589,14 +1595,26 @@ seconds):
 
 1. **Transcript.** Spoken text per cue, in the model's alphabet (letters folded to A–Z with accents
    dropped, apostrophe, `|` between words; a hyphen inside a word becomes `|` too). Spoken text should
-   hold no digits (R6). A token with characters outside the alphabet, a digit or symbol left in, is
-   already a text warning; it is left out of the transcript, and the words around it still align.
+   hold no digits (R6). A word with characters outside the alphabet, a digit or symbol left in, is
+   already a text warning. It cannot be spelled, but its speech is in the audio, so each run of such
+   words inside one cue becomes one wildcard token `*` (DC-11), mapped to the run's first word.
+   - The worker aligns `*` through one extra emission column, log(1 − P(blank)) per frame, floored at
+     1e-6. So it absorbs speech but not silence, and the words around it keep their places.
+   - A run never crosses a cue boundary.
+   - A word of a hinted term that `align_as` gives no letters gets no wildcard, because the term's other
+     words spell its speech.
+   - A cue with no letter to place, whose words are all wildcards or which has none, is unplaced (step
+     7, `no_alignable_words`). A wildcard's span is neither precise enough to time a cue nor evidence
+     that the cue was spoken.
+   - A cue whose first or last word is a wildcard takes that edge from the wildcard's span when no pause
+     snaps it (v1; the span may miss part of the word's speech).
+
    Hinted terms use `align_as` letters if given, otherwise their spoken letters. A token → (cue, word)
    map is kept.
 2. **Emission.** `facebook/wav2vec2-large-960h-lv60-self` (revision pinned) **on the CPU**, with the
    thread cap. A 35–45 s paragraph fits in one pass at 20 ms frames.
-3. **Viterbi.** `torchaudio.functional.forced_align` + `merge_tokens` (BELIEVED to run on this build's
-   CPU; Phase 0 re-checks and saves it).
+3. **Viterbi.** `torchaudio.functional.forced_align` + `merge_tokens` (KNOW: they run on this build's
+   CPU; spike (b)).
    - **Guard:** `forced_align` **raises** when the frames are fewer than tokens + repeats. The worker
      pre-checks `T ≥ L + R` and also catches the exception.
    - Either way, every cue of the take becomes `CUE_UNALIGNED` and the take gets `ALIGNMENT_ERROR`
@@ -1605,7 +1623,14 @@ seconds):
    silence gap between the two aligned words (20 ms energy frames). With no gap, the CTC times are kept
    and `CUE_BOUNDARY_NO_PAUSE` (info) is added. The first onset and last offset are snapped the same
    way.
-5. **Confidence.** The mean token posterior per cue. Below `low_confidence_below` (0.75, ASSUME;
+   - **A cue never takes speech it does not own.** This covers the speech of an unplaceable cue next to
+     it, including the cues before the first placed cue and after the last.
+   - Next to such speech, an edge snaps only to a pause within reach of its own aligned words: at most
+     `snap_reach_start_s` (0.12 s, ASSUME) of speech between the pause and the cue's first letter, or
+     `snap_reach_end_s` (0.28 s, ASSUME) between its last letter and the pause. Spike (b) part 4 measured
+     at most 0.10 s and 0.26 s where the edge is the cue's own.
+   - Otherwise the edge keeps the CTC time, and `CUE_BOUNDARY_NO_PAUSE` is added with `details.edge`.
+5. **Confidence.** The mean posterior of the cue's letters and apostrophes (not `|`, not `*`). Below `low_confidence_below` (0.75, ASSUME;
    set from the benchmark): `CUE_LOW_CONFIDENCE`.
 6. **Cross-check.** At each boundary, compare with Whisper's word boundary where the neighbouring words
    match (names excluded). A difference above 0.25 s (ASSUME; set from the benchmark) gives
@@ -1617,8 +1642,9 @@ seconds):
 8. **Output**: `cues[]` with `words[]` in delivery-file seconds, and `alignment` {method
    `ctc-forced-align+silence-snap`, model, revision, cross-check, measured error, flags}.
    - The analysis key names the aligner by its **method id**, `ctc-snap/<model>@<revision>+p<12 hex>`.
-     The hash covers every setting the aligner decides by (the pause and snap parameters and the
-     thresholds), so a changed threshold changes the key and no cached verdict is reused.
+     The hash covers every setting the aligner decides by (the pause and snap parameters, the reaches
+     and the thresholds), the wildcard's column, and the versions of the transcript's and the resolver's
+     rules. So a changed setting or rule changes the key, and no cached verdict is reused.
 
 **Accuracy (R1): measured and published, not promised.** The service sets no target for callers. How
 much error a caller can bear is the caller's. The service measures its own error and publishes it with
