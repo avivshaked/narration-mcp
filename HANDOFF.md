@@ -5,10 +5,11 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
 
-- **Stage: Wave 1 is merged except WP15; Wave 2 is under way.**
+- **Stage: Wave 1 is merged; Wave 2 is under way.**
   - Merged into `main` and pushed: WP00–WP03, WP01, WP10, WP12, WP13, WP14, WP16 (with follow-ups),
-    WP17, WP18 (draft, with its follow-ups), WP19, WP20, contracts 1.1–1.6.1, and the private-text
-    guard. Design revision 5.8. Main has 2602 tests passing, and the Qwen worker's own suite 152.
+    WP15, WP17, WP18 (draft, with its follow-ups), WP19, WP20, contracts 1.1–1.6.2, and the
+    private-text guard. Design revision 5.9. Main has 2727 tests passing; the Qwen worker's own suite
+    has 152 and the QA worker's 82.
   - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before
     merge, and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
   - **Private text:** the bake-off's scripts and transcripts are the owner's private story, and the
@@ -17,9 +18,9 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
     - The lead runs it on every branch before pushing, and every reviewer runs it.
     - The main checkout's gitignored `.dev/private-text.txt` and `.dev/private-terms.txt` configure it for
       every worktree.
-  - **WP15** (alignment): fixes re-verified; merging, with design revision 5.9 (§11.2) and contracts 1.6.2.
+  - **WP22** (QA worker): building; GPU runs in bounded slots under the lock.
   - **WP30** (daemon): fixing its review's BLOCK and findings, with the seam changes WP31 needs.
-  - **WP31** (job engine): built, in independent review.
+  - **WP31** (job engine): fixing its review's findings (F1 High), splitting `engine.py`, adding §4 item 3.
   - **Follow-ups:**
     - WP12's (`wp/12-followups`): reviewed; fixing gc's lock bound, a reader gap during a replace and a
       mid-publish gc case.
@@ -75,19 +76,18 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 1. Merge as each branch comes back. Before any push, run
    `py -3.12 tools/check_private.py --commits main..<branch> --base main`; the pre-push hook runs it too.
    Then: full suite, PR, CI, `--no-ff`, remove the worktree.
-   - WP15 now.
    - WP12's follow-ups after their fixes.
+   - WP22 after an independent review.
    - WP30 after its fixes and its reviewer's re-verification (it had a BLOCK).
    - WP31 after its review and after WP30. It then re-exports WP30's seam and swaps the daemon's
      `DEFAULT_RUNNER` for `narration.jobs.runner:default_runner`.
    - WP16's second set of follow-ups after a quick review.
 2. The lead's edits at merge:
-   - WP15: §11.2 steps 1, 3, 4, 5 and 8 from `status/WP15.md` (revision 5.9); DC-11 met; contracts 1.6.2
-     in plan.md's WP01 row.
    - WP30: design §4.1 (the daemon runs as `pythonw.exe`), and §17 (workers start in their project folder,
      with `NoDefaultCurrentDirectoryInExePath=1` on Windows and `PATH` kept, and `python -P`).
-   - WP31: contract changes it asked for (`hello` on `interfaces.WorkerClient`; `JobRecord.result`'s
-     docstring covers the job's suggestions and consistency report).
+   - WP31: its lead-authorised contracts 1.6.3 (`hello` on `interfaces.WorkerClient`; `JobRecord.result`'s
+     docstring); §7.3 and §8 say that `outcome` is `needs_attention` only for a verdict-fail suggestion or a
+     segment with no take.
 3. Follow-ups not yet assigned:
    - **WP36 must restamp** cached QA results with the request's segment id and exact-span offsets, and turn
      `QaUnavailable` into the segment's `QA_UNAVAILABLE`. Its backend write calls must finish well inside
@@ -106,10 +106,13 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
      cue, and consider a separate reach for wildcard edges.
    - **WP37**: a worker's `BACKEND_NOT_INSTALLED` sticks for the daemon's lifetime, so after
      `narration-admin install` repairs a worker, the daemon must restart (or gain a `reset_workers` command).
-   - **WP36** starts the daemon with `narration.daemon.ensure_daemon`.
+   - **WP36** starts the daemon with `narration.daemon.ensure_daemon`. It reads the aligner's
+     `measured_error` from the current benchmark, not from a cached analysis (a re-benchmark of the same
+     method does not change the analysis key).
 4. **Wave 2**, in dependency order:
    - on the CPU: WP30 and WP31 (building), then WP36 and WP37;
-   - on the GPU: WP22 (QA worker) after WP15, then WP32 (engine profiles and canary).
+   - on the GPU: WP22 (QA worker, building), then WP32 (engine profiles and canary; it also assembles
+     the job engine's `installed_engine`), and WP38 (alignment benchmark; needs gates H2, H3).
 5. Gate H1 (the owner listens to about 10 renders) once the full pipeline renders.
 
 ## Things a new session should know

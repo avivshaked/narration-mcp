@@ -654,15 +654,15 @@ Updated by the lead on `main` only.
 | WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; follow-ups on `wp/12-followups` (items 1–9, WP30's two store races included): reviewed, merge with follow-ups; fixing gc's lock bound, a reader gap in a replace, and a mid-publish gc case |
 | WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
 | WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `review` | `wp/15-align` | DC-11's wildcard built; F1–F4 fixed and re-verified (merge); merging with design revision 5.9 |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
 | WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups a–e merged; follow-ups 2 building on `wp/16-worker-followups` (the fake's `load` matched to qwen3, one shared WAV writer, WP14's `CUE_UNALIGNED` reason) |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; the service's own default design text (DC-13, design 5.8); fixtures settled with WP10; H1 still to listen |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
-| WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
+| WP22 | QA worker | 2 | WP16, WP15 | yes | `active` | `wp/22-qa-worker` | started 2026-09-26 night; DC-1; the QA half of spike (h); WavLM revision to pin |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | review: BLOCK (test clean-up could kill a reused pid); fixing it and the findings (an unreadable status file, a job stranded at idle exit, `-P`, the platform seam) |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `review` | `wp/31-jobs` | built; acceptance criteria tested; independent review |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `active` | `wp/31-jobs` | review: merge with follow-ups; fixing F1 (a failed engine guard left Qwen marked loaded) and F2–F14, splitting `engine.py`, adding §4 item 3's grouping |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
@@ -913,3 +913,16 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     - WP22's worker accepts the language as the engine sends it, or the engine maps it.
   - **README:** the status now says what is built and that the service cannot be installed yet, and the
     measured VRAM of the voice models is stated.
+- 2026-09-26, night, later still:
+  - **WP15 merged (PR #22).** Its reviewer re-verified the fixes and found no new defect. Design revision
+    5.9 describes the aligner as built (§11.2). DC-11 is applied and met. Contracts 1.6.2.
+  - **WP22 (the QA worker) started.** It is the first Wave 2 package on the GPU; WP32, WP33 and WP34 wait
+    on it.
+  - **WP31's review: merge with follow-ups.** The invariants and the acceptance criteria hold. The High
+    finding: a job that failed the engine guard left Qwen marked loaded, so the next job would render
+    unguarded (latent until WP32 wires the guard). The lead's decisions:
+    - execution errors (out of memory after its retry, a crash, `QA_UNAVAILABLE`) are not retaken;
+    - `outcome` is `needs_attention` only when a segment's suggestion is a verdict fail or a segment has
+      no take, as §8's tier 4 says; warnings alone leave `all_passed` (§7.3 and §8 to say so at merge);
+    - §4 item 3's grouping across queued jobs is in WP31's scope, not an accepted deviation;
+    - WP36 reads `measured_error` from the current benchmark, not from a cached analysis.

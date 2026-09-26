@@ -12,7 +12,7 @@ voice**, and the time of every line within that audio.
 > - the worker protocol;
 > - the Qwen3-TTS worker.
 >
-> The alignment, the background daemon and the job engine are in review. This README describes what is
+> The cue alignment is merged. The background daemon and the job engine are in review, and the QA worker is being built. This README describes what is
 > being built, and it will say plainly when a first version can be installed. [plan.md](plan.md) §4 has
 > the current status of every part.
 
