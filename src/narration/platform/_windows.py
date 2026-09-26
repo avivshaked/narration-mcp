@@ -72,9 +72,10 @@ SINGLETON_PREFIX: Final = "Global\\narration-mcp.daemon."
 """The daemon mutex's name before the store path's hash. Never change it: a daemon of an older version and
 one of a newer version must still exclude each other on the same store."""
 
-DAEMON_RETRY_AFTER_S: Final = 10.0
-"""``retry_after_s`` of ``DAEMON_UNAVAILABLE`` when breakaway is refused: time for an operator to run
-``narration-admin daemon start`` and for the daemon to come up (DC-2 asks every retryable error for one)."""
+DAEMON_RETRY_AFTER_S: Final = 60.0
+"""``retry_after_s`` of ``DAEMON_UNAVAILABLE`` when breakaway is refused (DC-2 asks every retryable error for
+one). The fix needs a person: someone must read the hint, run ``narration-admin daemon start`` in a terminal,
+and let the daemon come up. A retry sooner than that fails the same way (lead ruling, WP19 review)."""
 
 
 # ---------------------------------------------------------------- kernel32
