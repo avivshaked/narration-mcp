@@ -6,8 +6,10 @@
    quietly, unless that daemon says it is ``stopping``: then this one waits up to ``takeover_wait_s`` for
    it to go, and takes over, so a job queued while a daemon was exiting is not left waiting. If the holder
    says ``idle`` or ``busy`` again meanwhile (it found work as it was about to exit), this one gives up;
-2. records its own pid and start time, sweeps up after the previous daemon (``sweep``), and writes
-   ``run/daemon.json`` (``idle``);
+2. records its own pid and start time, sweeps up after the previous daemon (``sweep``), writes
+   ``run/daemon.json`` (``idle``), and reads the pending commands once: a ``stop`` is for the service, not
+   for one daemon process, so the daemon that holds the singleton when it reads a pending ``stop`` (even
+   one posted while it waited for the singleton) honours it, before any work;
 3. opens the worker supervisor (its kill-on-close group) and starts the runner thread, which drives the
    ``JobRunner`` one ``step`` at a time, unloads idle models after ``idle_unload_s``, and asks to exit
    after ``idle_exit_s`` with nothing to do. It says ``stopping`` first, then asks the runner ``has_work``
@@ -220,6 +222,7 @@ class Daemon:
             report.previous,
         )
         self._board.set_state("idle")
+        self._handle_commands()  # a stop already pending is honoured before any work (see the docstring)
         code = EXIT_OK
         try:
             with self._supervisor_factory(self._workers_changed) as supervisor:

@@ -19,8 +19,9 @@ to disk first, so a crash or a power loss can leave it empty or cut short. ``rea
 died (``sweep(..., previous_unreadable=True)``), a daemon that finds the singleton held as a holder that is
 not stopping, and ``start.running_daemon`` as no daemon.
 
-**Stale commands.** A ``stop`` or ``stop_now`` posted before this daemon started was meant for a daemon
-that is gone; it is completed without stopping this one. ``release_gpu`` is always answered normally.
+**Commands.** The sweep leaves every pending command alone. A ``stop`` is for the service, not for one daemon
+process: whichever daemon holds the singleton when it reads a pending ``stop`` honours it, even one posted
+before it started or while it waited for the singleton.
 """
 
 from __future__ import annotations
@@ -114,7 +115,6 @@ class SweepReport:
     previous_pid: int | None
     requeued: tuple[str, ...]
     cancelled: tuple[str, ...]
-    stale_commands: tuple[str, ...]
 
 
 def sweep(
@@ -163,29 +163,18 @@ def sweep(
         changed = return_job(store, job.job_id, reason=reason)
         if changed is not None:
             (requeued if changed.status == "queued" else cancelled).append(job.job_id)
-    stale: list[str] = []
-    since = parse_iso(started_at)
-    for command in store.pending_commands():
-        if command.kind in ("stop", "stop_now") and parse_iso(command.requested_at) < since:
-            store.complete_command(
-                command.command_id,
-                {"stopped": False, "reason": "it was posted before this daemon started, for a daemon that is gone"},
-            )
-            stale.append(command.command_id)
     report = SweepReport(
         previous=kind,
         previous_pid=previous.pid if previous is not None else None,
         requeued=tuple(requeued),
         cancelled=tuple(cancelled),
-        stale_commands=tuple(stale),
     )
-    if kind == "died" or requeued or cancelled or stale:
+    if kind == "died" or requeued or cancelled:
         log.warning(
-            "previous daemon: %s (pid %s); jobs queued again: %s; cancels finished: %s; stale commands: %s",
+            "previous daemon: %s (pid %s); jobs queued again: %s; cancels finished: %s",
             kind,
             report.previous_pid,
             ", ".join(requeued) or "none",
             ", ".join(cancelled) or "none",
-            ", ".join(stale) or "none",
         )
     return report

@@ -251,19 +251,12 @@ def test_the_sweep_waits_for_a_daemon_still_exiting_s4_1(store: NarrationStore) 
     assert len(calls) >= 4
 
 
-def test_a_stop_posted_before_the_daemon_started_is_not_honoured_s4_1(store: NarrationStore) -> None:
-    stale_stop = store.post_command("stop")
-    stale_now = store.post_command("stop_now")
-    stale_release = store.post_command("release_gpu")
+def test_the_sweep_leaves_every_command_to_the_daemon_s4_1(store: NarrationStore) -> None:
+    # A stop is for the service, not for one daemon process (lead's decision): none is discarded as stale.
+    posted = {store.post_command(kind).command_id for kind in ("stop", "stop_now", "release_gpu")}
     time.sleep(0.01)
-    report = sweep(store, None, started_at=utc_iso(time.time() + 1.0))
-    assert set(report.stale_commands) == {stale_stop.command_id, stale_now.command_id}
-    for command in (stale_stop, stale_now):
-        done = store.wait_for_command(command.command_id, timeout_s=0)
-        assert done is not None and done.result is not None
-        assert done.result["stopped"] is False
-    pending = {c.command_id for c in store.pending_commands()}
-    assert pending == {stale_release.command_id}, "release_gpu is answered by the daemon as usual"
+    sweep(store, None, started_at=utc_iso(time.time() + 1.0))
+    assert {c.command_id for c in store.pending_commands()} == posted
 
 
 def test_the_sweep_needs_no_process_but_the_recorded_pid(store: NarrationStore) -> None:

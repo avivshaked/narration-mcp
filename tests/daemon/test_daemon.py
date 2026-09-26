@@ -241,17 +241,36 @@ def test_an_unreadable_status_of_the_holder_is_not_a_daemon_stopping_s4(
     assert planted.read_bytes() == b"", "it wrote nothing"
 
 
-def test_a_stale_stop_does_not_stop_a_new_daemon_s4_1(run_daemon: DaemonFactory, store: NarrationStore) -> None:
-    stale = store.post_command("stop")
+def test_a_stop_posted_before_the_daemon_started_stops_it_before_any_work_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore
+) -> None:
+    job = make_job(store, "Never taken.")
+    posted = store.post_command("stop")
     time.sleep(0.02)
-    daemon = run_daemon(NullRunner())
-    daemon.wait_serving()
-    done = store.wait_for_command(stale.command_id, timeout_s=10)
-    assert done is not None and done.result is not None and done.result["stopped"] is False
-    time.sleep(0.3)
-    assert daemon.thread.is_alive()
-    daemon.command("stop")
+    runner = HoldJob()
+    daemon = run_daemon(runner)
     assert daemon.join() == EXIT_OK
+    done = store.wait_for_command(posted.command_id, timeout_s=0)
+    assert done is not None and done.result == {"stopped": True, "requeued": []}
+    assert runner.job is None and job_status(store, job).status == "queued", "no step was taken"
+
+
+def test_a_stop_posted_while_waiting_for_the_singleton_is_honoured_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, platform: StandInPlatform
+) -> None:
+    # A stop is for the service, not for one daemon process: B, which holds the singleton when it reads the
+    # stop, completes it by stopping, though the stop was posted before B took the singleton.
+    with platform.hold(store.root):
+        store.put_daemon_status(status("stopping", NO_SUCH_PID, utc_iso(time.time())))
+        daemon = run_daemon(NullRunner(), takeover_wait_s=20.0)
+        time.sleep(0.3)
+        assert daemon.thread.is_alive(), "it waits while the holder says it is stopping"
+        posted = store.post_command("stop")
+    assert daemon.join() == EXIT_OK
+    done = store.wait_for_command(posted.command_id, timeout_s=0)
+    assert done is not None and done.result == {"stopped": True, "requeued": []}
+    final = read_status(store)
+    assert final is not None and final.state == "stopped"
 
 
 def test_a_daemon_gives_up_on_a_holder_that_stays_stopping_s4(
