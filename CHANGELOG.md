@@ -47,6 +47,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   loop, the determinism switches, the CPU thread cap and the `hello` fingerprint, started as
   `python -m narration_worker --role <role> --store <store_root>`; and the daemon's worker client
   (`narration.workers`), which reports a crashed worker at once and stops one that does not reply in time.
+  A worker whose environment is missing or broken is reported as `BACKEND_NOT_INSTALLED`, with what to do
+  next (`narration-admin install`).
 - A `fake` worker role with deterministic synthetic audio and QA outputs, and faults it can plant on
   request of a test (`NARRATION_FAKE_SPEC`), so the service can be developed and tested without a model
   or a GPU; and the worker contract tests every worker runs (`narration_worker.testing`).

@@ -6,6 +6,10 @@ every request has a timeout.
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import os
+import signal
 import sys
 import threading
 import time
@@ -13,8 +17,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from narration_worker.errors import EXIT_START_FAILED
 
 from narration.config import Config, WorkerProject, WorkersConfig
+from narration.contracts.codes import error_code
 from narration.contracts.errors import WorkerCrashed, WorkerFailure, WorkerTimeout
 from narration.contracts.interfaces import WorkerClient
 from narration.contracts.worker import FAKE_OPS, PROTOCOL_VERSION
@@ -213,13 +219,67 @@ def test_the_stderr_tail_is_bounded_appA(make_client: ClientFactory, store: Path
     assert 0 < len(client.stderr_tail().encode()) <= 200
 
 
-def test_a_worker_that_fails_to_start_is_reported_with_its_stderr_appA(make_client: ClientFactory) -> None:
+def test_a_worker_that_cannot_start_is_backend_not_installed_with_its_stderr_s14(
+    make_client: ClientFactory,
+) -> None:
     client = make_client({"faults": [{"kind": "no_such_kind"}]})
-    with pytest.raises(WorkerCrashed) as caught:
+    with pytest.raises(WorkerFailure) as caught:
         client.start()
-    assert caught.value.exit_code == 2
-    assert "no_such_kind" in caught.value.stderr_tail or "kind" in caught.value.stderr_tail
-    assert not client.is_alive()
+    failure = caught.value
+    assert failure.code == "BACKEND_NOT_INSTALLED" and error_code(failure.code).retryable is False
+    assert failure.details["exit_code"] == EXIT_START_FAILED == 2
+    assert "faults[0].kind must be one of" in failure.details["stderr_tail"]
+    assert "faults[0].kind must be one of" in str(failure)  # its last stderr line says why
+    assert "sync the worker's venv (narration-admin install)" in str(failure)
+    assert isinstance(failure.__cause__, WorkerCrashed)
+    assert not client.is_alive() and client.exit_code == EXIT_START_FAILED
+
+
+def test_a_role_with_no_handler_installed_is_backend_not_installed_s14(config: Config) -> None:
+    """The server's own Python has no ``qa`` handler: exactly what a worker venv that was never synced does."""
+    command = worker_command(config, "qa", python=Path(sys.executable), base_env=dict(os.environ))
+    argv = (*command.argv, "--handler", "narration_no_such_module:Handler")
+    client = SubprocessWorkerClient(WorkerCommand(role="qa", argv=argv, env=command.env))
+    try:
+        with pytest.raises(WorkerFailure) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert caught.value.details["exit_code"] == EXIT_START_FAILED
+    assert "narration_no_such_module" in caught.value.details["stderr_tail"]
+    assert "narration-admin install" in str(caught.value)
+
+
+def test_a_venv_without_the_worker_package_is_backend_not_installed_s14(config: Config) -> None:
+    """``-S`` hides site-packages, so this Python has no ``narration_worker``, like an empty venv."""
+    command = worker_command(config, "fake")
+    argv = (command.argv[0], "-S", *command.argv[1:])
+    client = SubprocessWorkerClient(WorkerCommand(role="fake", argv=argv, env=command.env))
+    try:
+        with pytest.raises(WorkerFailure) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert caught.value.details["exit_code"] == 1
+    assert "narration_worker" in caught.value.details["stderr_tail"]
+
+
+def test_a_worker_that_crashes_before_hello_with_another_code_is_still_a_crash_appA(
+    config: Config, tmp_path: Path
+) -> None:
+    script = tmp_path / "dies.py"
+    script.write_text("import sys\nprint('boom', file=sys.stderr)\nsys.exit(7)\n", encoding="utf-8")
+    command = worker_command(config, "fake")
+    client = SubprocessWorkerClient(WorkerCommand(role="fake", argv=(sys.executable, str(script)), env=command.env))
+    try:
+        with pytest.raises(WorkerCrashed) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.exit_code == 7
+    assert "boom" in caught.value.stderr_tail
 
 
 def test_a_crash_during_hello_fails_start_appA(make_client: ClientFactory) -> None:
@@ -246,6 +306,85 @@ def test_close_kills_a_worker_that_hangs_on_shutdown_appA(make_client: ClientFac
     client.close(timeout_s=1.0)
     assert time.monotonic() - started < 15.0
     assert client.exit_code not in (None, 0)
+
+
+GRANDPARENT_WORKER = """import json
+import subprocess
+import sys
+from pathlib import Path
+
+from narration_worker.protocol import PROTOCOL_VERSION
+
+# The grandchild inherits only stderr, as a real worker's children do (its stdout is stderr too).
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL
+)
+Path(sys.argv[1]).write_text(str(child.pid), encoding="utf-8")
+print("started a grandchild", file=sys.stderr, flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    reply = {"id": request["id"], "ok": True}
+    if request["op"] == "hello":
+        reply.update(role="fake", protocol=PROTOCOL_VERSION, capabilities={"controls": {}}, fingerprint={})
+    sys.stdout.write(json.dumps(reply) + "\\n")
+    sys.stdout.flush()
+    if request["op"] == "shutdown":
+        break
+"""
+
+
+def test_close_does_not_hang_on_a_pipe_a_grandchild_holds_appA(
+    config: Config, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    script = tmp_path / "grandparent.py"
+    script.write_text(GRANDPARENT_WORKER, encoding="utf-8")
+    pid_file = tmp_path / "grandchild.pid"
+    argv = (sys.executable, str(script), str(pid_file))
+    client = SubprocessWorkerClient(WorkerCommand(role="fake", argv=argv, env=worker_command(config, "fake").env))
+    try:
+        client.start()
+        assert pid_file.is_file()
+        closer = threading.Thread(target=client.close, kwargs={"timeout_s": 5.0}, daemon=True)
+        started = time.monotonic()
+        with caplog.at_level(logging.WARNING, logger="narration.workers"):
+            closer.start()
+            closer.join(timeout=20.0)
+        assert not closer.is_alive(), "close() must not wait on a pipe that a grandchild of the worker holds"
+        assert time.monotonic() - started < 10.0
+        assert client.exit_code == 0
+        assert "stderr pipe is still in use" in caplog.text
+    finally:
+        if pid_file.is_file():
+            with contextlib.suppress(OSError, ValueError):
+                os.kill(int(pid_file.read_text(encoding="utf-8")), signal.SIGTERM)
+        client.close(timeout_s=5.0)
+
+
+def test_a_requests_timeout_covers_waiting_to_be_written_appA(make_client: ClientFactory) -> None:
+    """A large request queued behind a busy one times out on time, though the worker is not reading it."""
+    client = make_client({"faults": [{"kind": "delay", "op": "unload", "seconds": 8}]})
+    client.start()
+    outcome: list[object] = []
+    sending = threading.Event()
+
+    def busy() -> None:
+        sending.set()
+        try:
+            outcome.append(client.request("unload", {}, timeout_s=TIMEOUT))
+        except (WorkerCrashed, WorkerTimeout) as exc:
+            outcome.append(exc)
+
+    worker_busy = threading.Thread(target=busy, daemon=True)
+    worker_busy.start()
+    assert sending.wait(TIMEOUT)
+    time.sleep(0.3)  # unload is on its way first; the worker then sleeps 8 s and reads nothing
+    started = time.monotonic()
+    with pytest.raises(WorkerTimeout):
+        client.request("hello", {"padding": "x" * 2_000_000}, timeout_s=1.0)
+    assert time.monotonic() - started < 2.5
+    worker_busy.join(timeout=TIMEOUT)
+    assert len(outcome) == 1 and isinstance(outcome[0], WorkerCrashed)
+    assert not client.is_alive()
 
 
 def test_a_role_or_protocol_mismatch_is_backend_not_installed_appA(config: Config) -> None:
@@ -315,6 +454,26 @@ def test_the_environment_is_offline_deterministic_and_thread_capped_s4_1() -> No
     assert not {"PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"} & set(env)
     kept = worker_env(WorkersConfig(env={"CUBLAS_WORKSPACE_CONFIG": ":16:8"}), base={})
     assert kept["CUBLAS_WORKSPACE_CONFIG"] == ":16:8"
+
+
+def test_the_cublas_workspace_comes_from_the_profile_or_config_never_the_inherited_env_s10_1() -> None:
+    inherited = {"PATH": "p", "CUBLAS_WORKSPACE_CONFIG": ":0:0"}
+    operator_table = WorkersConfig(env={"EXTRA": "yes"})  # replaces the default table, and so leaves it out
+    assert worker_env(operator_table, base=inherited)["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+    assert worker_env(WorkersConfig(), base=inherited)["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+    configured = WorkersConfig(env={"CUBLAS_WORKSPACE_CONFIG": ":16:8"})
+    assert worker_env(configured, base=inherited)["CUBLAS_WORKSPACE_CONFIG"] == ":16:8"
+    profile = worker_env(configured, base=inherited, cublas_workspace_config=":4096:8")
+    assert profile["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"  # the engine profile's pin wins
+    blank = WorkersConfig(env={"CUBLAS_WORKSPACE_CONFIG": ""})
+    assert worker_env(blank, base=inherited)["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+
+
+def test_worker_command_passes_the_profiles_cublas_pin_s10_1(config: Config) -> None:
+    base = {"CUBLAS_WORKSPACE_CONFIG": ":0:0"}
+    assert worker_command(config, "fake", base_env=base).env["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+    pinned = worker_command(config, "fake", base_env=base, cublas_workspace_config=":16:8")
+    assert pinned.env["CUBLAS_WORKSPACE_CONFIG"] == ":16:8"
 
 
 def test_the_worker_sees_the_cap_and_the_pins_in_its_fingerprint_s10_1(store: Path) -> None:

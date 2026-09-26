@@ -21,11 +21,10 @@ from pathlib import Path
 from typing import get_args
 
 from .determinism import prepare_cuda_env
+from .errors import EXIT_START_FAILED
 from .handler import WorkerContext
 from .protocol import WorkerRole
 from .threads import DEFAULT_CPU_THREADS, cap_threads_env
-
-EXIT_START_FAILED = 2
 
 log = logging.getLogger("narration_worker")
 

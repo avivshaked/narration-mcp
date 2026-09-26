@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Final
 
 from .protocol import WORKER_ERROR_CODES, WorkerErrorCode
+
+EXIT_START_FAILED: Final = 2
+"""The worker's exit code when it cannot start: a bad argument, a missing store, or no loadable handler for
+its role. The daemon reports it as ``BACKEND_NOT_INSTALLED`` (the worker env is missing or broken, section
+14) and does not respawn the worker."""
 
 
 class OpError(Exception):

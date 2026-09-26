@@ -11,8 +11,9 @@ The environment is the daemon's, with:
 
 - ``[workers] env`` added;
 - ``HF_HUB_OFFLINE=1`` and ``TRANSFORMERS_OFFLINE=1`` always, whatever the config says (section 4);
-- ``CUBLAS_WORKSPACE_CONFIG`` always set, to the config's value or ``:4096:8`` (section 10.1), so it is
-  there before CUDA starts;
+- ``CUBLAS_WORKSPACE_CONFIG`` always set before CUDA starts (section 10.1): to the engine profile's pinned
+  value when the caller passes it, else to ``[workers] env``'s, else to ``:4096:8``; never to whatever the
+  daemon happened to inherit, and an operator's ``env`` table that leaves it out cannot drop it;
 - the thread-pool variables capped at ``[workers] cpu_threads`` (section 4.1);
 - UTF-8 I/O and unbuffered stderr, so a crash's last log lines reach the daemon;
 - and without the variables that would let the server's Python leak into a worker venv (``PYTHONPATH``,
@@ -40,6 +41,8 @@ WORKER_PROJECT_DIRS: Final[dict[str, str]] = {"qwen3": "qwen3tts", "qa": "qa"}
 FORCED_ENV: Final = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
 DROPPED_ENV: Final = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "PYTHONSTARTUP", "PYTHONSAFEPATH")
 IO_ENV: Final = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
+INSTALL_HINT: Final = "sync the worker's venv (narration-admin install)"
+"""What to do when a worker's environment is missing or broken (``BACKEND_NOT_INSTALLED``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -66,22 +69,40 @@ def worker_project(config: Config, role: WorkerRole) -> Path | None:
     return None
 
 
-def worker_env(workers: WorkersConfig, *, base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The environment a worker starts with (see the module docstring). ``base`` defaults to ours."""
-    env = {k: v for k, v in (os.environ if base is None else base).items() if k not in DROPPED_ENV}
+def worker_env(
+    workers: WorkersConfig, *, base: Mapping[str, str] | None = None, cublas_workspace_config: str | None = None
+) -> dict[str, str]:
+    """The environment a worker starts with (see the module docstring). ``base`` defaults to ours.
+
+    ``cublas_workspace_config`` is the engine profile's pinned value (``determinism.cublas_workspace_config``,
+    section 10.1); when it is given, it wins over ``[workers] env``.
+    """
+    env = {
+        k: v
+        for k, v in (os.environ if base is None else base).items()
+        if k not in DROPPED_ENV and k != CUBLAS_WORKSPACE_CONFIG_VAR
+    }
     env.update(workers.env)
     env.update(FORCED_ENV)
-    if not env.get(CUBLAS_WORKSPACE_CONFIG_VAR):
-        env[CUBLAS_WORKSPACE_CONFIG_VAR] = CUBLAS_WORKSPACE_CONFIG
+    pinned = cublas_workspace_config or workers.env.get(CUBLAS_WORKSPACE_CONFIG_VAR) or CUBLAS_WORKSPACE_CONFIG
+    env[CUBLAS_WORKSPACE_CONFIG_VAR] = pinned
     env.update(thread_env(workers.cpu_threads))
     env.update(IO_ENV)
     return env
 
 
 def worker_command(
-    config: Config, role: WorkerRole, *, python: Path | None = None, base_env: Mapping[str, str] | None = None
+    config: Config,
+    role: WorkerRole,
+    *,
+    python: Path | None = None,
+    base_env: Mapping[str, str] | None = None,
+    cublas_workspace_config: str | None = None,
 ) -> WorkerCommand:
     """The command that starts ``role`` for this configuration.
+
+    ``cublas_workspace_config`` is the engine profile's pinned value, for a worker that will load one (see
+    ``worker_env``).
 
     Raises ``WorkerFailure`` (``BACKEND_NOT_INSTALLED``) when a real role's worker venv cannot be found.
     """
@@ -93,14 +114,15 @@ def worker_command(
             if project is None:
                 raise WorkerFailure(
                     "BACKEND_NOT_INSTALLED",
-                    f"no project is configured for the {role} worker: set [workers.{role}] project",
+                    f"no project is configured for the {role} worker: set [workers.{role}] project, then "
+                    f"{INSTALL_HINT}",
                     {"role": role},
                 )
             python = venv_python(project)
     if not python.is_file():
         raise WorkerFailure(
             "BACKEND_NOT_INSTALLED",
-            f"the {role} worker's Python is missing at {python}: sync the worker venv (narration-admin install)",
+            f"the {role} worker's Python is missing at {python}: {INSTALL_HINT}",
             {"role": role, "python": str(python)},
         )
     store = config.server.store_root.resolve()
@@ -115,4 +137,5 @@ def worker_command(
         "--cpu-threads",
         str(config.workers.cpu_threads),
     )
-    return WorkerCommand(role=role, argv=argv, env=worker_env(config.workers, base=base_env))
+    env = worker_env(config.workers, base=base_env, cublas_workspace_config=cublas_workspace_config)
+    return WorkerCommand(role=role, argv=argv, env=env)

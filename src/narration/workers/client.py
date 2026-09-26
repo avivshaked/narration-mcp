@@ -4,13 +4,20 @@
 
 - it starts the worker from an argument list (never a shell), with the environment ``launch.worker_env``
   builds, and exchanges ``hello`` (the role and protocol version must match);
-- a reader thread correlates replies with requests by id, so requests may come from several threads;
+- a worker that cannot start (no handler for its role, a handler that fails to import, a bad store: exit
+  code ``EXIT_START_FAILED``; or a venv without ``narration_worker``), a missing venv, or a role or protocol
+  mismatch is ``WorkerFailure`` (``BACKEND_NOT_INSTALLED``): the worker env is missing or broken (section
+  14), so it is not retryable and the daemon does not respawn the worker;
+- a writer thread sends requests, and a reader thread correlates replies with them by id, so requests may
+  come from several threads; a request's timeout counts from the call, so a request queued behind a long
+  one (or a large one the worker is not reading yet) never waits past its own timeout;
 - ``request`` returns the reply, or raises ``WorkerFailure`` for ``ok: false``, ``WorkerTimeout`` when no
   reply comes in time (the worker is then stopped), and ``WorkerCrashed`` when the worker exits or writes
   anything that is not a protocol message (with its exit code and the tail of its stderr);
 - a crash is reported as soon as the worker's stdout closes, and, should a grandchild keep that pipe open,
   within a fraction of a second of the process exiting; it is never waited out to the request's timeout;
-- ``close`` sends ``shutdown``, waits, and kills the worker if it does not exit in time.
+- ``close`` sends ``shutdown``, waits, and kills the worker if it does not exit in time. It never blocks on
+  a pipe a grandchild of the worker still holds open.
 
 OS-specific start-up (below-normal priority, the kill-on-close group) is not done here. The daemon passes
 ``on_spawn``, called with the new process's pid before ``hello``, and ``creationflags``; both come from
@@ -22,6 +29,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import queue
+import re
 import subprocess
 import threading
 import time
@@ -30,6 +39,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import IO, Any, Final, cast
 
+from narration_worker.errors import EXIT_START_FAILED
 from narration_worker.framing import (
     FramingError,
     LineTooLong,
@@ -43,7 +53,7 @@ from narration.contracts.errors import WorkerCrashed, WorkerFailure, WorkerTimeo
 from narration.contracts.names import WorkerRole
 from narration.contracts.worker import PROTOCOL_VERSION, HelloReply
 
-from .launch import WorkerCommand
+from .launch import INSTALL_HINT, WorkerCommand
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +64,12 @@ POLL_S: Final = 0.25
 """How often a waiting request checks that the worker process is still running."""
 DEFAULT_HELLO_TIMEOUT_S: Final = 120.0
 DEFAULT_STDERR_TAIL_BYTES: Final = 64 * 1024
+RELEASE_JOIN_S: Final = 2.0
+"""How long ``close`` waits, in all, for the pipe threads to finish before leaving their streams open."""
+_NO_WORKER_PACKAGE: Final = re.compile(r"No module named '?narration_worker'?\s*$", re.MULTILINE)
+"""What Python says when the venv has no ``narration_worker`` at all (it then exits with code 1)."""
+STDERR_CATCH_UP_S: Final = 1.0
+"""How long a crash report waits for the worker's last stderr lines once its stdout has closed."""
 
 
 class _Pending:
@@ -98,14 +114,16 @@ class SubprocessWorkerClient:
         self._exit_grace_s = exit_grace_s
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
-        self._write_lock = threading.Lock()
+        self._outbox: queue.Queue[bytes | None] = queue.Queue()
         self._pending: dict[int, _Pending] = {}
         self._next_id = 1
         self._failure: tuple[str, int | None] | None = None
         self._closing = False
         self._tail = bytearray()
         self._tail_lock = threading.Lock()
-        self._threads: list[threading.Thread] = []
+        self._stdin_thread: threading.Thread | None = None
+        self._stdout_thread: threading.Thread | None = None
+        self._stderr_thread: threading.Thread | None = None
         self._hello: HelloReply | None = None
         self._worker_log = logging.getLogger(f"narration.workers.{command.role}")
 
@@ -131,9 +149,10 @@ class SubprocessWorkerClient:
     def start(self) -> HelloReply:
         """Start the worker and exchange ``hello``.
 
-        Raises ``WorkerFailure`` (``BACKEND_NOT_INSTALLED``) when the process cannot start or speaks another
-        protocol or role, ``WorkerCrashed`` when it exits during start-up, ``WorkerTimeout`` when ``hello``
-        gets no reply in time. On any failure the process is stopped.
+        Raises ``WorkerFailure`` (``BACKEND_NOT_INSTALLED``) when the process cannot start, exits with
+        ``EXIT_START_FAILED``, or speaks another protocol or role; ``WorkerCrashed`` when it exits otherwise
+        during start-up; ``WorkerTimeout`` when ``hello`` gets no reply in time. On any failure the process
+        is stopped.
         """
         if self._proc is not None:
             raise RuntimeError(f"the {self.role} worker client was already started")
@@ -151,21 +170,38 @@ class SubprocessWorkerClient:
         except OSError as exc:
             raise WorkerFailure(
                 "BACKEND_NOT_INSTALLED",
-                f"the {self.role} worker could not be started ({exc}); check that its venv is installed",
+                f"the {self.role} worker could not be started ({exc}): {INSTALL_HINT}",
                 {"role": self.role, "python": self._command.argv[0]},
             ) from exc
         proc = self._proc
-        assert proc.stdout is not None and proc.stderr is not None
-        self._threads = [
-            threading.Thread(target=self._pump_stdout, args=(proc.stdout,), name=f"{self.role}-stdout", daemon=True),
-            threading.Thread(target=self._pump_stderr, args=(proc.stderr,), name=f"{self.role}-stderr", daemon=True),
-        ]
-        for thread in self._threads:
+        assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+        name = f"{self.role}-{proc.pid}"
+        self._stdin_thread = threading.Thread(
+            target=self._pump_stdin, args=(proc.stdin,), name=f"{name}-stdin", daemon=True
+        )
+        self._stdout_thread = threading.Thread(
+            target=self._pump_stdout, args=(proc.stdout,), name=f"{name}-stdout", daemon=True
+        )
+        self._stderr_thread = threading.Thread(
+            target=self._pump_stderr, args=(proc.stderr,), name=f"{name}-stderr", daemon=True
+        )
+        for thread in (self._stdin_thread, self._stdout_thread, self._stderr_thread):
             thread.start()
         try:
             if self._on_spawn is not None:
                 self._on_spawn(proc.pid)
             reply = self.request("hello", {}, timeout_s=self._hello_timeout_s)
+        except WorkerCrashed as exc:
+            self._stop(f"the {self.role} worker was stopped because it failed to start")
+            self._release()
+            if not _start_failed(exc):
+                raise
+            last = next((line for line in reversed(exc.stderr_tail.splitlines()) if line.strip()), "")
+            raise WorkerFailure(
+                "BACKEND_NOT_INSTALLED",
+                f"the {self.role} worker could not start ({last.strip()[:300] or 'no reason given'}): {INSTALL_HINT}",
+                {"role": self.role, "exit_code": exc.exit_code, "stderr_tail": exc.stderr_tail},
+            ) from exc
         except BaseException:
             self._stop(f"the {self.role} worker was stopped because it failed to start")
             self._release()
@@ -175,7 +211,7 @@ class SubprocessWorkerClient:
             raise WorkerFailure(
                 "BACKEND_NOT_INSTALLED",
                 f"the worker answered as role {reply.get('role')!r} with protocol {reply.get('protocol')!r}; this "
-                f"server needs role {self.role!r} with protocol {PROTOCOL_VERSION}: re-sync the worker venv",
+                f"server needs role {self.role!r} with protocol {PROTOCOL_VERSION}: {INSTALL_HINT}",
                 {"role": reply.get("role"), "protocol": reply.get("protocol")},
             )
         self._hello = cast(HelloReply, reply)
@@ -183,7 +219,11 @@ class SubprocessWorkerClient:
         return self._hello
 
     def request(self, op: str, payload: Mapping[str, Any], *, timeout_s: float) -> dict[str, Any]:
-        """Send one request and wait for its reply (see the module docstring for what it raises)."""
+        """Send one request and wait for its reply (see the module docstring for what it raises).
+
+        ``timeout_s`` counts from this call: it covers waiting to be written as well as the worker's work.
+        """
+        deadline = time.monotonic() + timeout_s
         if "id" in payload or "op" in payload:
             raise ValueError("the payload must not carry id or op; the client sets them")
         proc = self._proc
@@ -201,14 +241,8 @@ class SubprocessWorkerClient:
             with self._lock:
                 self._pending.pop(rid, None)
             raise
-        try:
-            with self._write_lock:
-                assert proc.stdin is not None
-                proc.stdin.write(data)
-                proc.stdin.flush()
-        except (OSError, ValueError) as exc:
-            log.debug("writing to the %s worker failed (%s); waiting for it to report", self.role, exc)
-        self._wait(pending, proc, op, rid, timeout_s)
+        self._outbox.put(data)
+        self._wait(pending, proc, op, rid, deadline, timeout_s)
         return self._outcome(pending)
 
     def is_alive(self) -> bool:
@@ -248,8 +282,9 @@ class SubprocessWorkerClient:
         return text
 
     # ------------------------------------------------------------------ waiting and failing
-    def _wait(self, pending: _Pending, proc: subprocess.Popen[bytes], op: str, rid: int, timeout_s: float) -> None:
-        deadline = time.monotonic() + timeout_s
+    def _wait(
+        self, pending: _Pending, proc: subprocess.Popen[bytes], op: str, rid: int, deadline: float, timeout_s: float
+    ) -> None:
         while not pending.event.wait(min(POLL_S, max(0.0, deadline - time.monotonic()))):
             if proc.poll() is not None:
                 # it exited; the reader normally reports this at once, unless a grandchild holds stdout open
@@ -312,22 +347,46 @@ class SubprocessWorkerClient:
                 log.error("the %s worker (pid %d) survived a kill", self.role, proc.pid)
 
     def _release(self) -> None:
-        """Close our ends of the pipes and let the reader threads finish."""
+        """Stop the writer, let the pipe threads finish, and close our ends of the pipes.
+
+        A stream whose thread is still in a read or a write is left open: closing a buffered stream another
+        thread is using blocks until that call returns, which is never while a grandchild of the worker holds
+        the pipe. Such a thread is a daemon thread; it closes its stream itself when the pipe ends.
+        """
         proc = self._proc
         if proc is None:
             return
-        if proc.stdin is not None:
-            with contextlib.suppress(OSError):
-                proc.stdin.close()
-        for thread in self._threads:
-            if thread is not threading.current_thread():
-                thread.join(timeout=5)
-        for stream in (proc.stdout, proc.stderr):
-            if stream is not None:
-                with contextlib.suppress(OSError):
-                    stream.close()
+        self._outbox.put(None)
+        deadline = time.monotonic() + RELEASE_JOIN_S
+        for label, thread, stream in (
+            ("stdin", self._stdin_thread, proc.stdin),
+            ("stdout", self._stdout_thread, proc.stdout),
+            ("stderr", self._stderr_thread, proc.stderr),
+        ):
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
+            if stream is None:
+                continue
+            if thread is not None and thread.is_alive():
+                log.warning(
+                    "the %s worker's %s pipe is still in use (a process it started holds it?); leaving it open",
+                    self.role,
+                    label,
+                )
+                continue
+            _close_quietly(stream)
 
-    # ------------------------------------------------------------------ reader threads
+    # ------------------------------------------------------------------ pipe threads
+    def _pump_stdin(self, stream: IO[bytes]) -> None:
+        try:
+            while (data := self._outbox.get()) is not None:
+                stream.write(data)
+                stream.flush()
+        except (OSError, ValueError) as exc:
+            log.debug("writing to the %s worker failed (%s); its exit will be reported", self.role, exc)
+        finally:
+            _close_quietly(stream)
+
     def _pump_stdout(self, stream: IO[bytes]) -> None:
         reason: str | None = None
         try:
@@ -358,6 +417,7 @@ class SubprocessWorkerClient:
             pass  # our end was closed
         finally:
             self._stream_ended(reason)
+            _close_quietly(stream)
 
     def _stream_ended(self, reason: str | None) -> None:
         proc = self._proc
@@ -370,8 +430,8 @@ class SubprocessWorkerClient:
         except subprocess.TimeoutExpired:
             self._stop(f"the {self.role} worker closed its stdout but kept running; the client stopped it")
             return
-        if len(self._threads) > 1:
-            self._threads[1].join(timeout=2)  # let the stderr tail catch up
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=STDERR_CATCH_UP_S)  # let the stderr tail catch up
         closed = self._closing and exit_code == 0
         self._fail(
             f"the {self.role} worker was closed" if closed else f"the {self.role} worker exited with code {exit_code}",
@@ -392,3 +452,18 @@ class SubprocessWorkerClient:
                     self._worker_log.debug("%s", line.decode("utf-8", errors="replace").rstrip("\r"))
         except (OSError, ValueError):
             pass
+        finally:
+            _close_quietly(stream)
+
+
+def _start_failed(exc: WorkerCrashed) -> bool:
+    """Whether a worker that exited before ``hello`` could not start: its env is missing or broken."""
+    return exc.exit_code == EXIT_START_FAILED or (
+        exc.exit_code == 1 and _NO_WORKER_PACKAGE.search(exc.stderr_tail) is not None
+    )
+
+
+def _close_quietly(stream: IO[bytes]) -> None:
+    """Close a pipe from the one thread that uses it; a broken pipe is not news by now."""
+    with contextlib.suppress(OSError, ValueError):
+        stream.close()
