@@ -18,7 +18,7 @@ from .engine import EngineParts, JobEngine, JobRun
 from .gpu import NoProbe, NvmlProbe, VramProbe, VramReading
 from .hooks import EngineGuard, NoGuard
 from .pins import ModelPin, QaPins
-from .runner import EngineRunner, build_runner
+from .runner import EngineRunner, build_runner, default_runner
 
 __all__ = [
     "EngineGuard",
@@ -34,4 +34,5 @@ __all__ = [
     "VramProbe",
     "VramReading",
     "build_runner",
+    "default_runner",
 ]

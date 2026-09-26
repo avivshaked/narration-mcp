@@ -15,8 +15,12 @@ The contract, as the engine keeps it:
 - Every wait inside a step goes through ``host.sleep``, which returns False as soon as a stop is asked for.
 - ``stop_mode`` ``"now"`` means the daemon killed every worker: the request in flight fails with
   ``WorkerCrashed``, and the step must not retry it.
+- ``has_work(host)`` says whether a ``step`` would find work, without claiming anything.
 - ``shutdown(host, reason)`` gives back the job held (``return_job``), removes the scratch files of the
   work it abandoned, and releases its leases.
+- Between steps in which no job is held, the daemon may stop every worker (``release_gpu``, the idle
+  unload). Whatever a worker holds (models, a prepared voice) is keyed to that worker process and
+  established again in a new one.
 """
 
 from __future__ import annotations
@@ -44,6 +48,11 @@ DAEMON_HOLDER: Final = "narrationd"
 
 GROUP_ROLES: Final[dict[GpuHolder, WorkerRole]] = {"qwen": "qwen3", "qa": "qa"}
 """The worker role that serves each model group (section 4: Qwen, or Whisper + WavLM)."""
+
+
+class ResidencyError(RuntimeError):
+    """A GPU load for one group while another group's models are on the GPU (``[gpu] one_group_at_a_time``,
+    section 4): the caller must unload the resident group first."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -149,6 +158,12 @@ class JobRunner(Protocol):
 
     def step(self, host: RunnerHost) -> bool: ...
 
+    def has_work(self, host: RunnerHost) -> bool:
+        """Whether a ``step`` now would find work: the same test, with no side effect (nothing is claimed).
+        The daemon asks it at the idle exit, after publishing ``stopping``, so a job queued at the last moment
+        is not stranded."""
+        ...
+
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None: ...
 
 
@@ -182,6 +197,7 @@ __all__ = [
     "GROUP_ROLES",
     "GpuFacts",
     "JobRunner",
+    "ResidencyError",
     "RunnerHost",
     "ShutdownReason",
     "StopMode",

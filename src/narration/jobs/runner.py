@@ -17,6 +17,10 @@ so jobs need no grouping by profile until design jobs run here too.
 A job-level failure (``NarrationError``) fails the job with its error. An exception the engine does not
 expect is a bug: the job fails with ``INTERNAL`` rather than being tried again at every step.
 
+``has_work`` answers whether a ``step`` would find work (a job held, or one queued) and claims nothing; the
+daemon asks it before an idle exit. ``default_runner`` is the zero-argument factory the daemon loads by
+name; it builds the engine at the first job, from the daemon's config.
+
 ``shutdown`` gives back the job held (``return_job``: ``running`` goes back to ``queued``, ``cancelling``
 becomes ``cancelled``) and removes its scratch files. Leases are released at the end of each piece of work
 (and lapse by their TTL if the process dies), so none is held between steps.
@@ -40,7 +44,7 @@ from narration.post import DeliveryPipeline
 from narration.qa import Scorer
 from narration.text import TextPipeline
 
-from .admission import est_drain_s
+from .admission import WALL_PER_AUDIO_S, est_drain_s
 from .engine import EngineParts, JobEngine, JobRun
 from .gpu import NoProbe, NvmlProbe, VramProbe
 from .hooks import EngineGuard, NoGuard
@@ -54,13 +58,30 @@ PREEMPTING: Final = "interactive"
 """The priority that makes a held ``batch`` job give way between two pieces of its work."""
 
 
-class EngineRunner:
-    """The ``JobRunner`` the daemon drives (see the module docstring). One instance serves one daemon."""
+EngineFactory = Callable[[RunnerHost], JobEngine]
+"""Builds the engine from what the daemon hands the runner (its config and store), at the first job."""
 
-    def __init__(self, engine: JobEngine) -> None:
-        self.engine = engine
+
+class EngineRunner:
+    """The ``JobRunner`` the daemon drives (see the module docstring). One instance serves one daemon.
+
+    It takes the engine, or a factory that builds it at the first job claimed (the daemon constructs its
+    runner before it has a host). A factory that raises ``NarrationError`` fails that job with the error, and
+    is asked again at the next job, so an installation completed meanwhile is picked up.
+    """
+
+    def __init__(self, engine: JobEngine | EngineFactory) -> None:
+        self._engine: JobEngine | None = engine if isinstance(engine, JobEngine) else None
+        self._build: EngineFactory | None = None if isinstance(engine, JobEngine) else engine
         self._job: JobRecord | None = None
         self._run: JobRun | None = None
+
+    @property
+    def engine(self) -> JobEngine:
+        """The engine; a runner built from a factory has one once it has claimed a job."""
+        if self._engine is None:
+            raise RuntimeError("the job engine is built when the first job is claimed")
+        return self._engine
 
     @property
     def job_id(self) -> str | None:
@@ -77,6 +98,12 @@ class EngineRunner:
         finally:
             self._publish_drain(host)
 
+    def has_work(self, host: RunnerHost) -> bool:
+        """Whether a ``step`` now would find work: a job held, or one queued. Nothing is claimed."""
+        if self._job is not None:
+            return True
+        return any(job.status == "queued" for job in host.store.queued_jobs())
+
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
         """Give back the job held, if any, and remove its scratch files."""
         if self._job is None:
@@ -92,7 +119,10 @@ class EngineRunner:
         host.job_started(job)
         log.info("took job %s (%s, %s)", job.job_id, job.kind, job.priority)
         try:
-            self._run = self.engine.open(host, job)
+            if self._engine is None:
+                assert self._build is not None
+                self._engine = self._build(host)
+            self._run = self._engine.open(host, job)
         except NarrationError as exc:
             self._failed(host, exc)
             return True
@@ -156,8 +186,22 @@ class EngineRunner:
         self._done(host)
 
     def _failed(self, host: RunnerHost, error: NarrationError) -> None:
-        assert self._job is not None
-        self.engine.fail(host, self._job, error, self._run)
+        job = self._job
+        assert job is not None
+        if self._engine is not None:
+            self._engine.fail(host, job, error, self._run)
+        else:  # the engine could not be built: record the failure without it
+            failed = host.store.update_job(
+                job.job_id,
+                expect_status="running",
+                status="failed",
+                phase=None,
+                error=error.error,
+                message=f"failed: {error.message}",
+            )
+            if failed is None:
+                host.store.update_job(job.job_id, expect_status="cancelling", status="cancelled", phase=None)
+            log.warning("job %s failed: %s", job.job_id, error)
         self._done(host)
 
     def _let_go(self, host: RunnerHost, reason: str) -> None:
@@ -178,7 +222,8 @@ class EngineRunner:
     def _done(self, host: RunnerHost) -> None:
         self._job = None
         self._run = None
-        self.engine.residency.reset_wait(host)
+        if self._engine is not None:
+            self._engine.residency.reset_wait(host)
         host.job_finished()
 
     # ------------------------------------------------------------------ the drain estimate (DC-2)
@@ -188,8 +233,9 @@ class EngineRunner:
         except Exception:  # the estimate is advice: a store hiccup must not fail a step
             log.debug("the queue could not be read for the drain estimate", exc_info=True)
             return
-        held = {self._run.job_id: self.engine.remaining_audio_s(self._run)} if self._run is not None else None
-        rate = self.engine.throughput.wall_per_audio_s
+        engine = self._engine
+        held = {self._run.job_id: engine.remaining_audio_s(self._run)} if engine and self._run else None
+        rate = engine.throughput.wall_per_audio_s if engine is not None else WALL_PER_AUDIO_S
         host.set_est_drain(est_drain_s(queued, wall_per_audio_s=rate, running_remaining_s=held) if queued else 0.0)
 
 
@@ -231,4 +277,27 @@ def build_runner(
     return EngineRunner(JobEngine(config, parts))
 
 
-__all__ = ["PREEMPTING", "EngineRunner", "build_runner"]
+def installed_engine(host: RunnerHost) -> JobEngine:
+    """The engine as this installation provides it: built from the daemon's config, with the service's text
+    pipeline, post-processing and QA, the cue aligner and the QA group's pinned models.
+
+    The cue aligner (WP15) and the QA models' pins (WP22, installed by ``narration-admin``) are not part of
+    this build yet, so no take could be scored: this raises ``BACKEND_NOT_INSTALLED``, and each job the
+    daemon claims fails with it, rather than rendering takes it cannot check. Once they are, this assembles
+    them with ``build_runner``'s parts.
+    """
+    raise NarrationError(
+        codes.BACKEND_NOT_INSTALLED,
+        "this installation cannot score takes: the cue aligner and the QA models are not installed",
+        hint="Run narration-admin doctor to see what is missing; nothing was rendered.",
+        retryable=False,
+    )
+
+
+def default_runner() -> EngineRunner:
+    """The runner the daemon loads by name (``narration.jobs.runner:default_runner``). The engine is built at
+    the first job, by ``installed_engine``."""
+    return EngineRunner(installed_engine)
+
+
+__all__ = ["PREEMPTING", "EngineFactory", "EngineRunner", "build_runner", "default_runner", "installed_engine"]
