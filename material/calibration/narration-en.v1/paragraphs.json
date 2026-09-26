@@ -163,8 +163,8 @@
           "exact": [{"start": 69, "end": 74}]
         },
         {"text": "Farmers bring cheese, eggs and late apples from the hill farms up the valley,"},
-        {"text": "and some of them still walk in from twelve kilometres away.", "exact": [{"start": 36, "end": 42}]},
-        {"text": "The weavers set up last, along the north side, where the light is best for showing colour."},
+        {"text": "and a handful still walk in from twelve kilometres away.", "exact": [{"start": 33, "end": 39}]},
+        {"text": "The weavers set up last, along the north side, where the daylight is best for showing colour."},
         {
           "text": "A good blanket from their looms takes three weeks to make, and it will last a lifetime.",
           "exact": [{"start": 38, "end": 43}]
