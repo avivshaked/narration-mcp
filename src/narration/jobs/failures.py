@@ -24,6 +24,7 @@ from narration.contracts.errors import NarrationError, QaUnavailable, WorkerCras
 from narration.contracts.models import Flag
 from narration.contracts.names import GpuHolder
 
+from .admission import STORE_FULL_RETRY_S
 from .core import LOST_STATE, EngineCore, worker_code
 from .host import RunnerHost
 from .stages import Stages
@@ -84,7 +85,9 @@ class Failures:
             return "worked"
         except OSError as exc:
             if exc.errno == errno.ENOSPC:
-                raise NarrationError(codes.STORE_FULL, f"the store's disk is full: {exc}", retry_after_s=60.0) from exc
+                raise NarrationError(
+                    codes.STORE_FULL, f"the store's disk is full: {exc}", retry_after_s=STORE_FULL_RETRY_S
+                ) from exc
             log.exception("job %s: %s failed", run.job_id, label(run, attempt))
             code = codes.QA_UNAVAILABLE if group == "qa" else codes.RENDER_FAILED
             self.fail_attempt(run, attempt, code, f"a file could not be read or written: {exc}", None)

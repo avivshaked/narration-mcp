@@ -28,7 +28,7 @@ from narration_worker.fake.handler import FAKE_ALIGNER_MODEL, FAKE_ASR_MODEL, FA
 from narration import keys
 from narration.config import Config, MeasurementConfig
 from narration.contracts import codes, names
-from narration.contracts.errors import WorkerCrashed
+from narration.contracts.errors import NarrationError, WorkerCrashed
 from narration.contracts.interfaces import AlignTranscript
 from narration.contracts.models import (
     Alignment,
@@ -281,6 +281,15 @@ class FixedProbe:
         if self.free_mb is None:
             return None
         return VramReading(name="Test GPU", total_mb=self.total_mb, free_mb=self.free_mb)
+
+
+def check_readable_path(path: str) -> Path:
+    """Section 17.3's check as the tests need it (the platform's is Windows only): an absolute path to a
+    regular file, or ``PATH_NOT_ALLOWED``."""
+    candidate = Path(path)
+    if not candidate.is_absolute() or not candidate.is_file():
+        raise NarrationError(codes.PATH_NOT_ALLOWED, f"{path} is not an absolute path to a file", field="voice.path")
+    return candidate.resolve()
 
 
 # ======================================================================== a small aligner

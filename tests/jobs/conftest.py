@@ -35,6 +35,7 @@ from .support import (
     Host,
     MonotonicClock,
     TestAligner,
+    check_readable_path,
     drive,
     engine_profile,
     measurement,
@@ -141,6 +142,7 @@ def make_world(root: Path, anchor: tuple[float, ...], *, holder: str | None = No
         scorer=Scorer(config.measurement),
         aligner=TestAligner(),
         qa_pins=qa_pins(models_root),
+        check_path=check_readable_path,
         clock=clock,
         defer_s=0.05,
     )

@@ -297,6 +297,25 @@ def test_a_clip_that_changed_since_submit_is_voice_file_mismatch_s17(world: Worl
     assert failed.error.code == codes.VOICE_FILE_MISMATCH
 
 
+def test_an_engine_without_the_path_check_reads_no_callers_clip_s17_3(world: World) -> None:
+    world.new_engine(check_path=None)
+    job = world.submit(LAMPS)
+    world.run()
+    failed = world.job(job.job_id)
+    assert failed.status == "failed" and failed.error is not None and failed.error.code == codes.INTERNAL
+    assert world.pool.starts == 0  # no worker saw a clip
+
+
+def test_a_clip_path_the_check_refuses_is_path_not_allowed_s17_3(world: World) -> None:
+    body = world.request(LAMPS)
+    body["voice"]["path"] = "voice/clip.wav"  # relative: the daemon's working folder is not the caller's
+    job = world.submit_body(body)
+    world.run()
+    failed = world.job(job.job_id)
+    assert failed.status == "failed" and failed.error is not None
+    assert failed.error.code == codes.PATH_NOT_ALLOWED and failed.error.field == "voice.path"
+
+
 def test_an_engine_other_than_the_one_expected_is_engine_changed_s10_1(world: World) -> None:
     job = world.submit_body(world.request(LAMPS, expect_engine_profile="sha256:" + "0" * 64))
     world.run()

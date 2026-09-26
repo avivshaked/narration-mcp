@@ -4,6 +4,7 @@ models, and the clip's working copy (design sections 4, 7.3, 7.4, 8, 10.1, 10.3,
 from __future__ import annotations
 
 import dataclasses
+import errno
 import hashlib
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -24,12 +25,13 @@ from narration.jobs.pins import ModelPin, ProfileError, QaPins, call_cap, ceilin
 from narration.jobs.plan import (
     GenerateRequest,
     RequestError,
+    VoiceSpec,
     estimated_audio_s,
     hints_used,
     next_attempt,
     requested_attempts,
 )
-from narration.jobs.voice import clip_path, require_synthetic, stage_clip
+from narration.jobs.voice import MAX_CLIP_BYTES, clip_path, require_synthetic, stage_clip
 from narration.store import NarrationStore
 from narration.text import TextPipeline
 from tests.store.standin import StandInPlatform
@@ -42,6 +44,7 @@ from .support import (
     FixedProbe,
     Host,
     MonotonicClock,
+    check_readable_path,
     engine_profile,
     measurement,
     write_clip,
@@ -466,7 +469,7 @@ def test_a_clip_that_is_not_the_one_sent_is_voice_file_mismatch_s17(store: Narra
         _body(voice={"path": str(source), "sha256": "d" * 64, "transcript": "Words."}), DefaultsConfig()
     )
     with pytest.raises(NarrationError) as caught:
-        stage_clip(store, wrong.voice)
+        stage_clip(store, wrong.voice, check_path=check_readable_path)
     assert caught.value.code == codes.VOICE_FILE_MISMATCH and caught.value.field == "voice.sha256"
     assert not clip_path(store, "d" * 64).exists()
     assert not list(clip_path(store, "d" * 64).parent.glob("*.tmp"))
@@ -475,8 +478,69 @@ def test_a_clip_that_is_not_the_one_sent_is_voice_file_mismatch_s17(store: Narra
         _body(voice={"path": str(tmp_path / "nowhere.wav"), "sha256": "d" * 64, "transcript": "W."}), DefaultsConfig()
     )
     with pytest.raises(NarrationError) as missing:
-        stage_clip(store, gone.voice)
+        stage_clip(store, gone.voice, check_path=Path)  # a check that lets the missing file through to the copy
     assert missing.value.code == codes.VOICE_FILE_MISMATCH and missing.value.field == "voice.path"
+
+
+def _voice(path: Path, sha: str) -> VoiceSpec:
+    body = _body(voice={"path": str(path), "sha256": sha, "transcript": "Words."})
+    return GenerateRequest.parse(body, DefaultsConfig()).voice
+
+
+def test_a_callers_clip_is_never_read_without_the_path_check_s17_3(store: NarrationStore, tmp_path: Path) -> None:
+    source = tmp_path / "voice.wav"
+    sha = write_clip(source)
+    with pytest.raises(NarrationError) as caught:
+        stage_clip(store, _voice(source, sha), check_path=None)
+    assert caught.value.code == codes.INTERNAL and not caught.value.retryable
+    assert not clip_path(store, sha).exists()  # nothing was read or copied
+    clip_path(store, sha).write_bytes(source.read_bytes())  # the front-end copied it at submit
+    assert stage_clip(store, _voice(source, sha), check_path=None) == clip_path(store, sha)
+
+
+def test_a_clip_over_20_mb_is_unsupported_audio_and_never_copied_s17_3(store: NarrationStore, tmp_path: Path) -> None:
+    assert MAX_CLIP_BYTES == 20 * 1024 * 1024
+    big = tmp_path / "big.wav"
+    big.write_bytes(b"\x00" * (MAX_CLIP_BYTES + 1))
+    sha = hashlib.sha256(big.read_bytes()).hexdigest()
+    with pytest.raises(NarrationError) as caught:
+        stage_clip(store, _voice(big, sha), check_path=check_readable_path)
+    assert caught.value.code == codes.UNSUPPORTED_AUDIO and caught.value.field == "voice.path"
+    assert caught.value.details == {"bytes": MAX_CLIP_BYTES + 1, "max_bytes": MAX_CLIP_BYTES}
+    assert not clip_path(store, sha).exists()
+    assert not list(clip_path(store, sha).parent.glob("*.tmp"))
+
+
+def test_a_full_disk_while_copying_the_clip_is_store_full_s17_3(
+    store: NarrationStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "voice.wav"
+    sha = write_clip(source)
+    real_open = Path.open
+
+    class FullDisk:
+        def __init__(self, handle: Any) -> None:
+            self._handle = handle
+
+        def __enter__(self) -> FullDisk:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self._handle.close()
+
+        def write(self, data: bytes) -> int:
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    def open_(path: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        handle = real_open(path, mode, *args, **kwargs)
+        return FullDisk(handle) if "w" in mode and path.name.endswith(".tmp") else handle
+
+    monkeypatch.setattr(Path, "open", open_)
+    with pytest.raises(NarrationError) as caught:
+        stage_clip(store, _voice(source, sha), check_path=check_readable_path)
+    assert caught.value.code == codes.STORE_FULL and caught.value.retryable
+    assert caught.value.retry_after_s == admission.STORE_FULL_RETRY_S
+    assert not clip_path(store, sha).exists()
 
 
 def test_only_a_designed_or_allowed_clip_may_be_cloned_s17_4(store: NarrationStore) -> None:

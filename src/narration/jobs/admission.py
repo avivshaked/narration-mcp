@@ -38,6 +38,8 @@ RETRY_MIN_S: Final = 1.0
 QUEUE_FULL_DEFAULT_S: Final = 60.0
 """``QUEUE_FULL``'s ``retry_after_s`` when the drain estimate is unknown."""
 QUEUE_FULL_MAX_S: Final = 900.0
+STORE_FULL_RETRY_S: Final = 60.0
+"""``STORE_FULL``'s ``retry_after_s`` when the job engine finds the store's disk full."""
 GPU_UNAVAILABLE_RETRY_S: Final = 60.0
 """``GPU_UNAVAILABLE``'s ``retry_after_s``: the job already waited ``wait_timeout_min`` for free VRAM, and a
 resubmission waits again, so a minute is enough to let the other work move on."""
