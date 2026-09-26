@@ -1,6 +1,6 @@
 # Narration MCP: implementation plan
 
-*Plan revision 2, 2026-09-26. Status: **H0 answered; WP00 next.** Nothing is built yet.*
+*Plan revision 2, 2026-09-26. Status: **H0 answered and the plan pushed; WP00 next.** Nothing is built yet.*
 
 **Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.1**. It is the
 bake-off's design copied into this repository, and differs only in two example paths and a header note.
@@ -216,8 +216,8 @@ it. Status: `proposed` · `approved` · `applied` (in the design) · `rejected`.
 | # | Change | Design sections | Status | Built in |
 |---|---|---|---|---|
 | DC-1 | **No GPL in the voice profile.** f0 comes from `librosa.pyin` (ISC). HNR uses Boersma's (1993) autocorrelation method, the one Praat implements. **CPPS** (smoothed cepstral peak prominence, Hillenbrand 1994) replaces jitter and shimmer: those are defined on sustained vowels and are noisy on running narration, while CPPS holds up on connected speech. Each measure is documented as what it is, not as Praat's. Validation uses synthetic signals with known values (pulse trains at a known f0, noise at a known SNR). No GPL code anywhere in the repo, tests included. Note: librosa depends on `soxr` (LGPL-2.1+), which is acceptable as a separately installed, replaceable package; it goes in the licence audit. | §3.6, §4 (QA worker), §18 | **approved** (Q7) | WP22, WP34 |
-| DC-2 | **A backoff contract** (Q8). Retries are already safe (content-hash ids, `idempotency_key`, identical request = same job); this tells a consumer *when* to come back. (1) The Error fragment gains an optional **`retry_after_s`**, set on every retryable error: the server's minimum wait, like HTTP `Retry-After`. `details` carries the facts behind it, e.g. `GPU_UNAVAILABLE {free_mb, need_mb, waited_s}`. (2) `LIMIT_EXCEEDED` stays for request-size limits (not retryable), and two retryable codes are added: **`QUEUE_FULL`** (`retry_after_s` from the queue's drain estimate) and **`RATE_LIMITED`** (`retry_after_s` until the submit window frees). (3) `submit_job` and `get_job` return **`poll_after_s`**, the earliest poll worth making, longer while `waiting_for_gpu`, beside the existing `eta_s`, `queue_position` and `phase`. (4) `get_server_status` gains **`admission`**: {accepting, queue {length, max, est_drain_s}, rate {remaining, resets_in_s}, gpu {in_use, holder, free_mb, need_mb by group, waiting_since}}, so a consumer can decide before submitting. (5) Tool descriptions state the rule: wait at least `retry_after_s`, add your own jitter, then resend the identical request, which is deduplicated. The service suggests; the consumer decides. | §7.2 (Error), §7.3, §7.4, §7.6, §14 | **proposed** | WP01, WP31, WP36 |
-| DC-3 | **The canary is designed on the installing machine**, not shipped as audio. §10.1 ships a canary clip, but the design promises nothing across a GPU, driver or CUDA change, so a shipped raw hash would not match on anyone else's machine, and shipping audio breaks P6. `narration-admin engine pin` designs the canary from a fixed description, text and seed (shipped as text) and stores its hash and embedding per engine profile. It still checks what §10.1 says: this engine, on this machine, over time. | §10.1, §15, §6 (EngineProfile) | **proposed** | WP32, WP37 |
+| DC-2 | **A backoff contract** (Q8). Retries are already safe (content-hash ids, `idempotency_key`, identical request = same job); this tells a consumer *when* to come back. (1) The Error fragment gains an optional **`retry_after_s`**, set on every retryable error: the server's minimum wait, like HTTP `Retry-After`. `details` carries the facts behind it, e.g. `GPU_UNAVAILABLE {free_mb, need_mb, waited_s}`. (2) `LIMIT_EXCEEDED` stays for request-size limits (not retryable), and two retryable codes are added: **`QUEUE_FULL`** (`retry_after_s` from the queue's drain estimate) and **`RATE_LIMITED`** (`retry_after_s` until the submit window frees). (3) `submit_job` and `get_job` return **`poll_after_s`**, the earliest poll worth making, longer while `waiting_for_gpu`, beside the existing `eta_s`, `queue_position` and `phase`. (4) `get_server_status` gains **`admission`**: {accepting, queue {length, max, est_drain_s}, rate {remaining, resets_in_s}, gpu {in_use, holder, free_mb, need_mb by group, waiting_since}}, so a consumer can decide before submitting. (5) Tool descriptions state the rule: wait at least `retry_after_s`, add your own jitter, then resend the identical request, which is deduplicated. The service suggests; the consumer decides. | §7.2 (Error), §7.3, §7.4, §7.6, §14 | **approved** (owner, 2026-09-26) | WP01, WP31, WP36 |
+| DC-3 | **The canary is designed on the installing machine**, not shipped as audio. §10.1 ships a canary clip, but the design promises nothing across a GPU, driver or CUDA change, so a shipped raw hash would not match on anyone else's machine, and shipping audio breaks P6. `narration-admin engine pin` designs the canary from a fixed description, text and seed (shipped as text) and stores its hash and embedding per engine profile. It still checks what §10.1 says: this engine, on this machine, over time. | §10.1, §15, §6 (EngineProfile) | **approved** (owner, 2026-09-26) | WP32, WP37 |
 | DC-4 | **The effective `max_new_tokens`** (§1.3 item 1). Pin 8192, the value all the evidence used; decide whether a cap derived from text length is wanted. | §1, §10.1, §11.1 | open; WP20's ADR proposes | WP20 |
 
 ---
@@ -326,10 +326,10 @@ lane says whether it needs the GPU lock at all.
 tree and fails on a planted local path and a planted `.wav`; the first push, once the owner has
 reviewed `COMMERCIAL.md`.
 
-**WP01 Contracts v1.** One module per contract, frozen at the end of Wave 0. DC-2 (backoff) goes in
-here if the owner approves it by then; otherwise it enters later as a contract change.
+**WP01 Contracts v1.** One module per contract, frozen at the end of Wave 0. They include DC-2 (backoff,
+approved), and WP01 applies DC-1 to DC-3 to `docs/design.md` as revision 5.2.
 - `narration.contracts.codes`: every error and flag code with severity, `retryable` and retake trigger
-  (§14 tables verbatim, plus DC-2's `QUEUE_FULL` and `RATE_LIMITED` once approved).
+  (§14 tables verbatim, plus DC-2's `QUEUE_FULL` and `RATE_LIMITED`).
 - `narration.contracts.schemas`: the §7.2 fragments and every tool's input/output schema, as Python
   dicts assembled with **no `$ref`** (§5); a test that walks `tools/list` and finds no `"$ref"`, and that
   every `outputSchema` has `"type": "object"` at its root.
@@ -745,3 +745,5 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   replaced (DC-1, approved). Backoff contract (DC-2) and install-time canary (DC-3) proposed. The
   unpushed first commit was rebuilt so that no local path is ever in the public history. Plan
   revision 2.
+- 2026-09-26: the owner approved `COMMERCIAL.md`, the README, DC-2 (backoff) and DC-3 (install-time
+  canary), and asked for the push. `main` pushed to `origin`.

@@ -5,10 +5,9 @@
 
 ## Where things stand
 
-- **Stage: H0 answered; WP00 (bootstrap) is next.** No code is written yet.
+- **Stage: H0 answered, plan pushed; WP00 (bootstrap) is next.** No code is written yet.
 - The repository is initialised locally (`main`), with `origin` = `git@github.com:avivshaked/narration-mcp.git`,
-  a **public**, empty repository. **Nothing has been pushed.** The first push waits for the owner's
-  read of `COMMERCIAL.md` (below).
+  a **public** repository. `main` is pushed.
 - Tracked so far:
   - `plan.md`: the plan, the decisions (§1.4), design changes (§1.5), and the status table (§4);
   - `AGENTS.md` + `CLAUDE.md`: the agent rules; `CLAUDE.md` also imports `AGENTS.local.md`;
@@ -35,16 +34,12 @@
 
 ## Waiting on the owner
 
-1. **Read `COMMERCIAL.md` (and `README.md`) before the first push.** `COMMERCIAL.md` is adapted from the
-   evolution simulator's and speaks in the owner's name. The copyright holder is written as "Aviv Shaked".
-2. **DC-2, the backoff contract** (plan.md §1.5): `retry_after_s` on retryable errors; `QUEUE_FULL` and
-   `RATE_LIMITED` split out of `LIMIT_EXCEEDED`; `poll_after_s`; an `admission` block in
-   `get_server_status`. Needed before WP01 freezes the contracts, or it enters later as a contract
-   change.
-3. **DC-3, the canary designed on the installing machine** rather than shipped as audio.
+Nothing right now. `COMMERCIAL.md`, the README, DC-2 (backoff) and DC-3 (install-time canary) were
+approved on 2026-09-26. WP01 applies DC-1 to DC-3 to `docs/design.md` as revision 5.2.
 
 Coming later: DC-4 (`max_new_tokens`, from WP20's evidence); the GitHub description, which still says
-voices are "locked" (it is outward-facing, so it waits for the owner; WP44).
+voices are "locked" (it is outward-facing, so it waits for the owner; WP44); the gates H1 to H4 as the
+work reaches them.
 
 ## Next steps
 
