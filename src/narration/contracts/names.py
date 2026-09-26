@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, Literal, get_args
 
+from narration_worker.protocol import WorkerRole as WorkerRole
+
 # ---------------------------------------------------------------- the server (sections 5, 7)
 SERVER_NAME: Final = "narration"
 SPEC_REVISION: Final = "2026-07-28"
@@ -151,7 +153,6 @@ BoundaryKind = Literal["pause", "no_pause", "segment_edge"]
 TextWarningKind = Literal["digit", "symbol", "unit_like", "letter"]
 CanaryStatus = Literal["hash_match", "similarity_pass", "not_run"]
 """A batch's canary outcome (section 10.1). A failed canary fails the job (``ENGINE_DRIFT``)."""
-WorkerRole = Literal["qwen3", "qa", "fake"]
 SuggestionTier = Literal[1, 2, 3, 4]
 """Section 8: 1 pass; 2 warn, every cue placed; 3 warn, a cue unplaced; 4 fail."""
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import Protocol
+from typing import Protocol, get_args
 
 from narration.contracts import interfaces, names, worker
 
@@ -44,3 +44,13 @@ def test_the_fake_role_implements_every_op_of_both_real_workers_app_a() -> None:
     assert set(worker.OPS_BY_ROLE["fake"]) == set(worker.QWEN3_OPS) | set(worker.QA_OPS)
     for role_ops in worker.OPS_BY_ROLE.values():
         assert set(worker.COMMON_OPS) <= set(role_ops)
+
+
+def test_worker_protocol_is_one_definition_appA() -> None:
+    import narration_worker.protocol as protocol
+
+    assert worker.OPS_BY_ROLE is protocol.OPS_BY_ROLE
+    assert names.WorkerRole is protocol.WorkerRole
+    assert set(get_args(worker.Op)) == set(worker.FAKE_OPS)
+    assert get_args(worker.WorkerErrorCode) == worker.WORKER_ERROR_CODES
+    assert set(worker.OPS_BY_ROLE) == set(get_args(names.WorkerRole))
