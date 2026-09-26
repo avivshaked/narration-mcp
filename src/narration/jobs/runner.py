@@ -226,12 +226,20 @@ class EngineRunner:
         self._done(host)
 
     def _let_go(self, host: RunnerHost, reason: str) -> None:
-        """Give the job back to the queue as it is (its finished work is in the cache)."""
-        assert self._job is not None
-        if self._handler is not None and self._run is not None:
-            self._handler.save(host, self._run)
-            self._handler.release(self._run)
-        return_job(host.store, self._job.job_id, reason=reason)
+        """Give the job back to the queue as it is (its finished work is in the cache). A job cancelled
+        meanwhile is finished as ``cancelled`` instead, with every segment's final state."""
+        job, handler, run = self._job, self._handler, self._run
+        assert job is not None
+        if handler is not None and run is not None:
+            if not handler.save(host, run):
+                current = host.store.get_job(job.job_id)
+                if current is not None and current.status == "cancelling":
+                    handler.cancel(host, run)
+                    log.info("job %s cancelled as the daemon let go of it", job.job_id)
+                    self._done(host)
+                    return
+            handler.release(run)
+        return_job(host.store, job.job_id, reason=reason)
         self._done(host)
 
     def _done(self, host: RunnerHost) -> None:

@@ -225,6 +225,20 @@ def test_cancel_keeps_what_was_made_and_skips_the_rest_s8(world: World) -> None:
     assert Counter(world.pool.texts()) == Counter({LAMPS: 1, KETTLE: 1, ORCHARD: 1})  # the renders were kept
 
 
+def test_a_cancel_that_arrives_before_the_daemon_stops_ends_the_job_cancelled_s8(world: World) -> None:
+    job = world.submit(LAMPS, KETTLE, ORCHARD)
+    _step_until(world, lambda: world.pool.calls[("qwen", "synthesize")] == 2)
+    assert world.store.update_job(job.job_id, expect_status="running", status="cancelling") is not None
+    world.runner.shutdown(world.host, "segment")  # the daemon stops before its next step sees the cancel
+
+    done = world.job(job.job_id)
+    assert done.status == "cancelled" and done.phase is None
+    assert [i.state for i in done.items] == ["skipped"] * 3  # final states, none left as it was mid-round
+    assert all(codes.CANCELLED in {f.code for f in i.flags} for i in done.items)
+    assert [a.render_id is not None for i in done.items for a in i.attempts] == [True, True, False]
+    assert world.host.finished == 1
+
+
 def test_stop_now_gives_the_job_back_and_the_next_daemon_finishes_it_from_the_cache_s4_1(world: World) -> None:
     job = world.submit(LAMPS, KETTLE)
     _step_until(world, lambda: world.pool.calls[("qwen", "synthesize")] == 1)
