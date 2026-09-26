@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from narration import platform as platform_module
+from narration.contracts import codes, names
+from narration.contracts.errors import NarrationError, UnsupportedPlatform
 from narration.contracts.interfaces import Platform
+from narration.store import layout as layout_module
 from narration.store.layout import InvalidIdError, StoreLayout, StorePathError, method_file_stem
 
 from .standin import StandInPlatform, make_link, remove_link
@@ -155,5 +161,134 @@ def test_a_link_inside_the_store_is_refused_as_a_reparse_point_s17_2(layout: Sto
     try:
         with pytest.raises(StorePathError, match="link or junction"):
             layout.take_dir(TAKE_ID)
+    finally:
+        remove_link(link)
+
+
+# ---------------------------------------------------------------- review fixes: whole matches, long method ids,
+# the platform's other errors, and the real platform
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda lay, nl: lay.render_dir(RENDER_ID + nl),
+        lambda lay, nl: lay.take_dir(TAKE_ID + nl),
+        lambda lay, nl: lay.analysis_path(TAKE_ID, ANALYSIS_ID + nl),
+        lambda lay, nl: lay.job_dir(JOB_ID + nl),
+        lambda lay, nl: lay.design_dir(DESIGN_ID + nl, 0),
+        lambda lay, nl: lay.design_root(DESIGN_ID + nl),
+        lambda lay, nl: lay.profile_dir(AUDIO + nl),
+        lambda lay, nl: lay.measurement_dir(VOICE_HASH + nl, "qwen3-base-1.7b.p1"),
+        lambda lay, nl: lay.measurement_dir(VOICE_HASH, "qwen3-base-1.7b.p1" + nl),
+        lambda lay, nl: lay.engine_path("qwen3-base-1.7b.p1" + nl),
+    ],
+)
+def test_an_id_with_a_trailing_newline_builds_no_path_s17_2(layout: StoreLayout, build: Any) -> None:
+    build(layout, "")  # the id itself is fine
+    with pytest.raises(InvalidIdError):
+        build(layout, "\n")
+
+
+def test_a_component_with_a_trailing_newline_builds_no_path_s17_2(layout: StoreLayout) -> None:
+    with pytest.raises(StorePathError):
+        layout.scratch_path("job_x\n")
+    with pytest.raises(StorePathError):
+        layout.abs("renders\n")
+
+
+def test_the_id_shapes_are_the_contracts_s6() -> None:
+    assert layout_module.RENDER_ID_PATTERN.pattern == names.ID_PATTERNS["render_id"]
+    assert layout_module.TAKE_ID_PATTERN.pattern == names.ID_PATTERNS["take_id"]
+    assert layout_module.ANALYSIS_ID_PATTERN.pattern == names.ID_PATTERNS["analysis_id"]
+    assert layout_module.JOB_ID_PATTERN.pattern == names.ID_PATTERNS["job_id"]
+    assert layout_module.DESIGN_ID_PATTERN.pattern == names.ID_PATTERNS["design_id"]
+    ids: tuple[tuple[names.IdKind, str], ...] = (
+        ("render_id", RENDER_ID),
+        ("take_id", TAKE_ID),
+        ("job_id", JOB_ID),
+        ("design_id", DESIGN_ID),
+    )
+    for kind, value in ids:
+        assert names.is_id(kind, value) and not names.is_id(kind, value + "\n")
+
+
+# A realistic method id of the Qwen3 forced aligner: method, model, revision and snap parameters.
+LONG_METHOD = (
+    "ctc-forced-align+silence-snap/Qwen/Qwen3-ForcedAligner-0.6B@c7cbfc2048c462b0d63a45797104fc9db3ad62b7"
+    "+snap(frame_s=0.02,max_shift_s=0.12,pad=0.080)"
+)
+LONG_METHOD_STEM = (
+    "ctc-forced-align+silence-snap%2F%51wen%2F%51wen3-%46orced%41ligner-0.6%42%40c7cbfc2048c462b0d63a4"
+    "%hb6e6a840dd83b5ef71106e3c"
+)
+
+
+def test_a_long_method_id_gets_a_readable_stem_with_a_hash_s11_2(layout: StoreLayout) -> None:
+    assert len(LONG_METHOD) == 146
+    stem = method_file_stem(LONG_METHOD)
+    assert stem == LONG_METHOD_STEM  # stable: the file name of a published benchmark
+    assert len(stem) == layout_module.METHOD_STEM_MAX
+    assert stem.endswith("%h" + hashlib.sha256(LONG_METHOD.encode("utf-8")).hexdigest()[:24])
+    path = layout.alignment_path(LONG_METHOD)
+    assert path.name == stem + ".json" and len(path.name) <= layout_module.COMPONENT_MAX
+    # Two long ids that differ only past the readable prefix get different names.
+    assert method_file_stem(LONG_METHOD.replace("pad=0.080", "pad=0.090")) != stem
+
+
+def test_a_shortened_stem_never_splits_an_escape_or_meets_a_short_stem() -> None:
+    method = "a" * 96 + "/" + "b" * 60  # the cut would fall inside "%2F"
+    stem = method_file_stem(method)
+    prefix = stem.split("%h", 1)[0]
+    assert prefix == "a" * 96 and len(stem) <= layout_module.METHOD_STEM_MAX
+    # A stem short enough to keep whole never contains the "%h" mark, whatever the id holds.
+    assert "%h" not in method_file_stem("%h/%H" + "x" * 10)
+    assert method_file_stem(".hidden") == "%2Ehidden"
+
+
+class _PlatformRaising:
+    """A platform whose ``check_store_path`` raises a chosen error."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def check_store_path(self, path: Path, root: Path) -> Path:
+        raise self.error
+
+
+def test_an_unsupported_platform_stays_daemon_unavailable_s17_2(tmp_path: Path) -> None:
+    layout = StoreLayout(tmp_path / "store", _PlatformRaising(UnsupportedPlatform("check_store_path", "plan9")))  # type: ignore[arg-type]
+    with pytest.raises(UnsupportedPlatform) as caught:
+        layout.render_dir(RENDER_ID)
+    assert caught.value.code == codes.DAEMON_UNAVAILABLE
+
+
+def test_a_platform_refusal_keeps_its_details_s17_2(tmp_path: Path) -> None:
+    refusal = NarrationError(codes.PATH_NOT_ALLOWED, "a reparse point", details={"rule": "reparse_point"})
+    layout = StoreLayout(tmp_path / "store", _PlatformRaising(refusal))  # type: ignore[arg-type]
+    with pytest.raises(StorePathError) as caught:
+        layout.render_dir(RENDER_ID)
+    assert caught.value.details == {"rule": "reparse_point"}
+
+
+needs_windows = pytest.mark.skipif(
+    not platform_module.is_supported(), reason="narration.platform supports Windows only"
+)
+
+
+@needs_windows
+def test_the_real_platform_confines_the_store_s17_2(tmp_path: Path) -> None:
+    layout = StoreLayout(tmp_path / "store", platform_module.get_platform())
+    assert layout.render_dir(RENDER_ID) == layout.root / "renders" / "77" / RENDER_ID
+    with pytest.raises(StorePathError):
+        layout.engine_path("con")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = layout.root / "renders"
+    if not make_link(link, outside):
+        pytest.skip("this machine can make neither a symlink nor a junction")
+    try:
+        with pytest.raises(StorePathError):
+            layout.render_dir(RENDER_ID)
     finally:
         remove_link(link)

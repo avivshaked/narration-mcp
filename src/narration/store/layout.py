@@ -9,16 +9,16 @@ The OS-specific rules live only in the platform object; this module is portable.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from pathlib import Path, PurePosixPath
-from typing import Final
+from typing import Any, Final
 
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Platform
 from narration.keys import HEX64_PATTERN, KEY_PATTERN
-from narration.keys.ulid import ULID_PATTERN
 
 # ---------------------------------------------------------------- file and folder names (section 15)
 DB_NAME: Final = "narration.sqlite"
@@ -59,18 +59,29 @@ TEMP_PREFIXES: Final = (".tmp-", ".staging-", ".trash-")
 """Names the store gives work in progress. Nothing with these prefixes is ever a published file."""
 
 # ---------------------------------------------------------------- id grammar
-RENDER_ID_PATTERN: Final = re.compile(r"^" + names.RENDER_ID_PREFIX + r"[0-9a-f]{" + str(names.ID_HEX_CHARS) + r"}$")
-TAKE_ID_PATTERN: Final = re.compile(r"^" + names.TAKE_ID_PREFIX + r"[0-9a-f]{" + str(names.ID_HEX_CHARS) + r"}$")
-ANALYSIS_ID_PATTERN: Final = re.compile(
-    r"^" + names.ANALYSIS_ID_PREFIX + r"[0-9a-f]{" + str(names.ID_HEX_CHARS) + r"}$"
-)
-JOB_ID_PATTERN: Final = re.compile(r"^" + names.JOB_ID_PREFIX + ULID_PATTERN.pattern.removeprefix("^"))
-DESIGN_ID_PATTERN: Final = ULID_PATTERN
-PROFILE_ID_PATTERN: Final = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}(?<!\.)$")
+# The ids a caller sends back take their shapes from ``names.ID_PATTERNS``, which the front end and the
+# tool schemas use too. Every pattern here is unanchored and used with ``fullmatch`` only: ``$`` (or a
+# ``match``) would let an id with a trailing newline through to a file name.
+RENDER_ID_PATTERN: Final = re.compile(names.ID_PATTERNS["render_id"])
+TAKE_ID_PATTERN: Final = re.compile(names.ID_PATTERNS["take_id"])
+ANALYSIS_ID_PATTERN: Final = re.compile(names.ID_PATTERNS["analysis_id"])
+JOB_ID_PATTERN: Final = re.compile(names.ID_PATTERNS["job_id"])
+DESIGN_ID_PATTERN: Final = re.compile(names.ID_PATTERNS["design_id"])
+PROFILE_ID_PATTERN: Final = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}(?<!\.)")
 """An engine profile id such as ``qwen3-base-1.7b.p1`` (section 7.2's Id, without a trailing dot, which
 Windows would drop from a file name)."""
-_COMPONENT: Final = re.compile(r"^[A-Za-z0-9_%+-][A-Za-z0-9._%+-]{0,127}(?<!\.)$")
+COMPONENT_MAX: Final = 128
+"""The longest path component the store builds. Ids are far shorter; an alignment method id can be longer,
+and ``method_file_stem`` shortens it to fit."""
+_COMPONENT: Final = re.compile(r"[A-Za-z0-9_%+-][A-Za-z0-9._%+-]{0," + str(COMPONENT_MAX - 1) + r"}(?<!\.)")
 """One path component the store itself made: no separators, no drive, not ``.`` or ``..``, no trailing dot."""
+ALIGNMENT_SUFFIX: Final = ".json"
+METHOD_STEM_MAX: Final = COMPONENT_MAX - len(ALIGNMENT_SUFFIX)
+"""The longest stem ``method_file_stem`` returns, so that ``<stem>.json`` is one valid component."""
+_METHOD_HASH_MARK: Final = "%h"
+"""Separates a shortened stem's readable prefix from its hash. An encoded stem never contains it: every
+``%`` there starts an upper-case hex escape (``%XX``), and ``h`` or ``H`` is not a hex digit."""
+_METHOD_HASH_HEX: Final = 24
 _METHOD_SAFE: Final = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._+-")
 
 
@@ -88,17 +99,18 @@ class InvalidIdError(NarrationError):
 class StorePathError(NarrationError):
     """A store path that would leave the store root, or that the platform refuses (section 17.2)."""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             codes.PATH_NOT_ALLOWED,
             message,
             hint="The store root must be a plain local folder with no links or junctions inside it; "
             "ask the operator to check it (narration-admin verify).",
+            details=details,
         )
 
 
 def _check(pattern: re.Pattern[str], value: str, what: str) -> str:
-    if not isinstance(value, str) or not pattern.match(value):
+    if not isinstance(value, str) or not pattern.fullmatch(value):
         raise InvalidIdError(what, value)
     return value
 
@@ -110,24 +122,34 @@ def shard(ident: str) -> str:
 
 
 def method_file_stem(method_id: str) -> str:
-    """A file name for an alignment method id, which may contain ``/``, ``@`` or capitals.
+    """A file name stem for an alignment method id, which may contain ``/``, ``@``, ``{`` or capitals.
 
-    Lower-case letters, digits and ``._+-`` are kept; every other byte of its UTF-8 form is written
-    ``%XX``. The mapping is reversible and never lets two ids collide, even on a case-insensitive file
-    system.
+    Lower-case letters, digits and ``._+-`` are kept, except a leading ``.``; every other byte of its
+    UTF-8 form is written ``%XX``. That form is reversible, so two ids never collide, even on a
+    case-insensitive file system.
+
+    A stem longer than ``METHOD_STEM_MAX`` (a method id with a long model name, revision and snap
+    parameters) is shortened: its first characters, cut so that no ``%XX`` is split, then ``%h`` and the
+    first 24 hex digits of the sha256 of the id. The result is stable and still names the method to a
+    reader. A short stem never contains ``%h``, so a shortened stem never equals a short one.
     """
     if not isinstance(method_id, str) or not method_id:
         raise InvalidIdError("method_id", method_id)
-    out = []
-    for char in method_id:
-        if char in _METHOD_SAFE:
+    out: list[str] = []
+    for i, char in enumerate(method_id):
+        if char in _METHOD_SAFE and not (i == 0 and char == "."):
             out.append(char)
         else:
             out.extend(f"%{b:02X}" for b in char.encode("utf-8"))
     stem = "".join(out)
-    if stem.startswith(".") or stem.endswith(".") or len(stem) > 200:
-        raise InvalidIdError("method_id", method_id)
-    return stem
+    if len(stem) <= METHOD_STEM_MAX:
+        return stem
+    digest = hashlib.sha256(method_id.encode("utf-8")).hexdigest()[:_METHOD_HASH_HEX]
+    cut = METHOD_STEM_MAX - len(_METHOD_HASH_MARK) - _METHOD_HASH_HEX
+    percent = stem.rfind("%", max(0, cut - 2), cut)
+    if percent != -1:
+        cut = percent  # never keep half of a %XX escape
+    return stem[:cut] + _METHOD_HASH_MARK + digest
 
 
 def is_under(path: Path, root: Path) -> bool:
@@ -156,19 +178,26 @@ class StoreLayout:
     # ---- confinement
     def confine(self, path: Path) -> Path:
         """Return ``path`` if it is safe to write: under the root after resolving links, and accepted by
-        the platform. Raises ``StorePathError`` otherwise."""
+        the platform. Raises ``StorePathError`` otherwise.
+
+        Only the platform's ``PATH_NOT_ALLOWED`` refusal becomes a ``StorePathError`` (keeping its
+        ``details``). Any other error from the platform is raised unchanged: on an OS v1 does not support,
+        ``UnsupportedPlatform`` stays ``DAEMON_UNAVAILABLE``.
+        """
         real = Path(os.path.realpath(path))
         if not is_under(real, self._real_root):
             raise StorePathError(f"{path} resolves to {real}, outside the store root {self._real_root}")
         try:
             self._platform.check_store_path(path, self._root)
         except NarrationError as exc:
-            raise StorePathError(f"{path} is not allowed in the store: {exc.message}") from exc
+            if exc.code != codes.PATH_NOT_ALLOWED:
+                raise
+            raise StorePathError(f"{path} is not allowed in the store: {exc.message}", details=exc.details) from exc
         return path
 
     def _build(self, *parts: str) -> Path:
         for part in parts:
-            if not _COMPONENT.match(part):
+            if not isinstance(part, str) or not _COMPONENT.fullmatch(part):
                 raise StorePathError(f"refusing to build a store path with the component {part!r}")
         return self.confine(self._root.joinpath(*parts))
 
@@ -245,7 +274,7 @@ class StoreLayout:
         return self._build(ENGINES, engine_profile_id, CANARY_WAV)
 
     def alignment_path(self, method_id: str) -> Path:
-        return self._build(ALIGNMENT, f"{method_file_stem(method_id)}.json")
+        return self._build(ALIGNMENT, method_file_stem(method_id) + ALIGNMENT_SUFFIX)
 
     def daemon_json_path(self) -> Path:
         return self._build(RUN, DAEMON_JSON)
