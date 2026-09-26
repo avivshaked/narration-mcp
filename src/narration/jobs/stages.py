@@ -26,7 +26,7 @@ import soundfile
 from narration import keys
 from narration.align import has_letters
 from narration.contracts import codes, names
-from narration.contracts.errors import NarrationError, WorkerFailure
+from narration.contracts.errors import NarrationError, WorkerCrashed, WorkerFailure, WorkerTimeout
 from narration.contracts.interfaces import AnalysisKeyInputs, QaInputs
 from narration.contracts.models import (
     AnalysisRecord,
@@ -42,6 +42,7 @@ from narration.contracts.models import (
     RenderVoice,
     TakeRecord,
 )
+from narration.contracts.names import GpuHolder
 from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 
 from .core import EngineCore
@@ -194,8 +195,24 @@ class Stages:
             client = host.workers.client("qwen", cublas_workspace_config=need.cublas_workspace_config)
             hello = cast(HelloReply | None, getattr(client, "hello", None))
             core.phase(host, run, "canary")
-            core.canary = core.parts.guard.after_load(host, run.profile, hello)
+            try:
+                core.canary = core.parts.guard.after_load(host, run.profile, hello)
+            except Exception:
+                # A load the guard refused is never used: not by this job, and not by the next, which loads
+                # again and is checked again.
+                core.canary = "not_run"
+                self.drop(host, "qwen")
+                raise
         return True
+
+    def drop(self, host: RunnerHost, group: GpuHolder) -> None:
+        """Unload the group through the pool, and forget it was loaded, even if the unload fails."""
+        try:
+            self.core.residency.unload(host, group)
+        except (WorkerFailure, WorkerCrashed, WorkerTimeout) as exc:
+            log.warning("unloading the %s group failed: %s", group, exc)
+        finally:
+            self.core.residency.forget(group)
 
     # ------------------------------------------------------------------ render
     def render(self, host: RunnerHost, run: JobRun, attempt: Attempt) -> Outcome:
