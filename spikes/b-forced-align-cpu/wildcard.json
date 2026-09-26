@@ -1,0 +1,3774 @@
+{
+ "spike": "b-forced-align-cpu/wildcard",
+ "date": "2026-09-26",
+ "model": "facebook/wav2vec2-large-960h-lv60-self@54074b1c16f4de6a5ad59affb4caa8f2ea03a119",
+ "takes": 6,
+ "pairs": 24,
+ "noise_s": 0.02,
+ "load_s": 0.19,
+ "align_s": 74.0,
+ "summary": {
+  "boundaries": {
+   "total": 90,
+   "measured": 90,
+   "moved_not_at_all": 84,
+   "moved_at_most_one_frame": 84,
+   "moved_more": [
+    {
+     "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+     "pair": "n05+n06",
+     "boundary": "1-2",
+     "kind": "paragraph",
+     "moved_s": 2.94,
+     "error_before_s": 2.86,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+     "pair": "n05+n06",
+     "boundary": "1-2",
+     "kind": "paragraph",
+     "moved_s": 3.26,
+     "error_before_s": 3.16,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+     "pair": "n05+n06",
+     "boundary": "1-2",
+     "kind": "paragraph",
+     "moved_s": 1.38,
+     "error_before_s": 1.3,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+     "pair": "n05+n06",
+     "boundary": "1-2",
+     "kind": "paragraph",
+     "moved_s": 3.68,
+     "error_before_s": 3.22,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+     "pair": "n05+n06",
+     "boundary": "1-2",
+     "kind": "paragraph",
+     "moved_s": 3.46,
+     "error_before_s": 2.88,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+     "pair": "n05+n06",
+     "boundary": "1-2",
+     "kind": "paragraph",
+     "moved_s": 3.94,
+     "error_before_s": 3.44,
+     "error_after_s": 0.0
+    }
+   ],
+   "n05_n06_paragraph_boundary": [
+    {
+     "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+     "before_start_s": 10.52,
+     "after_start_s": 13.46,
+     "ref_start_s": 13.38,
+     "error_before_s": 2.86,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+     "before_start_s": 11.02,
+     "after_start_s": 14.28,
+     "ref_start_s": 14.18,
+     "error_before_s": 3.16,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+     "before_start_s": 12.08,
+     "after_start_s": 13.46,
+     "ref_start_s": 13.38,
+     "error_before_s": 1.3,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+     "before_start_s": 11.36,
+     "after_start_s": 15.04,
+     "ref_start_s": 14.58,
+     "error_before_s": 3.22,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+     "before_start_s": 12.18,
+     "after_start_s": 15.64,
+     "ref_start_s": 15.06,
+     "error_before_s": 2.88,
+     "error_after_s": 0.0
+    },
+    {
+     "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+     "before_start_s": 10.42,
+     "after_start_s": 14.36,
+     "ref_start_s": 13.86,
+     "error_before_s": 3.44,
+     "error_after_s": 0.0
+    }
+   ],
+   "paragraph_boundaries_holding_the_gap": {
+    "before": 18,
+    "after": 24,
+    "of": 24
+   },
+   "sentence_error_s": {
+    "before": {
+     "n": 33,
+     "mean_abs": 0.08,
+     "p50_abs": 0.07,
+     "p95_abs": 0.13,
+     "max_abs": 0.21
+    },
+    "after": {
+     "n": 33,
+     "mean_abs": 0.08,
+     "p50_abs": 0.07,
+     "p95_abs": 0.13,
+     "max_abs": 0.21
+    }
+   }
+  },
+  "words_vs_greedy_frames": {
+   "before": {
+    "n": 2404,
+    "mean_abs": 3.51,
+    "p50_abs": 0.0,
+    "p95_abs": 21.0,
+    "max_abs": 200
+   },
+   "after": {
+    "n": 2404,
+    "mean_abs": 0.19,
+    "p50_abs": 0.0,
+    "p95_abs": 0.0,
+    "max_abs": 95
+   }
+  },
+  "words_next_to_a_wildcard_vs_greedy_frames": {
+   "before": {
+    "n": 484,
+    "mean_abs": 16.06,
+    "p50_abs": 0.0,
+    "p95_abs": 79.0,
+    "max_abs": 200
+   },
+   "after": {
+    "n": 484,
+    "mean_abs": 0.53,
+    "p50_abs": 0.0,
+    "p95_abs": 0.0,
+    "max_abs": 28
+   }
+  },
+  "wildcard_span_vs_greedy_frames": {
+   "start": {
+    "n": 116,
+    "mean_abs": 8.17,
+    "p50_abs": 6.0,
+    "p95_abs": 24.5,
+    "max_abs": 51
+   },
+   "end": {
+    "n": 116,
+    "mean_abs": 10.86,
+    "p50_abs": 9.0,
+    "p95_abs": 32.0,
+    "max_abs": 50
+   }
+  },
+  "wildcard_spans": {
+   "real": {
+    "n": 144,
+    "frames": {
+     "n": 144,
+     "mean_abs": 33.21,
+     "p50_abs": 30.0,
+     "p95_abs": 68.0,
+     "max_abs": 83
+    },
+    "score": {
+     "n": 144,
+     "mean_abs": 0.67,
+     "p50_abs": 0.63,
+     "p95_abs": 1.0,
+     "max_abs": 1.0
+    }
+   },
+   "planted": {
+    "pause": {
+     "n": 24,
+     "frames": {
+      "n": 24,
+      "mean_abs": 1.0,
+      "p50_abs": 1.0,
+      "p95_abs": 1.0,
+      "max_abs": 1
+     },
+     "score": {
+      "n": 24,
+      "mean_abs": 0.91,
+      "p50_abs": 1.0,
+      "p95_abs": 1.0,
+      "max_abs": 1.0
+     },
+     "neighbour_shift_frames": {
+      "n": 96,
+      "mean_abs": 0.0,
+      "p50_abs": 0.0,
+      "p95_abs": 0.0,
+      "max_abs": 0
+     }
+    },
+    "speech": {
+     "n": 24,
+     "frames": {
+      "n": 24,
+      "mean_abs": 6.25,
+      "p50_abs": 3.0,
+      "p95_abs": 17.85,
+      "max_abs": 23
+     },
+     "score": {
+      "n": 24,
+      "mean_abs": 0.84,
+      "p50_abs": 0.86,
+      "p95_abs": 1.0,
+      "max_abs": 1.0
+     },
+     "neighbour_shift_frames": {
+      "n": 96,
+      "mean_abs": 6.86,
+      "p50_abs": 0.0,
+      "p95_abs": 36.25,
+      "max_abs": 54
+     }
+    }
+   }
+  }
+ },
+ "wildcards": [
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 23,
+   "score": 0.594,
+   "reference_frames": [
+    165,
+    187
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    164,
+    187
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     8
+    ]
+   ],
+   "frames": 17,
+   "score": 0.588,
+   "reference_frames": [
+    220,
+    247
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    220,
+    237
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     13
+    ]
+   ],
+   "frames": 8,
+   "score": 0.72,
+   "reference_frames": [
+    302,
+    328
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    300,
+    308
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     15
+    ]
+   ],
+   "frames": 46,
+   "score": 0.651,
+   "reference_frames": [
+    343,
+    395
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    341,
+    387
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     2
+    ]
+   ],
+   "frames": 12,
+   "score": 0.583,
+   "reference_frames": [
+    1396,
+    1421
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    1395,
+    1407
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     5
+    ]
+   ],
+   "frames": 76,
+   "score": 0.583,
+   "reference_frames": [
+    1454,
+    1550
+   ],
+   "greedy_words_between": 7,
+   "span_frames": [
+    1466,
+    1542
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     1
+    ]
+   ],
+   "frames": 16,
+   "score": 0.683,
+   "reference_frames": [
+    16,
+    76
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    60,
+    76
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     4
+    ]
+   ],
+   "frames": 40,
+   "score": 0.624,
+   "reference_frames": [
+    123,
+    172
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    122,
+    162
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     6
+    ]
+   ],
+   "frames": 58,
+   "score": 0.724,
+   "reference_frames": [
+    433,
+    502
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    433,
+    491
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     12
+    ]
+   ],
+   "frames": 53,
+   "score": 0.603,
+   "reference_frames": [
+    607,
+    676
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    618,
+    671
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     2,
+     11
+    ]
+   ],
+   "frames": 22,
+   "score": 0.591,
+   "reference_frames": [
+    922,
+    957
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    925,
+    947
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     3,
+     13
+    ]
+   ],
+   "frames": 32,
+   "score": 0.737,
+   "span_frames": [
+    1265,
+    1297
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     4,
+     8
+    ]
+   ],
+   "frames": 4,
+   "score": 0.75,
+   "span_frames": [
+    1556,
+    1560
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     3
+    ]
+   ],
+   "frames": 58,
+   "score": 0.688,
+   "reference_frames": [
+    78,
+    155
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    81,
+    139
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 61,
+   "score": 0.606,
+   "reference_frames": [
+    164,
+    243
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    174,
+    235
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     10
+    ]
+   ],
+   "frames": 3,
+   "score": 0.997,
+   "reference_frames": [
+    309,
+    315
+   ],
+   "greedy_words_between": 1,
+   "span_frames": [
+    312,
+    315
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     3
+    ]
+   ],
+   "frames": 53,
+   "score": 0.754,
+   "reference_frames": [
+    436,
+    507
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    436,
+    489
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     5
+    ]
+   ],
+   "frames": 64,
+   "score": 0.611,
+   "reference_frames": [
+    517,
+    592
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    517,
+    581
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     4
+    ]
+   ],
+   "frames": 28,
+   "score": 0.571,
+   "reference_frames": [
+    959,
+    998
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    970,
+    998
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     10
+    ]
+   ],
+   "frames": 25,
+   "score": 0.76,
+   "span_frames": [
+    1120,
+    1145
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     15
+    ]
+   ],
+   "frames": 15,
+   "score": 0.723,
+   "reference_frames": [
+    1264,
+    1291
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1270,
+    1285
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     18
+    ]
+   ],
+   "frames": 47,
+   "score": 0.574,
+   "span_frames": [
+    1350,
+    1397
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n07+n08",
+   "words": [
+    [
+     0,
+     6
+    ]
+   ],
+   "frames": 3,
+   "score": 1.0,
+   "reference_frames": [
+    177,
+    204
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    192,
+    195
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n07+n08",
+   "words": [
+    [
+     2,
+     7
+    ]
+   ],
+   "frames": 33,
+   "score": 0.636,
+   "reference_frames": [
+    644,
+    691
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    644,
+    677
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 24,
+   "score": 0.624,
+   "reference_frames": [
+    161,
+    183
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    159,
+    183
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     8
+    ]
+   ],
+   "frames": 18,
+   "score": 0.606,
+   "reference_frames": [
+    219,
+    248
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    230,
+    248
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     13
+    ]
+   ],
+   "frames": 8,
+   "score": 0.75,
+   "reference_frames": [
+    304,
+    330
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    307,
+    315
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     15
+    ]
+   ],
+   "frames": 33,
+   "score": 0.576,
+   "reference_frames": [
+    345,
+    398
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    343,
+    376
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     2
+    ]
+   ],
+   "frames": 24,
+   "score": 0.542,
+   "reference_frames": [
+    1404,
+    1426
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    1402,
+    1426
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     5
+    ]
+   ],
+   "frames": 77,
+   "score": 0.599,
+   "reference_frames": [
+    1457,
+    1549
+   ],
+   "greedy_words_between": 7,
+   "span_frames": [
+    1464,
+    1541
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     1
+    ]
+   ],
+   "frames": 42,
+   "score": 0.602,
+   "reference_frames": [
+    43,
+    95
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    53,
+    95
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     4
+    ]
+   ],
+   "frames": 7,
+   "score": 0.994,
+   "reference_frames": [
+    141,
+    196
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    140,
+    147
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     6
+    ]
+   ],
+   "frames": 58,
+   "score": 0.723,
+   "reference_frames": [
+    458,
+    521
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    458,
+    516
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     12
+    ]
+   ],
+   "frames": 51,
+   "score": 0.667,
+   "reference_frames": [
+    634,
+    694
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    643,
+    694
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     2,
+     11
+    ]
+   ],
+   "frames": 22,
+   "score": 0.591,
+   "reference_frames": [
+    962,
+    996
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    965,
+    987
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     3,
+     13
+    ]
+   ],
+   "frames": 25,
+   "score": 0.712,
+   "span_frames": [
+    1296,
+    1321
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     4,
+     8
+    ]
+   ],
+   "frames": 7,
+   "score": 0.708,
+   "span_frames": [
+    1589,
+    1596
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     3
+    ]
+   ],
+   "frames": 64,
+   "score": 0.594,
+   "reference_frames": [
+    97,
+    179
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    100,
+    164
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 55,
+   "score": 0.69,
+   "reference_frames": [
+    194,
+    265
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    203,
+    258
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     10
+    ]
+   ],
+   "frames": 3,
+   "score": 0.933,
+   "reference_frames": [
+    335,
+    342
+   ],
+   "greedy_words_between": 1,
+   "span_frames": [
+    339,
+    342
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     3
+    ]
+   ],
+   "frames": 52,
+   "score": 0.633,
+   "reference_frames": [
+    483,
+    567
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    483,
+    535
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     5
+    ]
+   ],
+   "frames": 76,
+   "score": 0.648,
+   "reference_frames": [
+    577,
+    655
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    564,
+    640
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     4
+    ]
+   ],
+   "frames": 29,
+   "score": 0.652,
+   "reference_frames": [
+    981,
+    1018
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    989,
+    1018
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     10
+    ]
+   ],
+   "frames": 48,
+   "score": 0.625,
+   "span_frames": [
+    1115,
+    1163
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     15
+    ]
+   ],
+   "frames": 10,
+   "score": 0.6,
+   "reference_frames": [
+    1279,
+    1308
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1285,
+    1295
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     18
+    ]
+   ],
+   "frames": 56,
+   "score": 0.657,
+   "span_frames": [
+    1350,
+    1406
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n07+n08",
+   "words": [
+    [
+     0,
+     6
+    ]
+   ],
+   "frames": 2,
+   "score": 1.0,
+   "reference_frames": [
+    164,
+    192
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    190,
+    192
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n07+n08",
+   "words": [
+    [
+     2,
+     7
+    ]
+   ],
+   "frames": 27,
+   "score": 0.593,
+   "span_frames": [
+    669,
+    696
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 22,
+   "score": 0.629,
+   "reference_frames": [
+    161,
+    185
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    160,
+    182
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     8
+    ]
+   ],
+   "frames": 9,
+   "score": 0.777,
+   "reference_frames": [
+    217,
+    247
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    228,
+    237
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     13
+    ]
+   ],
+   "frames": 11,
+   "score": 0.545,
+   "reference_frames": [
+    305,
+    331
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    305,
+    316
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     15
+    ]
+   ],
+   "frames": 37,
+   "score": 0.568,
+   "reference_frames": [
+    345,
+    400
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    355,
+    392
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     2
+    ]
+   ],
+   "frames": 3,
+   "score": 0.998,
+   "reference_frames": [
+    1406,
+    1432
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    1429,
+    1432
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     5
+    ]
+   ],
+   "frames": 52,
+   "score": 0.61,
+   "reference_frames": [
+    1464,
+    1577
+   ],
+   "greedy_words_between": 7,
+   "span_frames": [
+    1515,
+    1567
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     1
+    ]
+   ],
+   "frames": 46,
+   "score": 0.587,
+   "reference_frames": [
+    18,
+    74
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    28,
+    74
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     4
+    ]
+   ],
+   "frames": 7,
+   "score": 0.853,
+   "reference_frames": [
+    120,
+    169
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    139,
+    146
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     6
+    ]
+   ],
+   "frames": 62,
+   "score": 0.656,
+   "reference_frames": [
+    430,
+    502
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    430,
+    492
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     12
+    ]
+   ],
+   "frames": 60,
+   "score": 0.65,
+   "reference_frames": [
+    633,
+    704
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    644,
+    704
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     2,
+     11
+    ]
+   ],
+   "frames": 20,
+   "score": 0.7,
+   "reference_frames": [
+    956,
+    988
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    959,
+    979
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     3,
+     13
+    ]
+   ],
+   "frames": 39,
+   "score": 0.641,
+   "span_frames": [
+    1277,
+    1316
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     4,
+     8
+    ]
+   ],
+   "frames": 9,
+   "score": 0.667,
+   "span_frames": [
+    1582,
+    1591
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     3
+    ]
+   ],
+   "frames": 34,
+   "score": 0.586,
+   "reference_frames": [
+    67,
+    153
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    87,
+    121
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 83,
+   "score": 0.535,
+   "reference_frames": [
+    162,
+    240
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    150,
+    233
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     10
+    ]
+   ],
+   "frames": 6,
+   "score": 0.718,
+   "reference_frames": [
+    309,
+    315
+   ],
+   "greedy_words_between": 1,
+   "span_frames": [
+    309,
+    315
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     3
+    ]
+   ],
+   "frames": 50,
+   "score": 0.621,
+   "reference_frames": [
+    454,
+    533
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    454,
+    504
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     5
+    ]
+   ],
+   "frames": 72,
+   "score": 0.64,
+   "reference_frames": [
+    542,
+    617
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    531,
+    603
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     4
+    ]
+   ],
+   "frames": 22,
+   "score": 0.58,
+   "reference_frames": [
+    976,
+    1019
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    989,
+    1011
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     10
+    ]
+   ],
+   "frames": 24,
+   "score": 0.708,
+   "span_frames": [
+    1159,
+    1183
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     15
+    ]
+   ],
+   "frames": 15,
+   "score": 0.657,
+   "reference_frames": [
+    1330,
+    1360
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1336,
+    1351
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     18
+    ]
+   ],
+   "frames": 60,
+   "score": 0.567,
+   "span_frames": [
+    1414,
+    1474
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n07+n08",
+   "words": [
+    [
+     0,
+     6
+    ]
+   ],
+   "frames": 4,
+   "score": 0.75,
+   "reference_frames": [
+    150,
+    180
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    153,
+    157
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n07+n08",
+   "words": [
+    [
+     2,
+     7
+    ]
+   ],
+   "frames": 35,
+   "score": 0.6,
+   "span_frames": [
+    633,
+    668
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 22,
+   "score": 0.545,
+   "reference_frames": [
+    165,
+    187
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    165,
+    187
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     8
+    ]
+   ],
+   "frames": 25,
+   "score": 0.56,
+   "reference_frames": [
+    219,
+    250
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    225,
+    250
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     13
+    ]
+   ],
+   "frames": 4,
+   "score": 0.75,
+   "reference_frames": [
+    312,
+    338
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    315,
+    319
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     15
+    ]
+   ],
+   "frames": 9,
+   "score": 0.778,
+   "reference_frames": [
+    355,
+    416
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    366,
+    375
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     2
+    ]
+   ],
+   "frames": 3,
+   "score": 1.0,
+   "reference_frames": [
+    1456,
+    1482
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    1470,
+    1473
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     5
+    ]
+   ],
+   "frames": 51,
+   "score": 0.705,
+   "reference_frames": [
+    1518,
+    1601
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    1541,
+    1592
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     1
+    ]
+   ],
+   "frames": 17,
+   "score": 0.647,
+   "reference_frames": [
+    23,
+    83
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    66,
+    83
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     4
+    ]
+   ],
+   "frames": 2,
+   "score": 1.0,
+   "reference_frames": [
+    134,
+    191
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    156,
+    158
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     6
+    ]
+   ],
+   "frames": 66,
+   "score": 0.684,
+   "reference_frames": [
+    465,
+    543
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    465,
+    531
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     12
+    ]
+   ],
+   "frames": 59,
+   "score": 0.677,
+   "reference_frames": [
+    656,
+    733
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    666,
+    725
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     2,
+     11
+    ]
+   ],
+   "frames": 17,
+   "score": 0.704,
+   "reference_frames": [
+    1003,
+    1038
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1011,
+    1028
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     3,
+     13
+    ]
+   ],
+   "frames": 30,
+   "score": 0.633,
+   "span_frames": [
+    1339,
+    1369
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "words": [
+    [
+     4,
+     8
+    ]
+   ],
+   "frames": 11,
+   "score": 0.707,
+   "span_frames": [
+    1649,
+    1660
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     3
+    ]
+   ],
+   "frames": 60,
+   "score": 0.6,
+   "reference_frames": [
+    88,
+    173
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    91,
+    151
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 41,
+   "score": 0.634,
+   "reference_frames": [
+    181,
+    263
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    212,
+    253
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     10
+    ]
+   ],
+   "frames": 4,
+   "score": 0.989,
+   "reference_frames": [
+    334,
+    341
+   ],
+   "greedy_words_between": 1,
+   "span_frames": [
+    337,
+    341
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     3
+    ]
+   ],
+   "frames": 64,
+   "score": 0.617,
+   "reference_frames": [
+    500,
+    582
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    500,
+    564
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     5
+    ]
+   ],
+   "frames": 64,
+   "score": 0.687,
+   "reference_frames": [
+    592,
+    670
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    592,
+    656
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     4
+    ]
+   ],
+   "frames": 34,
+   "score": 0.56,
+   "reference_frames": [
+    1050,
+    1091
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    1058,
+    1092
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     10
+    ]
+   ],
+   "frames": 43,
+   "score": 0.599,
+   "span_frames": [
+    1207,
+    1250
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     15
+    ]
+   ],
+   "frames": 10,
+   "score": 0.6,
+   "reference_frames": [
+    1401,
+    1431
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1407,
+    1417
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     18
+    ]
+   ],
+   "frames": 57,
+   "score": 0.614,
+   "span_frames": [
+    1484,
+    1541
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n07+n08",
+   "words": [
+    [
+     0,
+     6
+    ]
+   ],
+   "frames": 5,
+   "score": 0.6,
+   "reference_frames": [
+    187,
+    218
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    190,
+    195
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n07+n08",
+   "words": [
+    [
+     2,
+     7
+    ]
+   ],
+   "frames": 30,
+   "score": 0.632,
+   "span_frames": [
+    673,
+    703
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 25,
+   "score": 0.52,
+   "reference_frames": [
+    168,
+    193
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    168,
+    193
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     8
+    ]
+   ],
+   "frames": 5,
+   "score": 1.0,
+   "reference_frames": [
+    228,
+    260
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    240,
+    245
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     13
+    ]
+   ],
+   "frames": 10,
+   "score": 0.7,
+   "reference_frames": [
+    339,
+    365
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    338,
+    348
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     15
+    ]
+   ],
+   "frames": 41,
+   "score": 0.61,
+   "reference_frames": [
+    379,
+    435
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    389,
+    430
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     2
+    ]
+   ],
+   "frames": 10,
+   "score": 0.6,
+   "reference_frames": [
+    1482,
+    1505
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    1487,
+    1497
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     5
+    ]
+   ],
+   "frames": 53,
+   "score": 0.616,
+   "reference_frames": [
+    1536,
+    1611
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    1549,
+    1602
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     1
+    ]
+   ],
+   "frames": 36,
+   "score": 0.582,
+   "reference_frames": [
+    27,
+    86
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    50,
+    86
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     4
+    ]
+   ],
+   "frames": 7,
+   "score": 0.853,
+   "reference_frames": [
+    130,
+    186
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    129,
+    136
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     6
+    ]
+   ],
+   "frames": 58,
+   "score": 0.655,
+   "reference_frames": [
+    477,
+    545
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    477,
+    535
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     12
+    ]
+   ],
+   "frames": 60,
+   "score": 0.55,
+   "reference_frames": [
+    660,
+    736
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    671,
+    731
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     2,
+     11
+    ]
+   ],
+   "frames": 18,
+   "score": 0.611,
+   "reference_frames": [
+    1035,
+    1072
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1044,
+    1062
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     3,
+     13
+    ]
+   ],
+   "frames": 38,
+   "score": 0.612,
+   "span_frames": [
+    1357,
+    1395
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "words": [
+    [
+     4,
+     8
+    ]
+   ],
+   "frames": 10,
+   "score": 0.667,
+   "span_frames": [
+    1659,
+    1669
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     3
+    ]
+   ],
+   "frames": 61,
+   "score": 0.6,
+   "reference_frames": [
+    90,
+    185
+   ],
+   "greedy_words_between": 7,
+   "span_frames": [
+    100,
+    161
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 57,
+   "score": 0.613,
+   "reference_frames": [
+    194,
+    277
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    213,
+    270
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     10
+    ]
+   ],
+   "frames": 4,
+   "score": 0.985,
+   "reference_frames": [
+    353,
+    360
+   ],
+   "greedy_words_between": 1,
+   "span_frames": [
+    356,
+    360
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     3
+    ]
+   ],
+   "frames": 68,
+   "score": 0.587,
+   "reference_frames": [
+    510,
+    599
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    510,
+    578
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     5
+    ]
+   ],
+   "frames": 73,
+   "score": 0.561,
+   "span_frames": [
+    611,
+    684
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     4
+    ]
+   ],
+   "frames": 25,
+   "score": 0.593,
+   "reference_frames": [
+    1085,
+    1129
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    1098,
+    1123
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     10
+    ]
+   ],
+   "frames": 56,
+   "score": 0.589,
+   "span_frames": [
+    1232,
+    1288
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     15
+    ]
+   ],
+   "frames": 15,
+   "score": 0.666,
+   "reference_frames": [
+    1431,
+    1463
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1438,
+    1453
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     18
+    ]
+   ],
+   "frames": 59,
+   "score": 0.621,
+   "span_frames": [
+    1509,
+    1568
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n07+n08",
+   "words": [
+    [
+     0,
+     6
+    ]
+   ],
+   "frames": 2,
+   "score": 1.0,
+   "reference_frames": [
+    210,
+    246
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    244,
+    246
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n07+n08",
+   "words": [
+    [
+     2,
+     7
+    ]
+   ],
+   "frames": 23,
+   "score": 0.565,
+   "reference_frames": [
+    765,
+    823
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    765,
+    788
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 23,
+   "score": 0.652,
+   "reference_frames": [
+    171,
+    193
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    170,
+    193
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     8
+    ]
+   ],
+   "frames": 21,
+   "score": 0.712,
+   "reference_frames": [
+    224,
+    254
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    222,
+    243
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     13
+    ]
+   ],
+   "frames": 18,
+   "score": 0.611,
+   "reference_frames": [
+    311,
+    334
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    310,
+    328
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     0,
+     15
+    ]
+   ],
+   "frames": 43,
+   "score": 0.557,
+   "reference_frames": [
+    348,
+    403
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    360,
+    403
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     2
+    ]
+   ],
+   "frames": 3,
+   "score": 1.0,
+   "reference_frames": [
+    1426,
+    1454
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    1441,
+    1444
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "words": [
+    [
+     4,
+     5
+    ]
+   ],
+   "frames": 47,
+   "score": 0.659,
+   "reference_frames": [
+    1490,
+    1570
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    1514,
+    1561
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     1
+    ]
+   ],
+   "frames": 47,
+   "score": 0.574,
+   "reference_frames": [
+    35,
+    94
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    47,
+    94
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     0,
+     4
+    ]
+   ],
+   "frames": 70,
+   "score": 0.64,
+   "reference_frames": [
+    140,
+    234
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    139,
+    209
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     6
+    ]
+   ],
+   "frames": 62,
+   "score": 0.728,
+   "reference_frames": [
+    537,
+    611
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    537,
+    599
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     1,
+     12
+    ]
+   ],
+   "frames": 55,
+   "score": 0.626,
+   "reference_frames": [
+    716,
+    781
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    726,
+    781
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     2,
+     11
+    ]
+   ],
+   "frames": 22,
+   "score": 0.635,
+   "reference_frames": [
+    1054,
+    1089
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1057,
+    1079
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     3,
+     13
+    ]
+   ],
+   "frames": 35,
+   "score": 0.686,
+   "span_frames": [
+    1377,
+    1412
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "words": [
+    [
+     4,
+     8
+    ]
+   ],
+   "frames": 6,
+   "score": 0.667,
+   "span_frames": [
+    1676,
+    1682
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     3
+    ]
+   ],
+   "frames": 53,
+   "score": 0.547,
+   "reference_frames": [
+    70,
+    155
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    78,
+    131
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     5
+    ]
+   ],
+   "frames": 56,
+   "score": 0.586,
+   "reference_frames": [
+    164,
+    247
+   ],
+   "greedy_words_between": 5,
+   "span_frames": [
+    183,
+    239
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     0,
+     10
+    ]
+   ],
+   "frames": 3,
+   "score": 0.869,
+   "reference_frames": [
+    314,
+    320
+   ],
+   "greedy_words_between": 1,
+   "span_frames": [
+    317,
+    320
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     3
+    ]
+   ],
+   "frames": 54,
+   "score": 0.643,
+   "reference_frames": [
+    460,
+    538
+   ],
+   "greedy_words_between": 6,
+   "span_frames": [
+    460,
+    514
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     1,
+     5
+    ]
+   ],
+   "frames": 68,
+   "score": 0.635,
+   "reference_frames": [
+    547,
+    629
+   ],
+   "greedy_words_between": 7,
+   "span_frames": [
+    547,
+    615
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     4
+    ]
+   ],
+   "frames": 27,
+   "score": 0.589,
+   "reference_frames": [
+    1025,
+    1065
+   ],
+   "greedy_words_between": 4,
+   "span_frames": [
+    1038,
+    1065
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     10
+    ]
+   ],
+   "frames": 38,
+   "score": 0.631,
+   "span_frames": [
+    1184,
+    1222
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     15
+    ]
+   ],
+   "frames": 15,
+   "score": 0.636,
+   "reference_frames": [
+    1366,
+    1395
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    1372,
+    1387
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "words": [
+    [
+     3,
+     18
+    ]
+   ],
+   "frames": 41,
+   "score": 0.633,
+   "span_frames": [
+    1466,
+    1507
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n07+n08",
+   "words": [
+    [
+     0,
+     6
+    ]
+   ],
+   "frames": 5,
+   "score": 0.6,
+   "reference_frames": [
+    188,
+    218
+   ],
+   "greedy_words_between": 2,
+   "span_frames": [
+    191,
+    196
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n07+n08",
+   "words": [
+    [
+     2,
+     7
+    ]
+   ],
+   "frames": 31,
+   "score": 0.645,
+   "reference_frames": [
+    690,
+    743
+   ],
+   "greedy_words_between": 3,
+   "span_frames": [
+    688,
+    719
+   ]
+  }
+ ],
+ "planted": [
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "kind": "pause",
+   "frames": 1,
+   "score": 0.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n01+n02",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n03+n04",
+   "kind": "speech",
+   "frames": 18,
+   "score": 0.719,
+   "neighbour_shift_frames": [
+    -35,
+    -30,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n05+n06",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n07+n08",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1",
+   "pair": "n07+n08",
+   "kind": "speech",
+   "frames": 6,
+   "score": 0.833,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    13,
+    19
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n01+n02",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n03+n04",
+   "kind": "speech",
+   "frames": 14,
+   "score": 0.714,
+   "neighbour_shift_frames": [
+    -39,
+    -34,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n05+n06",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n07+n08",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2",
+   "pair": "n07+n08",
+   "kind": "speech",
+   "frames": 7,
+   "score": 0.714,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    15,
+    19
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n01+n02",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n03+n04",
+   "kind": "speech",
+   "frames": 17,
+   "score": 0.706,
+   "neighbour_shift_frames": [
+    -36,
+    -30,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n05+n06",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n07+n08",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3",
+   "pair": "n07+n08",
+   "kind": "speech",
+   "frames": 7,
+   "score": 0.857,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    14,
+    18
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "kind": "pause",
+   "frames": 1,
+   "score": 0.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n01+n02",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n03+n04",
+   "kind": "speech",
+   "frames": 14,
+   "score": 0.643,
+   "neighbour_shift_frames": [
+    -42,
+    -35,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "kind": "pause",
+   "frames": 1,
+   "score": 0.935,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n05+n06",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n07+n08",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1",
+   "pair": "n07+n08",
+   "kind": "speech",
+   "frames": 7,
+   "score": 0.857,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    15,
+    20
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n01+n02",
+   "kind": "speech",
+   "frames": 1,
+   "score": 0.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n03+n04",
+   "kind": "speech",
+   "frames": 14,
+   "score": 0.714,
+   "neighbour_shift_frames": [
+    -54,
+    -48,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n05+n06",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n07+n08",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2",
+   "pair": "n07+n08",
+   "kind": "speech",
+   "frames": 5,
+   "score": 0.8,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    15,
+    23
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n01+n02",
+   "kind": "speech",
+   "frames": 23,
+   "score": 0.695,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    37,
+    35
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n03+n04",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "kind": "pause",
+   "frames": 1,
+   "score": 0.912,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n05+n06",
+   "kind": "speech",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n07+n08",
+   "kind": "pause",
+   "frames": 1,
+   "score": 1.0,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "take": "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3",
+   "pair": "n07+n08",
+   "kind": "speech",
+   "frames": 6,
+   "score": 0.833,
+   "neighbour_shift_frames": [
+    0,
+    0,
+    14,
+    19
+   ]
+  }
+ ]
+}
