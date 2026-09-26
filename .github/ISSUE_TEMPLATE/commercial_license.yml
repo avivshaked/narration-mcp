@@ -1,0 +1,26 @@
+name: Commercial licence
+description: Ask about using narration-mcp for a commercial purpose.
+title: "Commercial licence: "
+labels: ["commercial-license"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is published under non-commercial licences (PolyForm Noncommercial 1.0.0 for code,
+        CC BY-NC 4.0 for prose). [COMMERCIAL.md](../../COMMERCIAL.md) explains what counts as commercial
+        use and what does not. If you are not sure which side your use falls on, that is exactly what
+        this issue is for — the answer usually costs nothing and is usually quick.
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What you want to do
+      description: Describe the intended use as concretely as you can — the product or service it is
+        part of, and how narration-mcp (code, service material, or both) would be used within it.
+    validations:
+      required: true
+  - type: textarea
+    id: scale
+    attributes:
+      label: Scale and context
+      description: Anything relevant about scale, audience or timeline that would help the maintainer
+        respond usefully. Optional.

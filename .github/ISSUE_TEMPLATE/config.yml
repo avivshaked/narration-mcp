@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/avivshaked/narration-mcp/security/advisories/new
+    about: Please do not open a public issue for a security report. Use GitHub's private vulnerability
+      reporting instead — see SECURITY.md for details.

@@ -60,10 +60,19 @@ every result. None of them is distributed with this repository.
 | `openai/whisper-large-v3` | checking what was said | per its model card, checked at install |
 | `microsoft/wavlm-base-plus-sv` | checking who said it | per its model card, checked at install |
 
-## Project status and contributing
+## Project status, contributing and security
 
-The work is organised in [plan.md](plan.md). Contribution guidelines will be added before the project
-accepts outside contributions. Until then, issues are welcome.
+The work is organised in [plan.md](plan.md). Issues are welcome, including a "Commercial licence" issue
+if you want to use this project commercially.
+
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md) for the environment setup, the test tiers,
+  and the checks a change needs to pass. Everyone participating is expected to follow the
+  [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Security:** see [SECURITY.md](SECURITY.md) for what this service does and does not protect against,
+  and how to report a vulnerability.
+- **Changes:** notable changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+- **Configuration:** [narration.example.toml](narration.example.toml) shows every configuration key and
+  its default, once there is code to read it.
 
 ## Licence
 

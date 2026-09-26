@@ -1,0 +1,107 @@
+# narration-mcp: example configuration
+#
+# Copy this file to `narration.toml` in the service's folder (`<service_root>`) and fill in the paths for
+# your machine. `narration.toml` and `narration.local.toml` are both gitignored, so your own paths never
+# end up in version control. Nothing in this file is a personal value: every path below is a placeholder,
+# and `allow_sha256` ships empty.
+#
+# `<service_root>` is wherever you set this project up — it is not assumed to be any particular folder.
+# The store and the models may live anywhere else you choose; there is no requirement that they sit
+# under `<service_root>` at all.
+#
+# This mirrors docs/design.md section 16. If the two ever disagree, the design document is the source of
+# truth and this file should be corrected to match it.
+
+[server]
+store_root  = '<service_root>\store'
+models_root = '<service_root>\models'     # pinned model snapshots, downloaded by `narration-admin install`
+
+[voices]
+# Synthetic voices only (see SECURITY.md). A clip is accepted for cloning if the service designed it
+# itself (it is on the service's own provenance list), or if its sha256 hash is listed here. Use this
+# list only for clips you designed with some other tool before you had this service, and are confident
+# are synthetic (not a recording of a real person). It ships empty: nobody's clip is allowlisted by
+# default.
+allow_sha256 = []
+
+[retention]
+retention_days = 30
+measurement_retention_days = 365
+
+[daemon]
+autostart = true             # start the background daemon automatically on first use, detached from the client
+idle_unload_s = 120           # unload the loaded model after this many idle seconds
+idle_exit_min = 15            # exit the daemon entirely after this many idle minutes
+
+[workers]
+cpu_threads = 8
+priority = "below_normal"
+env = { CUBLAS_WORKSPACE_CONFIG = ":4096:8", HF_HUB_OFFLINE = "1", TRANSFORMERS_OFFLINE = "1" }
+
+[gpu]
+device = "cuda:0"
+one_group_at_a_time = true   # only one worker group (the render engine, or QA) is loaded at once
+min_free_margin_mb = 1024
+wait_timeout_min = 30
+
+[limits]
+max_segments_per_job = 200
+max_cues_per_segment = 40
+max_chars_per_segment = 1200   # a hard cap on input; the voice's own reliable length is advice, never a cap
+max_chars_per_job = 60000
+max_hints_per_job = 500
+max_queued_jobs = 20
+max_submits_per_min = 10
+max_description_chars = 600
+max_clip_seconds = 30
+min_free_disk_gb = 5
+
+[defaults]
+takes = 1
+max_retakes = 2
+# No project, pronunciation list, number style or voice ships with the service: those are the caller's.
+
+[text]
+checks = "text-1.1.0"          # the digit / symbol / unit_like / letter checks and the generic unit list
+refuse = ["[", "]", "<|", "|>"]
+
+[delivery]
+sample_rate = 48000
+subtype = "PCM_24"
+target_lufs = -16.0
+true_peak_dbtp = -1.0          # this ceiling wins over target_lufs if the two would conflict
+trim_rel_db = -40.0            # relative to the take's own p95 frame RMS
+trim_pad_s = 0.08
+fade_s = 0.01
+
+[voice_design]
+design_text = "Far below the surface, where the light grows thin, small things live quiet lives. Some of them thrive, and some of them simply disappear, and the water keeps no record of either."
+
+[measurement]
+corpus = "narration-en.v1"     # the service's own spoken-form calibration paragraphs
+seeds = 3
+length_ladder_spoken_chars = [80, 150, 250, 300, 350, 400, 450, 500, 560]
+trend_band_max_chars = 300
+pace_tol_min = 0.10            # effective tolerance is the larger of this and the measured seed spread
+sim_warn_margin = 0.01
+sim_fail_floor = 0.90
+
+[alignment]
+model = "facebook/wav2vec2-large-960h-lv60-self"   # Apache-2.0; the model revision is pinned at install
+device = "cpu"
+disagree_threshold_s = 0.25    # a starting value; calibrate it against your own alignment benchmark
+benchmark = "alignment-en.v1"  # the service's own benchmark text; the measured error is published
+
+[qa]
+profile = "default.v3"
+
+[engines.qwen3_base]
+non_streaming_mode = false     # change only after verifying an alternative setting for yourself
+x_vector_only_mode = false     # part of the voice hash: changing it changes what counts as "the same voice"
+[engines.qwen3_design]
+non_streaming_mode = true
+
+[workers.qwen3]
+project = '<service_root>\workers\qwen3tts'
+[workers.qa]
+project = '<service_root>\workers\qa'

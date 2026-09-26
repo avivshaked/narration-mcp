@@ -2,6 +2,7 @@
 .dev/
 worktrees/
 .pytest-tmp/
+narration.toml
 narration.local.toml
 AGENTS.local.md
 .claude/settings.local.json
