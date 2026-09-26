@@ -150,9 +150,9 @@ _GC_KINDS: Final = {
     "measurements": "measurement",
     "jobs": "job",
 }
-_STORE_TIME: Final = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
-"""A time as the store writes it (``utc_iso``): fixed-width UTC to the millisecond, so text order is time
-order."""
+_STORE_TIME: Final = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z")
+r"""A time as the store writes it (``utc_iso``): fixed-width UTC to the millisecond, so text order is time
+order. ASCII digits only: ``\d`` would match other scripts' digits, which do not sort as times."""
 _DROP_ROWS: Final = {
     "render": ("renders", "render_id"),
     "take": ("takes", "take_id"),

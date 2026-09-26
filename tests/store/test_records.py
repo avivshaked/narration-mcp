@@ -339,7 +339,14 @@ def test_commands_since_orders_by_posting_not_by_time_s4_1(store: NarrationStore
 
 
 @pytest.mark.parametrize(
-    "requested_at", ["2026-09-26T21:50:44Z", "2026-09-26 21:50:44.123Z", "2026-09-26T21:50:44.123+00:00", ""]
+    "requested_at",
+    [
+        "2026-09-26T21:50:44Z",
+        "2026-09-26 21:50:44.123Z",
+        "2026-09-26T21:50:44.123+00:00",
+        "",
+        "2026-09-26T21:50:44.12" + chr(0x0663) + "Z",  # ARABIC-INDIC DIGIT THREE, which \d would take
+    ],
 )
 def test_commands_since_refuses_what_is_not_a_store_time_s4_1(store: NarrationStore, requested_at: str) -> None:
     with pytest.raises(ValueError, match="not a store time"):
