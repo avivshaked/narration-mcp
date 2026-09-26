@@ -99,6 +99,19 @@ def test_the_daemon_that_wrote_its_status_is_captured_with_its_launcher_and_kill
         assert launcher.wait(timeout=30) is not None
 
 
+def test_a_status_written_in_the_millisecond_the_daemon_started_proves_it() -> None:
+    # started_at is cut to the millisecond, so it may name a moment just before the process was created.
+    with child(LAUNCHER) as launcher:
+        assert launcher.stdout is not None
+        launcher_pid, daemon_pid = map(int, launcher.stdout.readline().split())
+        created = psutil.Process(daemon_pid).create_time()
+        owned = capture_daemon(status_of(daemon_pid, started_at=created), launcher_pid=launcher_pid)
+        assert owned is not None and owned.daemon is not None and owned.daemon.pid == daemon_pid
+        later = capture_daemon(status_of(daemon_pid, started_at=created - 0.002), launcher_pid=launcher_pid)
+        assert later is None, "a process created after the status's millisecond is not the daemon"
+        owned.kill()
+
+
 def test_a_recorded_identity_is_reattached_only_on_an_exact_creation_time() -> None:
     with child(LAUNCHER) as launcher:
         assert launcher.stdout is not None

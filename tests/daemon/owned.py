@@ -10,7 +10,8 @@ The proof for a daemon (``capture_daemon``):
 - the process now at the status's ``pid`` was created no later than the status's ``started_at``. The daemon
   wrote that status while it ran, holding that pid; a process that holds the pid now and existed then must
   be that daemon, since two live processes never share a pid. A later process given the same pid was
-  created after ``started_at`` and is refused;
+  created after ``started_at`` and is refused. ``started_at`` is written to the millisecond, cut short, so
+  "no later than" allows the millisecond the cut removed (``STARTED_AT_PRECISION_S``), and no more;
 - its parent is the launcher pid the test's session got back from ``start_detached`` (or it is that pid
   itself). psutil's ``parent()`` refuses a parent younger than the child, so a reused parent pid is refused.
 
@@ -32,6 +33,10 @@ from narration.store import NarrationStore
 from narration.store.store import parse_iso
 
 KILL_WAIT_S = 15.0
+
+STARTED_AT_PRECISION_S = 0.001
+"""``started_at`` is written with milliseconds, cut short (``utc_iso``): the moment it names may be up to this
+much earlier than the moment the daemon read its clock."""
 
 
 @dataclass(frozen=True)
@@ -79,7 +84,7 @@ def capture_daemon(status: DaemonStatus, launcher_pid: int) -> OwnedDaemon | Non
         return None
     try:
         daemon = psutil.Process(status.pid)
-        if daemon.create_time() > parse_iso(status.started_at):
+        if daemon.create_time() >= parse_iso(status.started_at) + STARTED_AT_PRECISION_S:
             return None  # a later process that was given the daemon's pid
         if status.pid == launcher_pid:
             return OwnedDaemon(daemon=daemon, launcher=None)
