@@ -135,6 +135,9 @@ are tracked here but no version is tagged; nothing described below is installabl
   cue's confidence (`CUE_LOW_CONFIDENCE`, below `[alignment] low_confidence_below`), and leaves a cue it
   cannot place without times (`CUE_UNALIGNED`, never interpolated), saying why in `details.reason`:
   `no_alignable_words` (the cue's text has no word to place; not a retake trigger), `low_confidence`
-  (below `unplaced_below`) or `alignment_error`. It cross-checks boundaries against Whisper's words
-  (`CUE_ALIGNMENT_DISAGREE`, `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC
-  emissions on the CPU and runs the forced alignment.
+  (below `unplaced_below`) or `alignment_error`. A cue next to one it cannot place never takes that cue's
+  speech: when no pause separates them, its edge keeps the aligner's time (`CUE_BOUNDARY_NO_PAUSE` with
+  `details.edge`). It cross-checks boundaries against Whisper's words (`CUE_ALIGNMENT_DISAGREE`,
+  `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC emissions on the CPU and runs
+  the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not held against the take. A
+  missing, damaged or foreign aligner snapshot is reported as not installed (`BACKEND_NOT_INSTALLED`).
