@@ -2330,7 +2330,7 @@ daemon computes the hashes. All times are in seconds.
 ```json
 {"schema": "narration.measurement/v1", "voice_hash": "sha256:3f9a0c1e…", "clip_sha256": "5b1e…",
  "engine_profile": {"id": "qwen3-base-1.7b.p1", "hash": "sha256:9e21…"},
- "transcript_check": {"heard": "Good bread asks for patience, …", "wer": 0.0, "ok": true},
+ "transcript_check": {"heard": "Good bread asks for patience: …", "wer": 0.0, "ok": true},
  "corpus": "narration-en.v1",
  "similarity": {"anchor_p5": 0.982, "anchor_p50": 0.987, "consistency_p5": 0.983},
  "pace": {"trend": {"intercept_wpm": 118, "per_100_chars": 12.5, "band_max_chars": 300}, "tol": 0.17,
