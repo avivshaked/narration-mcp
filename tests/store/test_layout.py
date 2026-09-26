@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -292,3 +294,28 @@ def test_the_real_platform_confines_the_store_s17_2(tmp_path: Path) -> None:
             layout.render_dir(RENDER_ID)
     finally:
         remove_link(link)
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="only Windows' realpath has a verbatim (\\\\?\\) form; tests/platform/test_winpaths.py checks the "
+    "string handling on every OS",
+)
+def test_confine_accepts_a_file_whose_realpath_keeps_the_verbatim_prefix_s17_2(
+    layout: StoreLayout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # KNOW (WP30, spike g): realpath of a file replaced during the call can come back as \\?\D:\...; confine
+    # took that for a path outside the store and refused run/daemon.json.
+    target = layout.root / "run" / "daemon.json"
+    outside = layout.root.parent / "outside.json"
+    original = os.path.realpath
+
+    def verbatim(path: Any, **kwargs: Any) -> str:
+        real = original(path, **kwargs)
+        return "\\\\?\\" + real if os.fspath(path) in (str(target), str(outside)) else real
+
+    with monkeypatch.context() as patched:
+        patched.setattr(os.path, "realpath", verbatim)
+        assert layout.daemon_json_path() == target
+        with pytest.raises(StorePathError):
+            layout.confine(outside)  # a prefixed path outside the store is still outside

@@ -1,10 +1,12 @@
-"""Where things live in the store (design section 15), and write confinement (section 17.2).
+r"""Where things live in the store (design section 15), and write confinement (section 17.2).
 
 Every path is built here, by the store, from ids that are checked against a strict grammar first; no path
 a caller sends is ever written to. A built path is then *confined*: its ``realpath`` (which follows
 symlinks and junctions) must stay under the store root's ``realpath``, and the platform's
 ``check_store_path`` (``narration.platform``, WP19) refuses Windows reserved names and reparse points.
-The OS-specific rules live only in the platform object; this module is portable.
+Both ``realpath``s come from ``narration.platform.real_path``, which drops a ``\\?\`` prefix Windows can
+leave on a file being replaced. The OS-specific rules live only in the platform package; this module is
+portable.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Platform
 from narration.keys import HEX64_PATTERN, KEY_PATTERN
+from narration.platform import real_path
 
 # ---------------------------------------------------------------- file and folder names (section 15)
 DB_NAME: Final = "narration.sqlite"
@@ -168,7 +171,7 @@ class StoreLayout:
     def __init__(self, root: Path, platform: Platform) -> None:
         self._root = Path(os.path.abspath(root))
         self._root.mkdir(parents=True, exist_ok=True)
-        self._real_root = Path(os.path.realpath(self._root))
+        self._real_root = Path(real_path(self._root))
         self._platform = platform
 
     @property
@@ -184,7 +187,7 @@ class StoreLayout:
         ``details``). Any other error from the platform is raised unchanged: on an OS v1 does not support,
         ``UnsupportedPlatform`` stays ``DAEMON_UNAVAILABLE``.
         """
-        real = Path(os.path.realpath(path))
+        real = Path(real_path(path))
         if not is_under(real, self._real_root):
             raise StorePathError(f"{path} resolves to {real}, outside the store root {self._real_root}")
         try:

@@ -30,7 +30,7 @@ import psutil
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 
-from . import winpaths
+from . import real_path, winpaths
 
 # ---------------------------------------------------------------- constants (Windows SDK values)
 CREATE_BREAKAWAY_FROM_JOB: Final = 0x01000000
@@ -532,8 +532,8 @@ class WindowsPlatform:
                     raw,
                     hint=winpaths.STORE_PATH_HINT,
                 )
-        real = os.path.realpath(raw)
-        if winpaths.relative_names(real, os.path.realpath(root_path)) is None:
+        real = real_path(raw)  # both sides without a \\?\ prefix: see real_path
+        if winpaths.relative_names(real, real_path(root_path)) is None:
             raise winpaths.path_error(
                 "outside_root", "the path resolves outside the store root", raw, hint=winpaths.STORE_PATH_HINT
             )

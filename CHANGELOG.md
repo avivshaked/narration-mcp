@@ -89,6 +89,11 @@ are tracked here but no version is tagged; nothing described below is installabl
     never collects the old copy a publish has just set aside and may still need to put back. For the same
     reason, a file the store moves in from `scratch/` takes the time of the move as its modification time,
     so a canary clip that waited there for days is never collected while its publish waits for the lock.
+  - Reading the daemon's status (`run/daemon.json`) while the daemon rewrites it no longer fails on
+    Windows. A read refused during the rename is tried again for up to about a second. A store file whose
+    `realpath` comes back with a `\\?\` prefix, because the file was replaced during the call, is no longer
+    refused as outside the store: `narration.platform.real_path` drops that prefix, and both the store's
+    path check and the platform's compare paths through it.
 - `narration.post`: delivery post-processing (design section 13). A raw take becomes a 48 kHz PCM_24 mono
   WAV through the relative trim, a pinned resampler, static gain to -16 LUFS (BS.1770-4) with the
   -1.0 dBTP true-peak ceiling winning, and 10 ms fades. Each delivery reports its trim and loudness

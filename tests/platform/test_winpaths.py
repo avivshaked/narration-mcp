@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
-from narration.platform import winpaths
+from narration.platform import real_path, winpaths
 
 BS = "\\"
 
@@ -168,6 +170,35 @@ def test_verbatim_link_targets_become_ordinary_paths_s17_3(target: str, expected
 
 # ---------------------------------------------------------------- store paths, as text
 ROOT = p("D:", "store")
+
+
+@pytest.mark.parametrize(
+    ("resolved", "expected"),
+    [
+        # what ntpath.realpath returns for a file replaced between its two looks (WP30, spike g)
+        (p("", "", "?", "D:", "store", "run", "daemon.json"), p("D:", "store", "run", "daemon.json")),
+        (p("", "", "?", "UNC", "server", "share", "store", "x"), p("", "", "server", "share", "store", "x")),
+        (p("D:", "store", "run", "daemon.json"), p("D:", "store", "run", "daemon.json")),
+        ("/srv/store/run/daemon.json", "/srv/store/run/daemon.json"),  # a POSIX realpath is never changed
+    ],
+)
+def test_real_path_drops_the_verbatim_prefix_a_replaced_file_keeps_s17_2(
+    resolved: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with monkeypatch.context() as patched:
+        patched.setattr(os.path, "realpath", lambda path: resolved)
+        got = real_path("anything")
+    assert got == expected
+
+
+def test_a_replaced_file_inside_the_root_compares_inside_once_normalised_s17_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    prefixed = p("", "", "?", "D:", "store", "run", "daemon.json")
+    assert winpaths.relative_names(prefixed, ROOT) is None  # the refusal WP30 saw
+    with monkeypatch.context() as patched:
+        patched.setattr(os.path, "realpath", lambda path: prefixed if path == "file" else p("", "", "?", ROOT))
+        file, root = real_path("file"), real_path("root")
+    assert winpaths.relative_names(file, root) == ("run", "daemon.json")
+    assert winpaths.relative_names(p("D:", "elsewhere", "x"), root) is None  # outside stays outside
 
 
 @pytest.mark.parametrize(

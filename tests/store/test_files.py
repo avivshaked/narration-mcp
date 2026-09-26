@@ -76,6 +76,57 @@ def test_move_into_stamps_the_moved_file_with_the_time_of_the_move_s15(tmp_path:
     assert os.stat(dst).st_mtime >= before - 2  # a coarse file-system clock may round down a little
 
 
+def _refusing_reads(monkeypatch: pytest.MonkeyPatch, refusals: int) -> list[float]:
+    """Make the next ``refusals`` reads raise ``PermissionError``, as Windows does while a file is being
+    replaced; return the list the retry pauses are recorded in (none is actually slept)."""
+    original = Path.read_bytes
+    left = [refusals]
+
+    def read_bytes(self: Path) -> bytes:
+        if left[0] > 0:
+            left[0] -= 1
+            raise PermissionError(13, "Access is denied", str(self))
+        return original(self)
+
+    pauses: list[float] = []
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(files, "_retry_sleep", pauses.append)
+    return pauses
+
+
+def test_a_read_refused_while_the_file_is_replaced_is_tried_again_s15(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "daemon.json"
+    path.write_bytes(b"{}")
+    pauses = _refusing_reads(monkeypatch, 3)
+    assert files.read_retrying(path) == b"{}"
+    assert pauses == [0, 1, 2]
+
+
+def test_a_read_refused_every_time_fails_after_the_attempts_s15(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "daemon.json"
+    path.write_bytes(b"{}")
+    pauses = _refusing_reads(monkeypatch, files.REPLACE_ATTEMPTS)
+    with pytest.raises(PermissionError):
+        files.read_retrying(path)
+    assert len(pauses) == files.REPLACE_ATTEMPTS - 1
+    _refusing_reads(monkeypatch, 1)
+    with pytest.raises(PermissionError):
+        files.read_retrying(path, attempts=1)
+    with pytest.raises(ValueError):
+        files.read_retrying(path, attempts=0)
+
+
+def test_a_missing_file_is_not_read_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pauses = _refusing_reads(monkeypatch, 0)
+    with pytest.raises(FileNotFoundError):
+        files.read_retrying(tmp_path / "daemon.json")
+    assert pauses == []
+
+
 def test_remove_tree_removes_read_only_files(tmp_path: Path) -> None:
     tree = tmp_path / "tk_1"
     (tree / "analyses").mkdir(parents=True)

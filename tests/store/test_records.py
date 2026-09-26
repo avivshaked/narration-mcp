@@ -8,6 +8,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -256,6 +257,39 @@ def test_daemon_status_is_run_daemon_json_s15(store: NarrationStore) -> None:
     store.put_daemon_status(daemon_status())
     assert store.get_daemon_status() == daemon_status()
     assert (store.root / "run" / "daemon.json").is_file()
+
+
+def test_the_daemon_status_reads_while_the_daemon_rewrites_it_s15(store: NarrationStore) -> None:
+    # The daemon renames a new run/daemon.json over the old one while the front-end reads it. On Windows a
+    # read that opens the file during the rename was refused (PermissionError), and the path check could see
+    # the file's realpath with a \\?\ prefix (StorePathError). Elsewhere this passes trivially.
+    store.put_daemon_status(daemon_status())
+    stop = threading.Event()
+    writes = 0
+    writer_errors: list[BaseException] = []
+
+    def rewrite() -> None:
+        nonlocal writes
+        try:
+            while not stop.is_set():
+                store.put_daemon_status(dataclasses.replace(daemon_status(), est_drain_s=float(writes)))
+                writes += 1
+        except BaseException as exc:
+            writer_errors.append(exc)
+
+    writer = threading.Thread(target=rewrite)
+    writer.start()
+    reads = 0
+    try:
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            status = store.get_daemon_status()
+            assert status is not None and status.pid == daemon_status().pid
+            reads += 1
+    finally:
+        stop.set()
+        writer.join(timeout=30)
+    assert writer_errors == [] and reads > 0 and writes > 0
 
 
 def test_commands_reach_the_daemon_through_the_store_s4(store: NarrationStore) -> None:

@@ -163,6 +163,25 @@ def rename_retrying(src: Path, dst: Path, *, attempts: int = REPLACE_ATTEMPTS) -
             _retry_sleep(attempt)
 
 
+def read_retrying(path: Path, *, attempts: int = REPLACE_ATTEMPTS) -> bytes:
+    """``path.read_bytes()``, retried while Windows refuses to open a file that is being replaced.
+
+    A file the store rewrites in place (``run/daemon.json``, by ``write_atomic``) gets a new file renamed
+    over it. On Windows a reader that opens it during that rename gets ``PermissionError``: KNOW (WP30,
+    spike g), about one read in 25 while a daemon rewrites the status in a tight loop. The rename takes
+    milliseconds, so the read is retried as ``rename_retrying`` retries a rename (about a second in all).
+    Any other error is raised at once, and ``PermissionError`` once ``attempts`` tries have failed.
+    """
+    if attempts < 1:
+        raise ValueError(f"attempts must be at least 1, got {attempts}")
+    for attempt in range(attempts - 1):
+        try:
+            return path.read_bytes()
+        except PermissionError:
+            _retry_sleep(attempt)
+    return path.read_bytes()
+
+
 def publish_temp(tmp: Path, path: Path) -> None:
     """Rename a finished temporary file into place, replacing a file already there (read-only or not).
 

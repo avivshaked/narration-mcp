@@ -78,6 +78,7 @@ from narration.contracts.models import (
 from narration.contracts.names import DaemonCommandKind, EngineKind, JobStatus
 from narration.contracts.serial import ContractError, from_json, to_json
 from narration.keys.ulid import UlidGenerator
+from narration.platform import real_path
 
 from . import db, files
 from .layout import (
@@ -342,8 +343,8 @@ class NarrationStore:
         if os.path.islink(p) or os.path.isjunction(p) or not p.is_file():
             raise StorePathError(f"{what} {p} is not a regular file")
         self._layout.confine(p)
-        scratch = Path(os.path.realpath(self._layout.tree(SCRATCH)))
-        if scratch not in Path(os.path.realpath(p)).parents:
+        scratch = Path(real_path(self._layout.tree(SCRATCH)))
+        if scratch not in Path(real_path(p)).parents:
             raise StorePathError(
                 f"{what} {p} is not under the store's {SCRATCH} folder; the store moves in only files written "
                 "there for it (scratch_path)"
@@ -1360,10 +1361,12 @@ class NarrationStore:
 
     # ================================================================ the daemon's status and commands
     def get_daemon_status(self) -> DaemonStatus | None:
-        """``run/daemon.json``, or None when no daemon has written one."""
+        """``run/daemon.json``, or None when no daemon has written one. The daemon renames a new file over it
+        while others read it, so a read Windows refuses during that rename is tried again
+        (``files.read_retrying``)."""
         path = self._layout.daemon_json_path()
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(files.read_retrying(path).decode("utf-8"))
         except FileNotFoundError:
             return None
         return from_json(DaemonStatus, data)
