@@ -2,10 +2,12 @@
 
 ``Daemon.run`` does, in order:
 
-1. takes the store's singleton (``Platform.singleton``). If another daemon holds it, this one exits
-   quietly, unless that daemon says it is ``stopping``: then this one waits up to ``takeover_wait_s`` for
-   it to go, and takes over, so a job queued while a daemon was exiting is not left waiting. If the holder
-   says ``idle`` or ``busy`` again meanwhile (it found work as it was about to exit), this one gives up;
+1. takes the store's singleton (``Platform.singleton``). If another daemon holds it and says it serves
+   (``idle`` or ``busy``), this one exits quietly and writes nothing. Otherwise (the holder says
+   ``stopping``, or already ``stopped`` while it has yet to release the singleton, or there is no status,
+   or it cannot be read) this one waits up to ``takeover_wait_s`` for the singleton, and takes over, so a
+   job queued while a daemon was exiting is not left waiting. It gives up as soon as the holder says
+   ``idle`` or ``busy`` (it found work as it was about to exit), and at ``takeover_wait_s``;
 2. records its own pid and start time, sweeps up after the previous daemon (``sweep``), and reads the
    pending commands once (see "Which stops a daemon honours"). A ``stop`` it honours stops it before any
    work, and it never says ``idle``; otherwise it writes ``run/daemon.json`` (``idle``);
@@ -69,6 +71,9 @@ EXIT_USAGE: Final = 2
 
 MAX_STEP_BACKOFF_S: Final = 30.0
 """The longest wait after a step that raised, before the next step."""
+
+SERVING_STATES: Final = ("idle", "busy")
+"""The states of a daemon that serves the queue; a daemon waiting for the singleton gives up on seeing one."""
 
 STAMP_PRECISION_S: Final = 0.001
 """Store times (``requested_at``, ``started_at``) are written to the millisecond, cut short (``utc_iso``)."""
@@ -212,22 +217,29 @@ class Daemon:
         root.mkdir(parents=True, exist_ok=True)  # the singleton's name hashes the root's realpath
         deadline = self._clock() + self.settings.takeover_wait_s
         waited = False
+        unreadable_logged = False
         while True:
             with self.platform.singleton(root) as acquired:
                 if acquired:
                     if waited:
-                        log.info("the stopping daemon has gone; taking over")
+                        log.info("the daemon that held the singleton has gone; taking over")
                     return self._run_held()
             try:
                 holder = read_status(self.store)
+                seen = holder.state if holder is not None else "no status"
             except StatusUnreadable as exc:
-                log.warning("%s; taking the daemon that holds the singleton for one that is not stopping", exc)
-                holder = None
-            if holder is None or holder.state != "stopping" or self._clock() >= deadline:
+                if not unreadable_logged:
+                    unreadable_logged = True
+                    log.warning("%s; waiting for the daemon that holds the singleton to go", exc)
+                holder, seen = None, "an unreadable status"
+            if holder is not None and holder.state in SERVING_STATES:
+                log.info("another daemon serves this store (pid %s, %s); exiting", holder.pid, holder.state)
+                return EXIT_OK
+            if self._clock() >= deadline:
                 log.info(
-                    "another daemon runs for this store (pid %s, %s); exiting",
-                    holder.pid if holder else "unknown",
-                    holder.state if holder else "no status yet",
+                    "the daemon that holds the singleton (%s) did not go within %.0f s; exiting",
+                    seen,
+                    self.settings.takeover_wait_s,
                 )
                 return EXIT_OK
             waited = True

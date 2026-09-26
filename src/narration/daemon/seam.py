@@ -60,9 +60,10 @@ then asks ``has_work`` once more:
 
 - work found: it says ``idle`` again and keeps serving; the job is taken by the next ``step``;
 - none: it exits. A job queued after that look finds the daemon ``stopping``, so the front-end starts
-  another daemon. That one waits (up to ``takeover_wait_s``) while the holder says ``stopping``, and takes
-  over once it has gone. If the holder says ``idle`` or ``busy`` again (it found work after all), the new
-  daemon gives up at once, exits 0 and writes nothing, as any second daemon does.
+  another daemon. That one waits (up to ``takeover_wait_s``) while the holder says anything but ``idle``
+  or ``busy`` (``stopping``, then ``stopped`` until it releases the singleton), and takes over once it has
+  gone. If the holder says ``idle`` or ``busy`` again (it found work after all), the new daemon gives up
+  at once, exits 0 and writes nothing, as any second daemon does.
 """
 
 from __future__ import annotations

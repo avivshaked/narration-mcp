@@ -187,10 +187,14 @@ def test_the_daemon_records_its_own_pid_and_exits_when_idle_s4(
 def test_a_second_daemon_for_the_same_store_exits_quietly_s4(
     run_daemon: DaemonFactory, store: NarrationStore, platform: StandInPlatform
 ) -> None:
+    serving = status("idle", NO_SUCH_PID, utc_iso(time.time()))
     with platform.hold(store.root):
-        daemon = run_daemon(NullRunner(), takeover_wait_s=0.5)
+        store.put_daemon_status(serving)
+        started = time.monotonic()
+        daemon = run_daemon(NullRunner(), takeover_wait_s=20.0)
         assert daemon.join(10) == EXIT_OK
-    assert store.get_daemon_status() is None, "it wrote nothing"
+        assert time.monotonic() - started < 5.0, "a holder that serves is not waited for"
+    assert store.get_daemon_status() == serving, "it wrote nothing"
 
 
 def test_a_daemon_takes_over_from_one_that_is_stopping_s4(
@@ -230,15 +234,34 @@ def test_an_unreadable_status_is_swept_as_a_daemon_that_died_s4_1(
     assert daemon.join() == EXIT_OK
 
 
-def test_an_unreadable_status_of_the_holder_is_not_a_daemon_stopping_s4(
+@pytest.mark.parametrize("left", ["stopped", "no status", "unreadable"])
+def test_a_waiting_daemon_takes_over_from_a_holder_that_has_not_said_it_serves_s4(
+    run_daemon: DaemonFactory, store: NarrationStore, platform: StandInPlatform, left: str
+) -> None:
+    # An exiting daemon writes "stopped" before it releases the singleton; a missing or torn status says
+    # nothing either way. None of these is a daemon that serves, so the new one waits and takes over.
+    with platform.hold(store.root):
+        if left == "stopped":
+            store.put_daemon_status(status("stopped", None, None))
+        elif left == "unreadable":
+            plant_status(store, b"")
+        daemon = run_daemon(NullRunner(), takeover_wait_s=20.0)
+        time.sleep(0.5)
+        assert daemon.thread.is_alive(), "it waits for the holder to go"
+    assert daemon.wait_serving().state == "idle", "it took over"
+    daemon.command("stop")
+    assert daemon.join() == EXIT_OK
+
+
+def test_a_waiting_daemon_gives_up_at_takeover_wait_s_and_writes_nothing_s4(
     run_daemon: DaemonFactory, store: NarrationStore, platform: StandInPlatform
 ) -> None:
     planted = plant_status(store, b"")
     with platform.hold(store.root):
         started = time.monotonic()
-        daemon = run_daemon(NullRunner(), takeover_wait_s=20.0)
+        daemon = run_daemon(NullRunner(), takeover_wait_s=0.5)
         assert daemon.join(10) == EXIT_OK
-        assert time.monotonic() - started < 5.0, "it does not wait for a daemon it cannot see stopping"
+        assert 0.5 <= time.monotonic() - started < 5.0, "it waits takeover_wait_s, and no longer"
     assert planted.read_bytes() == b"", "it wrote nothing"
 
 

@@ -16,8 +16,8 @@ signalled or killed.
 **An unreadable status.** ``run/daemon.json`` is written through a temp file and a rename, but not flushed
 to disk first, so a crash or a power loss can leave it empty or cut short. ``read_status`` then raises
 ``StatusUnreadable``, and every reader treats that as "no daemon to speak of": the sweep as a daemon that
-died (``sweep(..., previous_unreadable=True)``), a daemon that finds the singleton held as a holder that is
-not stopping, and ``start.running_daemon`` as no daemon.
+died (``sweep(..., previous_unreadable=True)``), a daemon that finds the singleton held as a holder that
+has not said it serves (it waits, as for one that is exiting), and ``start.running_daemon`` as no daemon.
 
 **Commands.** The sweep leaves every pending command alone: the daemon answers each one, and judges a
 pending ``stop`` by when it was posted (``service``, "Which stops a daemon honours").
