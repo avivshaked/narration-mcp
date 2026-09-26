@@ -206,8 +206,10 @@ def tree(owned: OwnedDaemon) -> list[dict[str, Any]]:
             "pid": pid,
             "role": roles.get(pid, "?"),
             "name": name,
-            "parent_role": roles.get(parent, "outside"),
-            "args": [a for a in argv[1:] if not os.path.isabs(a)][:3],  # no paths
+            # The root's parent is outside the tree by definition; its recorded ppid may name a process that
+            # has exited (the session) and whose pid was given to another since.
+            "parent_role": "outside" if pid == root.pid else roles.get(parent, "outside"),
+            "args": [a for a in argv[1:] if not os.path.isabs(a)][:4],  # no paths
         }
         for pid, (name, parent, argv) in facts.items()
     ]

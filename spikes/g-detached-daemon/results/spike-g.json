@@ -21,13 +21,14 @@
     true
    ],
    "start_error": null,
-   "serving_before_session_exit_s": 0.23,
+   "serving_before_session_exit_s": 0.24,
    "daemon_served_before_session_exit": true,
+   "daemon_identity_proven": true,
    "daemon_alive_after_session": true,
    "daemon_is_launcher_child": true,
    "daemon_name": "pythonw.exe",
    "release_gpu_answered_after_session": true,
-   "release_gpu_answer_s": 0.11,
+   "release_gpu_answer_s": 0.046,
    "job_completed_after_session": true,
    "tree": [
     {
@@ -35,6 +36,7 @@
      "name": "pythonw.exe",
      "parent_role": "outside",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -46,6 +48,7 @@
      "name": "pythonw.exe",
      "parent_role": "daemon-launcher",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -57,6 +60,7 @@
      "name": "python.exe",
      "parent_role": "daemon",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"
@@ -77,6 +81,7 @@
      "name": "python.exe",
      "parent_role": "worker-launcher",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"
@@ -108,11 +113,12 @@
    "start_error": null,
    "serving_before_session_exit_s": 0.24,
    "daemon_served_before_session_exit": true,
+   "daemon_identity_proven": true,
    "daemon_alive_after_session": true,
    "daemon_is_launcher_child": true,
    "daemon_name": "pythonw.exe",
    "release_gpu_answered_after_session": true,
-   "release_gpu_answer_s": 0.016,
+   "release_gpu_answer_s": 0.031,
    "job_completed_after_session": true,
    "tree": [
     {
@@ -120,6 +126,7 @@
      "name": "pythonw.exe",
      "parent_role": "outside",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -131,6 +138,7 @@
      "name": "pythonw.exe",
      "parent_role": "daemon-launcher",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -142,6 +150,7 @@
      "name": "python.exe",
      "parent_role": "daemon",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"
@@ -162,6 +171,7 @@
      "name": "python.exe",
      "parent_role": "worker-launcher",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"
@@ -191,13 +201,14 @@
     true
    ],
    "start_error": null,
-   "serving_before_session_exit_s": 0.23,
+   "serving_before_session_exit_s": 0.24,
    "daemon_served_before_session_exit": true,
+   "daemon_identity_proven": true,
    "daemon_alive_after_session": true,
    "daemon_is_launcher_child": true,
    "daemon_name": "pythonw.exe",
    "release_gpu_answered_after_session": true,
-   "release_gpu_answer_s": 0.015,
+   "release_gpu_answer_s": 0.016,
    "job_completed_after_session": true,
    "tree": [
     {
@@ -205,6 +216,7 @@
      "name": "pythonw.exe",
      "parent_role": "outside",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -216,6 +228,7 @@
      "name": "pythonw.exe",
      "parent_role": "daemon-launcher",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -227,6 +240,7 @@
      "name": "python.exe",
      "parent_role": "daemon",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"
@@ -247,6 +261,7 @@
      "name": "python.exe",
      "parent_role": "worker-launcher",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"
@@ -303,8 +318,9 @@
     true
    ],
    "start_error": null,
-   "serving_before_session_exit_s": 0.32,
+   "serving_before_session_exit_s": 0.23,
    "daemon_served_before_session_exit": true,
+   "daemon_identity_proven": true,
    "daemon_alive_after_session": false,
    "launcher_alive_after_session": false,
    "running_daemon_after": false
@@ -324,13 +340,14 @@
     true
    ],
    "start_error": null,
-   "serving_before_session_exit_s": 0.64,
+   "serving_before_session_exit_s": 0.59,
    "daemon_served_before_session_exit": true,
+   "daemon_identity_proven": true,
    "daemon_alive_after_session": true,
    "daemon_is_launcher_child": true,
    "daemon_name": "python.exe",
    "release_gpu_answered_after_session": true,
-   "release_gpu_answer_s": 0.032,
+   "release_gpu_answer_s": 0.015,
    "job_completed_after_session": true,
    "tree": [
     {
@@ -338,6 +355,7 @@
      "name": "python.exe",
      "parent_role": "outside",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -349,6 +367,7 @@
      "name": "python.exe",
      "parent_role": "daemon-launcher",
      "args": [
+      "-P",
       "-m",
       "narration.daemon",
       "--store"
@@ -369,6 +388,7 @@
      "name": "python.exe",
      "parent_role": "daemon",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"
@@ -389,6 +409,7 @@
      "name": "python.exe",
      "parent_role": "worker-launcher",
      "args": [
+      "-P",
       "-m",
       "narration_worker",
       "--role"

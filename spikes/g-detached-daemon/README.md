@@ -19,7 +19,7 @@ breakaway? Does the daemon, or anything it starts, get a console?
 | File | What it is |
 |---|---|
 | `spike_g.py` | The script. With no arguments it runs every scenario and writes `results/`; with `--session <json>` it is the session stand-in |
-| `results/spike-g.json` | Every scenario's record: the session's Job Object facts, the start error if any, whether the daemon served before and after the session exited, a `release_gpu` round trip, a one-segment job rendered after the session exited, the daemon's process tree by role (names and `-m` arguments only, no paths), whether each process owns a window, and the `stop` result |
+| `results/spike-g.json` | Every scenario's record: the session's Job Object facts, the start error if any, whether the daemon served before and after the session exited, whether the session proved the daemon it started was its own (`daemon_identity_proven`), a `release_gpu` round trip, a one-segment job rendered after the session exited, the daemon's process tree by role (names and `-m` arguments only, no paths), whether each process owns a window, and the `stop` result |
 | `results/summary.md` | The same as a table |
 | `status_read_race.py`, `results/status-read-race.json` | Part 2: what a reader of `run/daemon.json` gets while the daemon replaces it |
 
@@ -60,7 +60,7 @@ Labels as in AGENTS.md section 8. **KNOW** means shown by `spike_g.py`, with its
 ### Survival
 
 - **KNOW** In `plain`, `uv-run` and `job-breakaway-ok`, the daemon was alive 1.5 s after its session
-  exited. It answered `release_gpu` (in 0.02 to 0.11 s) and rendered a job with its worker, both after the
+  exited. It answered `release_gpu` (in 0.015 to 0.046 s) and rendered a job with its worker, both after the
   session was gone. `stop` then ended it: its last `run/daemon.json` says `stopped`, and the daemon and
   its launcher were both gone.
 - **KNOW** In `control-no-breakaway-flag`, the daemon served (it wrote `idle` 0.32 s after the session
@@ -94,8 +94,10 @@ Labels as in AGENTS.md section 8. **KNOW** means shown by `spike_g.py`, with its
   ending the daemon. On Windows 11, a console may be hosted by a terminal application outside the
   process's own tree. This spike did not look at processes it did not start, so it did not measure that.
   Running the daemon as `pythonw.exe` avoids the question: it has no console to show or close. This is
-  why `start.daemon_python` picks `pythonw.exe`, a deviation from design section 4.1's identity table,
-  which names `python.exe`. The identity marker, `-m narration.daemon --store <root>`, is unchanged.
+  why `start_detached` asks the platform for the windowless interpreter (`python_for(..., console=False)`
+  picks `pythonw.exe` on Windows), a deviation from design section 4.1's identity table, which names
+  `python.exe`. The identity marker, `-m narration.daemon --store <root>`, is unchanged; the daemon and
+  its workers are started with `-P` before it (the tree in `results/spike-g.json` shows it).
 
 ### Reading `run/daemon.json` while the daemon replaces it (`status_read_race.py`)
 
