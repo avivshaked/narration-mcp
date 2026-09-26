@@ -193,4 +193,4 @@ are tracked here but no version is tagged; nothing described below is installabl
   taken as a daemon that died. A job queued just as the daemon turns to exit for want of work is still
   run. The daemon and its workers start with `-P` and without `PYTHONPATH`, `PYTHONHOME` or
   `PYTHONSTARTUP`, so nothing in their working folder or the caller's environment is imported in their
-  place.
+  place; a daemon started by hand without `-P` logs a warning saying so.
