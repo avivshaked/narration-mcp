@@ -1,19 +1,28 @@
 """Whisper-large-v3 transcription with word times (design sections 4 and 11.1 step 2; Appendix A ``transcribe``;
 plan.md WP22).
 
-**Decoding, pinned** (section 11.1 step 2; every setting that changes the output is passed explicitly, never left
-to a library default, as section 10.1 asks of Qwen): English, greedy (one beam, no sampling, temperature 0 and no
-temperature fallback), sequential long-form transcription (Whisper's own algorithm: 30 s windows, each after the
-last timestamp of the one before, each conditioned on the text before it), timestamps on. The pinned snapshot's
-``generation_config.json`` supplies only the model's own token tables (the language, task, timestamp and
-suppressed tokens, the alignment heads and the 448-token decoder length), which its revision pins.
+**Decoding, pinned** (every setting that changes the output is passed explicitly, never left to a library default,
+as section 10.1 asks of Qwen): English, **five beams**, no sampling, temperature 0 and no temperature fallback,
+sequential long-form transcription (Whisper's own algorithm: 30 s windows, each after the last timestamp of the
+one before) **not conditioned on the previous window's text**, timestamps on. That is the bake-off's decoding, the
+one its evidence (WER 5.5–8.6 %) was made with. The pinned snapshot's ``generation_config.json`` supplies only the
+model's own token tables (the language, task, timestamp and suppressed tokens, the alignment heads and the
+448-token decoder length), which its revision pins.
+
+**A proposed change to section 11.1 step 2**, which says greedy and conditioned on the previous text. KNOW
+(``spikes/acceptance-wp22/decoding.py`` and ``decoding.json``, the bake-off's six clone takes, through this
+class): greedy and conditioned, with no fallback, loops on two of the six whole takes (about 85 words repeated,
+WER 0.40 and 0.40), and OpenAI's temperature fallback does not stop it (0.40 and 0.45); greedy and not
+conditioned gives WER 0.051–0.098 (mean 0.071) and needs about 2.8 GB less VRAM; five beams, not conditioned,
+gives exactly the bake-off's WER on all six (mean 0.065). Five beams is pinned until the lead decides
+(``status/WP22.md``); switching is this one constant.
 
 Two traps the explicit settings avoid (KNOW, transformers 5.17.0's source):
 
 - the ``automatic-speech-recognition`` pipeline fills an unset ``num_beams`` with **5** ("follows openai's whisper
   implementation"), so a pipeline called without a generation config decodes with beam search. The bake-off's
-  ``eval/evaluate.py`` called it that way: its WERs were made with five beams and without conditioning on the
-  previous text. This module passes its own generation config, so the pipeline's defaults never apply;
+  ``eval/evaluate.py`` called it that way, which is why its WERs were made with five beams and without
+  conditioning. This module passes its own generation config, so the pipeline's defaults never apply;
 - word timestamps come from cross-attention (dynamic time warping over the alignment heads), and asking for them
   switches the model's attention to ``eager`` inside ``generate``. The model is therefore loaded with ``eager``
   attention, so the same audio decodes the same way whether or not word times are asked for.
@@ -48,16 +57,17 @@ Qwen) or by Whisper's code, in any case, and the language token each maps to. v1
 11.1): the number reader and the QA thresholds are English."""
 DECODING: Final[Mapping[str, Any]] = {
     "task": "transcribe",
-    "num_beams": 1,
+    "num_beams": 5,
     "do_sample": False,
     "temperature": 0.0,
-    "condition_on_prev_tokens": True,
+    "condition_on_prev_tokens": False,
     "compression_ratio_threshold": None,
     "logprob_threshold": None,
     "no_speech_threshold": None,
 }
-"""The decoding settings that change the transcript, passed explicitly on every call. The thresholds are None: no
-temperature fallback and no skipping of windows judged silent, so every window is decoded once, greedily."""
+"""The decoding settings that change the transcript, passed explicitly on every call (see the module docstring for
+why five beams and no conditioning). The thresholds are None: no temperature fallback and no skipping of windows
+judged silent, so every window is decoded once, the same way every time."""
 GENERATION_CONFIG_KEYS: Final = ("num_beams", "do_sample")
 """The members of ``DECODING`` that live on the generation config rather than in ``generate``'s arguments."""
 
@@ -74,14 +84,14 @@ def whisper_language(value: str) -> str:
     return code
 
 
-def decoding_settings(language: str, *, long_form: bool) -> dict[str, Any]:
+def decoding_settings(language: str, *, long_form: bool, decoding: Mapping[str, Any] = DECODING) -> dict[str, Any]:
     """The ``generate`` arguments of one call besides the generation config: ``DECODING`` without the
     generation-config members, the language, and a single window when ``long_form`` is false.
 
     The pipeline adds the timestamps from its own ``return_timestamps`` argument: ``True`` turns on Whisper's
     timestamp tokens (which long-form decoding needs), and ``"word"`` also asks ``generate`` for token timestamps.
     """
-    settings = {k: v for k, v in DECODING.items() if k not in GENERATION_CONFIG_KEYS}
+    settings = {k: v for k, v in decoding.items() if k not in GENERATION_CONFIG_KEYS}
     settings.update(language=language, force_unique_generate_call=not long_form)
     return settings
 
@@ -113,11 +123,13 @@ def _seconds(value: object) -> float | None:
 class WhisperAsr:
     """Whisper-large-v3 on one device, decoding as pinned (module docstring).
 
-    ``torch`` is the imported module with the CPU thread cap applied (``WorkerHandler.torch()``).
+    ``torch`` is the imported module with the CPU thread cap applied (``WorkerHandler.torch()``). ``decoding`` is
+    ``DECODING`` in the worker; a spike may pass another set of the same keys to compare decodings.
     """
 
-    def __init__(self, torch: Any) -> None:
+    def __init__(self, torch: Any, decoding: Mapping[str, Any] = DECODING) -> None:
         self._torch = torch
+        self._decoding = dict(decoding)
         self._pipeline: Any = None
         self._generation: Any = None
         self.repo = ""
@@ -159,9 +171,9 @@ class WhisperAsr:
         model.to(device)
         model.eval()
         generation = copy.deepcopy(model.generation_config)
-        generation.update(**{k: DECODING[k] for k in GENERATION_CONFIG_KEYS})
+        generation.update(**{k: self._decoding[k] for k in GENERATION_CONFIG_KEYS})
         for key in ("compression_ratio_threshold", "logprob_threshold", "no_speech_threshold"):
-            setattr(generation, key, DECODING[key])
+            setattr(generation, key, self._decoding[key])
         self._pipeline = pipeline(
             "automatic-speech-recognition",
             model=model,
@@ -197,7 +209,7 @@ class WhisperAsr:
         reply: dict[str, Any] = {"text": "", "words": [], "model": self.repo, "revision": self.revision}
         if audio_16k.shape[0] == 0:
             return reply
-        generate = decoding_settings(code, long_form=long_form)
+        generate = decoding_settings(code, long_form=long_form, decoding=self._decoding)
         generate["generation_config"] = copy.deepcopy(self._generation)
         output = self._pipeline(
             {"raw": np.ascontiguousarray(audio_16k, dtype=np.float32), "sampling_rate": SAMPLE_RATE},

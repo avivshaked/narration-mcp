@@ -2,7 +2,7 @@
 
 The pure tests check the settings and the reply's shape. The tiny-model tests run the real pipeline over a tiny,
 random Whisper (``conftest.tiny_snapshot``) and look at what reaches ``generate``: every setting that changes
-the transcript comes from the worker, not from the pipeline's defaults (which would decode with five beams).
+the transcript comes from the worker's own generation config, not from the pipeline's defaults.
 """
 
 from __future__ import annotations
@@ -13,11 +13,8 @@ from typing import Any
 
 import numpy as np
 import pytest
-import torch
 from narration_worker_qa import align as qa
 from narration_worker_qa import asr
-
-torch.set_num_threads(4)
 
 
 @pytest.mark.parametrize("name", ["English", "english", "ENGLISH", " English ", "en", "EN"])
@@ -32,16 +29,18 @@ def test_another_language_is_an_invalid_request_s11_1(name: str) -> None:
     assert caught.value.details["field"] == "language"
 
 
-def test_decoding_is_greedy_conditioned_and_without_fallback_s11_1() -> None:
-    assert asr.DECODING["num_beams"] == 1 and asr.DECODING["do_sample"] is False
-    assert asr.DECODING["temperature"] == 0.0 and asr.DECODING["condition_on_prev_tokens"] is True
+def test_decoding_is_the_evidences_five_beams_unconditioned_without_fallback_s11_1() -> None:
+    # Section 11.1 says greedy and conditioned; that loops on two of the bake-off's six takes, so the worker pins
+    # the evidence's decoding until the lead decides (status/WP22.md, spikes/acceptance-wp22/decoding.json).
+    assert asr.DECODING["num_beams"] == 5 and asr.DECODING["do_sample"] is False
+    assert asr.DECODING["temperature"] == 0.0 and asr.DECODING["condition_on_prev_tokens"] is False
     for key in ("compression_ratio_threshold", "logprob_threshold", "no_speech_threshold"):
         assert asr.DECODING[key] is None, key
     long_form = asr.decoding_settings("en", long_form=True)
     assert long_form == {
         "task": "transcribe",
         "temperature": 0.0,
-        "condition_on_prev_tokens": True,
+        "condition_on_prev_tokens": False,
         "compression_ratio_threshold": None,
         "logprob_threshold": None,
         "no_speech_threshold": None,
@@ -81,7 +80,16 @@ def test_without_word_times_the_words_have_null_times_s11_1() -> None:
 
 
 @pytest.fixture
-def tiny_asr(tiny_snapshot: Callable[..., Path]) -> asr.WhisperAsr:
+def torch() -> Any:
+    """torch, for the tests that run a model (the pure tests above run without it)."""
+    module = pytest.importorskip("torch", reason="needs torch and transformers: the QA worker's full venv")
+    pytest.importorskip("transformers", reason="needs torch and transformers: the QA worker's full venv")
+    module.set_num_threads(4)
+    return module
+
+
+@pytest.fixture
+def tiny_asr(tiny_snapshot: Callable[..., Path], torch: Any) -> asr.WhisperAsr:
     model = asr.WhisperAsr(torch)
     model.load("example/asr", "a" * 40, tiny_snapshot("asr", safetensors=True), "cpu")
     return model
@@ -114,9 +122,9 @@ def test_every_decoding_setting_reaches_generate_explicitly_s11_1(
     assert (reply["model"], reply["revision"]) == ("example/asr", "a" * 40)
     [call] = calls
     config = call["generation_config"]
-    assert config.num_beams == 1 and config.do_sample is False
+    assert config.num_beams == 5 and config.do_sample is False
     assert call["language"] == "en" and call["task"] == "transcribe"
-    assert call["temperature"] == 0.0 and call["condition_on_prev_tokens"] is True
+    assert call["temperature"] == 0.0 and call["condition_on_prev_tokens"] is False
     assert call["force_unique_generate_call"] is (not long_form)
     for key in ("compression_ratio_threshold", "logprob_threshold", "no_speech_threshold"):
         assert call[key] is None, key
@@ -146,7 +154,7 @@ def test_no_audio_is_an_empty_transcript_s11_1(tiny_asr: asr.WhisperAsr) -> None
     assert (reply["text"], reply["words"]) == ("", [])
 
 
-def test_transcribe_before_load_is_not_loaded_s11_1() -> None:
+def test_transcribe_before_load_is_not_loaded_s11_1(torch: Any) -> None:
     with pytest.raises(qa.NotLoaded):
         asr.WhisperAsr(torch).transcribe(_noise(1.0), "English", word_timestamps=True, long_form=True)
 

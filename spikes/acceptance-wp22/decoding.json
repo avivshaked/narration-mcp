@@ -1,0 +1,249 @@
+{
+  "check": "Whisper long-form decodings on the bakeoff's clone takes (WP22)",
+  "ran_at": "2026-09-26T22:28:09+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "transformers": "5.17.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "model": [
+    "openai/whisper-large-v3",
+    "06f233fe06e710322aca913c1bc4249a0d71fce1"
+  ],
+  "reference_words_normalised": 256,
+  "bakeoff_wer": {
+    "d2 seed1": 0.0859,
+    "d2 seed2": 0.0547,
+    "d2 seed3": 0.0742,
+    "d4 seed1": 0.0586,
+    "d4 seed2": 0.0586,
+    "d4 seed3": 0.0547
+  },
+  "candidates": {
+    "greedy_conditioned": {
+      "decoding": {
+        "task": "transcribe",
+        "num_beams": 1,
+        "do_sample": false,
+        "temperature": 0.0,
+        "condition_on_prev_tokens": true,
+        "compression_ratio_threshold": null,
+        "logprob_threshold": null,
+        "no_speech_threshold": null
+      },
+      "takes": {
+        "d2 seed1": {
+          "wer": 0.3984,
+          "hypothesis_words_normalised": 341,
+          "seconds": 33.8,
+          "peak_allocated_mb": 7813
+        },
+        "d2 seed2": {
+          "wer": 0.0898,
+          "hypothesis_words_normalised": 263,
+          "seconds": 25.4,
+          "peak_allocated_mb": 7532
+        },
+        "d2 seed3": {
+          "wer": 0.0508,
+          "hypothesis_words_normalised": 255,
+          "seconds": 20.0,
+          "peak_allocated_mb": 7521
+        },
+        "d4 seed1": {
+          "wer": 0.0703,
+          "hypothesis_words_normalised": 259,
+          "seconds": 17.9,
+          "peak_allocated_mb": 7527
+        },
+        "d4 seed2": {
+          "wer": 0.4023,
+          "hypothesis_words_normalised": 339,
+          "seconds": 22.6,
+          "peak_allocated_mb": 7885
+        },
+        "d4 seed3": {
+          "wer": 0.0703,
+          "hypothesis_words_normalised": 252,
+          "seconds": 17.5,
+          "peak_allocated_mb": 7508
+        }
+      },
+      "mean_wer": 0.1803,
+      "max_wer": 0.4023
+    },
+    "greedy_unconditioned": {
+      "decoding": {
+        "task": "transcribe",
+        "num_beams": 1,
+        "do_sample": false,
+        "temperature": 0.0,
+        "condition_on_prev_tokens": false,
+        "compression_ratio_threshold": null,
+        "logprob_threshold": null,
+        "no_speech_threshold": null
+      },
+      "takes": {
+        "d2 seed1": {
+          "wer": 0.0742,
+          "hypothesis_words_normalised": 256,
+          "seconds": 19.6,
+          "peak_allocated_mb": 6569
+        },
+        "d2 seed2": {
+          "wer": 0.0703,
+          "hypothesis_words_normalised": 255,
+          "seconds": 17.9,
+          "peak_allocated_mb": 6573
+        },
+        "d2 seed3": {
+          "wer": 0.0547,
+          "hypothesis_words_normalised": 255,
+          "seconds": 17.0,
+          "peak_allocated_mb": 6554
+        },
+        "d4 seed1": {
+          "wer": 0.0781,
+          "hypothesis_words_normalised": 255,
+          "seconds": 17.1,
+          "peak_allocated_mb": 6569
+        },
+        "d4 seed2": {
+          "wer": 0.0508,
+          "hypothesis_words_normalised": 255,
+          "seconds": 17.5,
+          "peak_allocated_mb": 6559
+        },
+        "d4 seed3": {
+          "wer": 0.0977,
+          "hypothesis_words_normalised": 261,
+          "seconds": 17.2,
+          "peak_allocated_mb": 6563
+        }
+      },
+      "mean_wer": 0.071,
+      "max_wer": 0.0977
+    },
+    "beam5_unconditioned": {
+      "decoding": {
+        "task": "transcribe",
+        "num_beams": 5,
+        "do_sample": false,
+        "temperature": 0.0,
+        "condition_on_prev_tokens": false,
+        "compression_ratio_threshold": null,
+        "logprob_threshold": null,
+        "no_speech_threshold": null
+      },
+      "takes": {
+        "d2 seed1": {
+          "wer": 0.0859,
+          "hypothesis_words_normalised": 256,
+          "seconds": 21.7,
+          "peak_allocated_mb": 9429
+        },
+        "d2 seed2": {
+          "wer": 0.0547,
+          "hypothesis_words_normalised": 255,
+          "seconds": 22.1,
+          "peak_allocated_mb": 9452
+        },
+        "d2 seed3": {
+          "wer": 0.0742,
+          "hypothesis_words_normalised": 255,
+          "seconds": 21.7,
+          "peak_allocated_mb": 9340
+        },
+        "d4 seed1": {
+          "wer": 0.0586,
+          "hypothesis_words_normalised": 255,
+          "seconds": 21.6,
+          "peak_allocated_mb": 9427
+        },
+        "d4 seed2": {
+          "wer": 0.0586,
+          "hypothesis_words_normalised": 256,
+          "seconds": 32.2,
+          "peak_allocated_mb": 9453
+        },
+        "d4 seed3": {
+          "wer": 0.0547,
+          "hypothesis_words_normalised": 255,
+          "seconds": 31.8,
+          "peak_allocated_mb": 9426
+        }
+      },
+      "mean_wer": 0.0644,
+      "max_wer": 0.0859
+    },
+    "greedy_conditioned_fallback": {
+      "decoding": {
+        "task": "transcribe",
+        "num_beams": 1,
+        "do_sample": false,
+        "temperature": [
+          0.0,
+          0.2,
+          0.4,
+          0.6,
+          0.8,
+          1.0
+        ],
+        "condition_on_prev_tokens": true,
+        "compression_ratio_threshold": 2.4,
+        "logprob_threshold": -1.0,
+        "no_speech_threshold": 0.6
+      },
+      "takes": {
+        "d2 seed1": {
+          "wer": 0.3984,
+          "hypothesis_words_normalised": 341,
+          "seconds": 35.9,
+          "peak_allocated_mb": 7814
+        },
+        "d2 seed2": {
+          "wer": 0.0898,
+          "hypothesis_words_normalised": 263,
+          "seconds": 25.7,
+          "peak_allocated_mb": 7524
+        },
+        "d2 seed3": {
+          "wer": 0.0508,
+          "hypothesis_words_normalised": 255,
+          "seconds": 20.9,
+          "peak_allocated_mb": 7510
+        },
+        "d4 seed1": {
+          "wer": 0.0703,
+          "hypothesis_words_normalised": 259,
+          "seconds": 18.4,
+          "peak_allocated_mb": 7517
+        },
+        "d4 seed2": {
+          "wer": 0.4492,
+          "hypothesis_words_normalised": 351,
+          "seconds": 30.1,
+          "peak_allocated_mb": 7886
+        },
+        "d4 seed3": {
+          "wer": 0.0703,
+          "hypothesis_words_normalised": 252,
+          "seconds": 17.9,
+          "peak_allocated_mb": 7495
+        }
+      },
+      "mean_wer": 0.1881,
+      "max_wer": 0.4492
+    }
+  }
+}
