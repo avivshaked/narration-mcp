@@ -6,6 +6,10 @@ the ones BS.1770-4 tabulates (KNOW: they agree to 1e-8; pyloudnorm's default ``"
 derived from RBJ's cookbook, reads 0.04 LU low on a 997 Hz sine). Gating as BS.1770-4: 400 ms blocks with
 75 % overlap, an absolute gate at -70 LUFS and a relative gate 10 LU below.
 
+- pyloudnorm rounds the number of blocks, so it may count a final block that runs past the end of the
+  signal (as if silence followed). Meters that count whole blocks only can read up to about 0.06 LU higher
+  on a short take (KNOW: at most 0.059 LU on the 48 bakeoff clone paragraphs), inside EBU Tech 3341's
+  tolerance of 0.1 LU.
 - A signal shorter than one 400 ms block is measured as if silence followed it up to one block (BS.1770-4
   defines no loudness for less than a block).
 - A signal with no block above the absolute gate has no defined loudness: the functions return None.
