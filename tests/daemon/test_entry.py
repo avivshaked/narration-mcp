@@ -4,6 +4,7 @@ waits for (each exits by itself within seconds)."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -138,6 +139,15 @@ def test_the_launch_time_is_the_launchers_unless_it_is_later_than_the_process_be
     assert launch_time(None, 100.0) == 100.0, "no launcher: when this process began"
     assert launch_time(99.5, 100.0) == 99.5, "the launcher's clock, read just before the spawn"
     assert launch_time(250.0, 100.0) == 100.0, "a launch after the process began is not believed"
+
+
+@pytest.mark.parametrize("given", [float("nan"), float("inf"), float("-inf")])
+def test_a_launch_time_that_is_not_finite_is_ignored_and_logged_s4_1(
+    given: float, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="narration.daemon"):
+        assert launch_time(given, 100.0) == 100.0, "when this process began, as with no --launched-at"
+    assert any("not a finite time" in record.getMessage() for record in caplog.records)
 
 
 def test_the_default_runner_is_the_null_runner_until_the_job_engine() -> None:

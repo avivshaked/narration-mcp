@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import os
 import sys
 import time
@@ -68,7 +69,11 @@ def _parser() -> argparse.ArgumentParser:
 
 def launch_time(given: float | None, began: float) -> float:
     """This daemon's launch time: the launcher's ``--launched-at``, or ``began`` without one. A launcher
-    cannot have started this process after it began to run, so a later ``given`` is not believed."""
+    cannot have started this process after it began to run, so a later ``given`` is not believed. A value
+    that is not a finite number (``nan``, ``inf``, which ``float`` accepts) is logged and ignored."""
+    if given is not None and not math.isfinite(given):
+        log.warning("--launched-at %r is not a finite time; using when this process began instead", given)
+        given = None
     return began if given is None else min(given, began)
 
 
