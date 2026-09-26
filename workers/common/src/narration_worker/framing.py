@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import IO, Any
+from typing import IO, Any, TypeGuard
 
 from .protocol import MAX_LINE_BYTES
 
@@ -79,6 +79,6 @@ def read_line(stream: IO[bytes], limit: int = MAX_LINE_BYTES) -> bytes | None:
     raise LineTooLong(f"a line exceeds the protocol's {limit}-byte line limit")
 
 
-def is_request_id(value: object) -> bool:
+def is_request_id(value: object) -> TypeGuard[int]:
     """True for a valid request id: a JSON integer (``bool`` is not one)."""
     return isinstance(value, int) and not isinstance(value, bool)

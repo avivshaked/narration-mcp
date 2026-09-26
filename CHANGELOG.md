@@ -43,3 +43,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   spans into word ranges, and adds `SEGMENT_TOO_LONG` as a warning only.
 - `narration.lint`: the positive-only check of voice descriptions. It warns about negated qualities
   ("not rough") and suggests a positive rephrasing; it never refuses.
+- The model-worker runtime (`narration_worker`): the JSON-lines worker protocol's framing and request
+  loop, the determinism switches, the CPU thread cap and the `hello` fingerprint, started as
+  `python -m narration_worker --role <role> --store <store_root>`; and the daemon's worker client
+  (`narration.workers`), which reports a crashed worker at once and stops one that does not reply in time.
+- A `fake` worker role with deterministic synthetic audio and QA outputs, and faults it can plant on
+  request of a test (`NARRATION_FAKE_SPEC`), so the service can be developed and tested without a model
+  or a GPU; and the worker contract tests every worker runs (`narration_worker.testing`).
