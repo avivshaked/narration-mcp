@@ -202,3 +202,25 @@ def test_remove_tree_is_quiet_about_entries_that_vanish(tmp_path: Path) -> None:
     files.remove_tree(tree)
     files.remove_tree(tree)
     assert not tree.exists()
+
+
+def test_a_rename_with_one_attempt_is_tried_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # gc renames under the write lock, so it does not wait for a folder in use.
+    src = tmp_path / "rn_1"
+    src.mkdir()
+    calls = {"n": 0}
+
+    def refuse(a: object, b: object) -> None:
+        calls["n"] += 1
+        raise PermissionError(13, "a file inside is open", str(a))
+
+    def no_waiting(attempt: int) -> None:
+        raise AssertionError("waited")
+
+    monkeypatch.setattr(os, "rename", refuse)
+    monkeypatch.setattr(files, "_retry_sleep", no_waiting)
+    with pytest.raises(PermissionError):
+        files.rename_retrying(src, tmp_path / ".trash-x-rn_1", attempts=1)
+    assert calls["n"] == 1 and src.is_dir()
+    with pytest.raises(ValueError):
+        files.rename_retrying(src, tmp_path / ".trash-x-rn_1", attempts=0)

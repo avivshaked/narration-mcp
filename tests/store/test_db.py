@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -57,3 +58,23 @@ def test_a_failed_write_transaction_rolls_back(tmp_path: Path) -> None:
         assert conn.execute("SELECT COUNT(*) FROM settings").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+class _CommitFails:
+    """A connection whose COMMIT fails; it records every statement."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def execute(self, sql: str, *args: object) -> None:
+        self.statements.append(sql)
+        if sql == "COMMIT":
+            raise sqlite3.OperationalError("disk I/O error")
+
+
+def test_a_failed_commit_rolls_back_and_raises() -> None:
+    # The write lock is never left held after a failed COMMIT, and the caller sees the error.
+    conn = _CommitFails()
+    with pytest.raises(sqlite3.OperationalError), db.write_txn(conn):  # type: ignore[arg-type]
+        pass
+    assert conn.statements == ["BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"]

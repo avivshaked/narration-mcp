@@ -113,9 +113,10 @@ def _retry_sleep(attempt: int) -> None:
     time.sleep(0.005 * (attempt + 1))
 
 
-def rename_retrying(src: Path, dst: Path) -> None:
+def rename_retrying(src: Path, dst: Path, *, attempts: int = REPLACE_ATTEMPTS) -> None:
     """``os.rename`` (never replacing an existing ``dst``), retried while Windows refuses it because
-    something inside ``src`` is open. Any other error is raised at once.
+    something inside ``src`` is open. Any other error is raised at once. ``attempts`` bounds the tries:
+    ``gc`` passes 1, so a folder that is in use is listed rather than waited for under the write lock.
 
     Raises ``FileExistsError`` if ``dst`` exists. Windows refuses such a rename itself, but POSIX
     ``rename`` silently replaces a file or an empty folder, so ``dst`` is checked first on every OS. That
@@ -123,14 +124,16 @@ def rename_retrying(src: Path, dst: Path) -> None:
     under the store's write lock; a caller's source path could lose a race only to another program
     writing that same path at that moment.
     """
-    for attempt in range(REPLACE_ATTEMPTS):
+    if attempts < 1:
+        raise ValueError(f"attempts must be at least 1, got {attempts}")
+    for attempt in range(attempts):
         if os.path.lexists(dst):
             raise FileExistsError(errno.EEXIST, "already exists; not replaced", str(dst))
         try:
             os.rename(src, dst)
             return
         except PermissionError:
-            if attempt == REPLACE_ATTEMPTS - 1:
+            if attempt == attempts - 1:
                 raise
             _retry_sleep(attempt)
 

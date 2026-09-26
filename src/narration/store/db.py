@@ -12,6 +12,7 @@ are relative to the store root.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import sqlite3
 from collections.abc import Iterator
@@ -205,14 +206,23 @@ def connect(path: Path) -> sqlite3.Connection:
 
 @contextmanager
 def write_txn(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
-    """A write transaction that holds the database's write lock from its first statement."""
+    """A write transaction that holds the database's write lock from its first statement.
+
+    If the COMMIT itself fails, the transaction is rolled back before the error is raised, so the write
+    lock is never left held and the caller can undo what it did outside the database.
+    """
     conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    conn.execute("COMMIT")
+    try:
+        conn.execute("COMMIT")
+    except BaseException:
+        with contextlib.suppress(sqlite3.Error):
+            conn.execute("ROLLBACK")  # SQLite may have ended the transaction already
+        raise
 
 
 @contextmanager
