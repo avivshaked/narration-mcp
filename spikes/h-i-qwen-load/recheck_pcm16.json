@@ -1,0 +1,19 @@
+{
+  "recheck_of": "results.json models.voice_design.d2_redesign_vs_bakeoff (pcm16_* fields)",
+  "ran_at": "2026-09-26T18:27:23+00:00",
+  "seed": 2001,
+  "reference_samples": 289920,
+  "method": "float render -> soundfile.write default WAV subtype (PCM_16) in memory -> int16, compared sample for sample with the bakeoff clip",
+  "switches_off": {
+    "sha256_float32": "4f2342b19ca950d067ab1c6e34e9d60b345dd97d36a7ad9f1aca4e8bfa6a0251",
+    "pcm16_samples": 289920,
+    "pcm16_bit_identical_to_bakeoff_clip": true,
+    "pcm16_max_abs_diff": 0
+  },
+  "switches_on": {
+    "sha256_float32": "4f2342b19ca950d067ab1c6e34e9d60b345dd97d36a7ad9f1aca4e8bfa6a0251",
+    "pcm16_samples": 289920,
+    "pcm16_bit_identical_to_bakeoff_clip": true,
+    "pcm16_max_abs_diff": 0
+  }
+}

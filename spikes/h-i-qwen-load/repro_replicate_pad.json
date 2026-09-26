@@ -1,0 +1,80 @@
+{
+  "script": "spikes/h-i-qwen-load/repro_replicate_pad.py",
+  "ran_at": "2026-09-26T18:03:22+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "qwen-tts": "0.1.1",
+      "transformers": "4.57.3",
+      "accelerate": "1.12.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "cases": [
+    {
+      "deterministic_algorithms": true,
+      "dtype": "float32",
+      "right_pad_is_tensor": true,
+      "ok": false,
+      "error": "_unsafe_index found unexpected index type Float"
+    },
+    {
+      "deterministic_algorithms": true,
+      "dtype": "float32",
+      "right_pad_is_tensor": false,
+      "ok": true,
+      "matches_cpu": true
+    },
+    {
+      "deterministic_algorithms": true,
+      "dtype": "bfloat16",
+      "right_pad_is_tensor": true,
+      "ok": false,
+      "error": "_unsafe_index found unexpected index type Float"
+    },
+    {
+      "deterministic_algorithms": true,
+      "dtype": "bfloat16",
+      "right_pad_is_tensor": false,
+      "ok": true,
+      "matches_cpu": true
+    },
+    {
+      "deterministic_algorithms": false,
+      "dtype": "float32",
+      "right_pad_is_tensor": true,
+      "ok": true,
+      "matches_cpu": true
+    },
+    {
+      "deterministic_algorithms": false,
+      "dtype": "float32",
+      "right_pad_is_tensor": false,
+      "ok": true,
+      "matches_cpu": true
+    },
+    {
+      "deterministic_algorithms": false,
+      "dtype": "bfloat16",
+      "right_pad_is_tensor": true,
+      "ok": true,
+      "matches_cpu": true
+    },
+    {
+      "deterministic_algorithms": false,
+      "dtype": "bfloat16",
+      "right_pad_is_tensor": false,
+      "ok": true,
+      "matches_cpu": true
+    }
+  ],
+  "conclusion": "fails exactly when deterministic algorithms are on and the pad amount is a tensor"
+}
