@@ -44,7 +44,6 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- DC-4 (`max_new_tokens`): WP20's ADR will propose.
 - **Gate H1:** listening to about 10 renders of the service's own texts before the corpus is frozen. The
   suggested sample is in `status/WP18.md`. It needs the GPU.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
