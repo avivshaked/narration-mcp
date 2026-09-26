@@ -40,7 +40,7 @@ def test_optional_reply_keys_are_optional_at_run_time_appA() -> None:
     """Contracts 1.1: the protocol module keeps ``NotRequired`` visible to ``TypedDict`` (WP16's request)."""
     assert "error" not in protocol.Reply.__required_keys__
     assert "new_tokens" in protocol.AudioReply.__optional_keys__
-    assert _required(protocol.AudioReply) == {"sample_rate", "samples", "gen_s", "hit_token_cap"}
+    assert _required(protocol.AudioReply) == {"sample_rate", "samples", "gen_s", "hit_token_cap", "max_new_tokens"}
 
 
 @pytest.fixture

@@ -193,28 +193,54 @@ class PrepareVoiceRequest(Request):
 
 
 class SynthesizeRequest(Request):
+    """Clone the prepared ``voice_hash`` speaking ``engine_text``.
+
+    ``max_new_tokens`` is this call's own generation cap (design section 10.1, DC-4). The daemon computes it
+    from the text the call speaks with ``narration.contracts.names.max_new_tokens_for``, so a runaway render
+    stops early. It is required and must be from 2 (qwen-tts fixes ``min_new_tokens`` at 2) to the loaded
+    ceiling (``load``'s ``settings.generation.max_new_tokens``); anything else is ``INVALID_REQUEST``.
+    """
+
     voice_hash: str
     engine_text: str
     language: str
     seed: int
+    max_new_tokens: int
     out_path: str
 
 
 class AudioReply(Reply):
-    """A generated WAV written to ``out_path``: float32 mono at ``sample_rate``."""
+    """A generated WAV written to ``out_path``: float32 mono at ``sample_rate``.
+
+    Generation runs in talker steps. Each step samples either one codec frame or the end token, and the
+    frames are decoded at 12.5 per second of audio. The call's ``max_new_tokens`` bounds the steps.
+
+    - ``hit_token_cap``: the last sampled token was not the end token, so generation stopped at the cap
+      (mid-text, or in a runaway). An end token on the cap-th step is **not** a hit. ``TOKEN_CAP_HIT`` is
+      judged from this flag only, never by comparing ``new_tokens`` with the cap.
+    - ``new_tokens``: the decoded frames, which is the talker steps minus one, so at most
+      ``max_new_tokens`` - 1. A render whose end token comes at step N has N - 1 frames and is not a hit
+      under any cap from N up; under a cap of N - 1 it is a hit with N - 2 frames.
+    - ``max_new_tokens``: the cap the worker applied, echoed from the request.
+    """
 
     sample_rate: int
     samples: int
     gen_s: float
     hit_token_cap: bool
+    max_new_tokens: int
     new_tokens: NotRequired[int]
 
 
 class DesignRequest(Request):
+    """Design a voice from ``description``, speaking ``design_text`` (VoiceDesign). ``max_new_tokens`` is the
+    call's own cap, exactly as for ``SynthesizeRequest``."""
+
     description: str
     design_text: str
     language: str
     seed: int
+    max_new_tokens: int
     out_path: str
 
 
