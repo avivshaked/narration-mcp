@@ -11,7 +11,10 @@ replies to it and calls ``shutdown()`` first). A method returns the reply's memb
 - the constructor (``__init__``) is cheap and must not touch the GPU: no CUDA, no model, no torch import
   (``self.torch()`` imports torch on first use; models load in ``load``). An ``ImportError`` from it (a
   missing dependency) stops the worker with ``EXIT_START_FAILED``, which the daemon reports as
-  ``BACKEND_NOT_INSTALLED`` and does not retry; any other exception crashes the worker like any other crash;
+  ``BACKEND_NOT_INSTALLED`` and does not retry. So is an ``ImportError`` from a bug in the handler's own
+  code (a misspelt import): the worker cannot tell the two apart, and the stderr tail names the module.
+  A transient load failure (``errors.is_transient_load_error``: a DLL another process holds) and any other
+  exception crash the worker like any other crash, which the daemon may retry;
 - an op that needs a model replies ``NOT_LOADED`` before ``load``, and after ``unload``, before it reads
   any file or checks its other fields;
 - ``load`` checks that each snapshot directory it is given exists before anything else, and replies
@@ -35,6 +38,7 @@ render seeds with ``determinism.seed_everything(seed, torch=self.torch())`` (sec
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -46,6 +50,8 @@ from .errors import OpError
 from .fingerprint import collect
 from .protocol import OPS_BY_ROLE, PROTOCOL_VERSION, Capabilities, Controls, Fingerprint, WorkerRole
 from .threads import cap_torch_threads
+
+log = logging.getLogger(__name__)
 
 Request = Mapping[str, Any]
 """A decoded request: ``id``, ``op`` and the op's members."""
@@ -153,8 +159,18 @@ class WorkerHandler:
         }
 
     def fingerprint(self) -> Fingerprint:
-        """The fingerprint (``fingerprint.collect``), with torch and NVML facts when ``uses_torch``."""
-        nvml = import_optional("pynvml") if self.uses_torch else None
+        """The fingerprint (``fingerprint.collect``), with torch and NVML facts when ``uses_torch``.
+
+        NVML is optional: if its binding is installed but cannot be loaded, the GPU name and driver are
+        reported as unknown (null), like any fact that cannot be read. A torch that cannot be loaded still
+        fails ``hello`` (``BACKEND_NOT_INSTALLED``).
+        """
+        nvml: Any | None = None
+        if self.uses_torch:
+            try:
+                nvml = import_optional("pynvml")
+            except OpError as exc:
+                log.warning("NVML cannot be loaded, so the GPU name and driver are unknown: %s", exc.message)
         return collect(
             cpu_threads=self.context.cpu_threads, packages=self.fingerprint_packages, torch=self.torch(), nvml=nvml
         )

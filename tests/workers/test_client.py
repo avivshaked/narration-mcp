@@ -241,11 +241,23 @@ class FailsAtStart(FakeHandler):
 
 class UsesTorch(FakeHandler):
     uses_torch = True  # hello's fingerprint imports torch
+
+
+class DllInUse(FakeHandler):
+    def __init__(self, context):
+        raise ImportError(
+            "DLL load failed while importing _C: "
+            "The process cannot access the file because it is being used by another process."
+        )
 """
 
 DLL_FAILURE = (
     "[WinError 126] The specified module could not be found. "
     'Error loading "torch\\lib\\c10.dll" or one of its dependencies.'
+)
+DLL_IN_USE = (
+    "DLL load failed while importing _C: "
+    "The process cannot access the file because it is being used by another process."
 )
 
 
@@ -257,6 +269,7 @@ def _shim_client(config: Config, tmp_path: Path, handler: str) -> SubprocessWork
     (shim / "shim.py").write_text(SHIM_HANDLERS, encoding="utf-8")
     (shim / "torch" / "__init__.py").write_text(f"raise OSError({DLL_FAILURE!r})\n", encoding="utf-8")
     (shim / "unloadable.py").write_text(f"raise OSError({DLL_FAILURE!r})\n", encoding="utf-8")
+    (shim / "in_use.py").write_text(f"raise ImportError({DLL_IN_USE!r})\n", encoding="utf-8")
     command = worker_command(config, "fake")
     argv = (*command.argv, "--handler", handler if ":" in handler else f"shim:{handler}")
     return SubprocessWorkerClient(
@@ -315,6 +328,22 @@ def test_torch_that_cannot_load_is_backend_not_installed_not_internal_s14(config
     assert caught.value.details["module"] == "torch"
     assert caught.value.details["error"] == f"OSError: {DLL_FAILURE}"
     assert "narration-admin install" in str(caught.value)
+
+
+@pytest.mark.parametrize("handler", ["DllInUse", "in_use:Handler"])
+def test_a_dll_another_process_holds_is_a_crash_to_retry_not_backend_not_installed_s14(
+    config: Config, tmp_path: Path, handler: str
+) -> None:
+    """An antivirus holding a DLL makes the load fail for a moment: in the handler's constructor or in its
+    module's import, that is a crash the daemon may retry, never the non-retryable BACKEND_NOT_INSTALLED."""
+    client = _shim_client(config, tmp_path, handler)
+    try:
+        with pytest.raises(WorkerCrashed) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.exit_code == 1
+    assert "being used by another process" in caught.value.stderr_tail
 
 
 def test_a_handler_module_that_cannot_load_is_backend_not_installed_s14(config: Config, tmp_path: Path) -> None:
@@ -512,6 +541,46 @@ os.close(0)  # stops reading for good, and runs on
 print("stdin closed", file=sys.stderr, flush=True)
 time.sleep(60)
 """
+
+
+SLOW_EXIT_WORKER = """\
+import json
+import os
+import sys
+import time
+
+request = json.loads(sys.stdin.readline())
+hello = {"role": "fake", "protocol": int(sys.argv[1]), "capabilities": {"controls": {}}, "fingerprint": {}}
+sys.stdout.write(json.dumps({"id": request["id"], "ok": True, **hello}) + "\\n")
+sys.stdout.flush()
+os.close(0)
+os.close(1)
+print("pipes closed", file=sys.stderr, flush=True)
+time.sleep(3)  # longer than the client's write-failure grace
+os._exit(5)
+"""
+
+
+def test_a_worker_that_closes_its_pipes_and_exits_slowly_is_reported_with_its_exit_code_appA(
+    config: Config, tmp_path: Path
+) -> None:
+    """A failed write must not preempt the reader: once stdout has ended, the exit is reported with its code."""
+    script = tmp_path / "slow_exit.py"
+    script.write_text(SLOW_EXIT_WORKER, encoding="utf-8")
+    python = getattr(sys, "_base_executable", sys.executable)  # no venv launcher holding the pipes open
+    argv = (python, str(script), str(PROTOCOL_VERSION))
+    client = SubprocessWorkerClient(WorkerCommand(role="fake", argv=argv, env=worker_command(config, "fake").env))
+    try:
+        client.start()
+        deadline = time.monotonic() + TIMEOUT
+        while "pipes closed" not in client.stderr_tail() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        with pytest.raises(WorkerCrashed) as caught:
+            client.request("unload", {}, timeout_s=TIMEOUT)
+        assert caught.value.exit_code == 5, caught.value
+        assert "exited with code 5" in str(caught.value)
+    finally:
+        client.close(timeout_s=5.0)
 
 
 def test_a_worker_that_stops_reading_is_stopped_at_once_not_at_the_timeout_appA(config: Config, tmp_path: Path) -> None:

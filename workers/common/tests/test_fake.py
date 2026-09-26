@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 from narration_worker.fake.audio import SAMPLE_RATE, SAMPLES_PER_FRAME
-from narration_worker.fake.faults import SPEC_ENV
+from narration_worker.fake.faults import SPEC_ENV, SpecError, parse_spec
 from narration_worker.fake.handler import PROFILE_KEYS
 from narration_worker.fake.registry import RECORD_SCHEMA, Registry, fake_dir
 from narration_worker.fake.wav import read_wav
@@ -476,10 +476,18 @@ def test_planted_token_cap_stops_at_the_calls_cap_when_that_is_lower_wp40(store:
         _ready(worker, store)
         _, fault_cap = _say(worker, store, "fault-cap")
         _, call_cap = _say(worker, store, "call-cap", cap=25)
-    assert _ok(fault_cap)["hit_token_cap"] is True and fault_cap["new_tokens"] == 39
-    assert fault_cap["max_new_tokens"] == CEILING  # the reply echoes the call's cap, not the fault's
-    assert _ok(call_cap)["hit_token_cap"] is True and call_cap["new_tokens"] == 24
-    assert call_cap["max_new_tokens"] == 25
+    # the fault renders the call as if it had the fault's cap, so the reply is one a real worker could give
+    assert _ok(fault_cap)["hit_token_cap"] is True
+    assert (fault_cap["max_new_tokens"], fault_cap["new_tokens"]) == (40, 39)
+    assert _ok(call_cap)["hit_token_cap"] is True
+    assert (call_cap["max_new_tokens"], call_cap["new_tokens"]) == (25, 24)
+
+
+@pytest.mark.parametrize("cap", [1, 0, -5])
+def test_a_token_cap_fault_below_two_is_an_invalid_spec_wp40(cap: int) -> None:
+    with pytest.raises(SpecError, match="max_new_tokens must be at least 2"):
+        parse_spec({"faults": [{"kind": "token_cap", "max_new_tokens": cap}]})
+    assert parse_spec({"faults": [{"kind": "token_cap", "max_new_tokens": 2}]}).faults
 
 
 def test_planted_gpu_oom_fires_as_many_times_as_asked_s4(store: Path) -> None:

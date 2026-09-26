@@ -133,6 +133,7 @@ class SubprocessWorkerClient:
         self._closing = False
         self._tail = bytearray()
         self._tail_lock = threading.Lock()
+        self._stdout_ended = threading.Event()
         self._stdin_thread: threading.Thread | None = None
         self._stdout_thread: threading.Thread | None = None
         self._stderr_thread: threading.Thread | None = None
@@ -402,13 +403,19 @@ class SubprocessWorkerClient:
 
     def _write_failed(self, exc: BaseException) -> None:
         """A write to the worker failed. If it is exiting, its exit is reported as usual; if it runs on
-        without reading its stdin, it is stopped now, so waiting requests fail at once, not at their timeout."""
+        without reading its stdin, it is stopped now, so waiting requests fail at once, not at their timeout.
+
+        Once the worker's stdout has ended, the reader reports the exit, with its code, however long the
+        process takes to go; so the worker is stopped here only while its stdout is still open.
+        """
         proc = self._proc
-        if proc is None or self._failure is not None:
+        if proc is None or self._failure is not None or self._stdout_ended.is_set():
             return
         try:
             proc.wait(timeout=WRITE_FAILURE_GRACE_S)
         except subprocess.TimeoutExpired:
+            if self._stdout_ended.is_set():
+                return
             self._stop(
                 f"the {self.role} worker could not be written to ({exc}) and kept running; the client stopped it"
             )
@@ -444,6 +451,7 @@ class SubprocessWorkerClient:
         except (OSError, ValueError):
             pass  # our end was closed
         finally:
+            self._stdout_ended.set()
             self._stream_ended(reason)
             _close_quietly(stream)
 

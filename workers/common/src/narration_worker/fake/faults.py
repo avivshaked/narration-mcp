@@ -39,9 +39,10 @@ kind                      default op        effect (parameters)
                                             (index into the text's words; the middle one by default)
 ``head_insertion``        ``synthesize``    the take starts with extra ``words`` (["so"])
 ``end_insertion``         ``synthesize``    the take ends with extra ``words`` (["okay"])
-``token_cap``             ``synthesize``    generation stops at ``max_new_tokens`` (60 % of the take's
-                                            tokens by default), or at the call's own ``max_new_tokens``
-                                            if that is lower: ``hit_token_cap`` and a cut take
+``token_cap``             ``synthesize``    the call is rendered as if its ``max_new_tokens`` were this
+                                            one (at least 2; 60 % of the take's frames by default), or
+                                            the call's own if that is lower: a cut take with
+                                            ``hit_token_cap``, and the reply echoes that cap
 ========================  ================  ==============================================================
 
 The last five change what the take says, so they apply to ``synthesize`` and ``design`` only; the fake's
@@ -196,6 +197,9 @@ def _parse_fault(index: int, entry: object) -> Fault:
     params = {name: entry[name] for name in _PARAMS[kind] if name in entry}
     for name, value in params.items():
         _check(f"{where}.{name}", _PARAMS[kind][name], value)
+    cap = params.get("max_new_tokens") if kind == "token_cap" else None
+    if isinstance(cap, int) and cap < 2:
+        raise SpecError(f"{where}.max_new_tokens must be at least 2, as a call's cap must (qwen-tts)")
     key = hashlib.sha256(json.dumps(entry, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
     return Fault(
         kind=kind,

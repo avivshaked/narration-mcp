@@ -10,8 +10,8 @@ the snapshot directories it is given, paths stay in the store.
   the end token. Under the call's ``max_new_tokens`` (2 to the loaded ceiling: ``load``'s
   ``settings.generation.max_new_tokens``, 8192 when it gives none), a cap of F + 1 or more leaves the take
   whole (``new_tokens`` F), and a cap C of F or less cuts it to C - 1 frames with ``hit_token_cap: true``.
-  The reply echoes the call's cap as ``max_new_tokens``. A take that ends under its cap is the same under
-  any cap.
+  The reply echoes the cap it applied as ``max_new_tokens``. A take that ends under its cap is the same
+  under any cap. A ``token_cap`` fault renders the call as if it had the fault's cap, reply included.
 - ``transcribe`` hears the text back, with word times, from the take or from any post-processed copy of it.
 - ``embed`` gives a 512-dimension unit vector: the voice's direction plus a small per-take part, so takes of
   one voice (and the clip they clone) are about 0.99 similar and different voices are not.
@@ -303,8 +303,8 @@ class FakeHandler(WorkerHandler):
         field: str,
     ) -> dict[str, Any]:
         """Render a take of ``text`` under ``cap``, the call's ``max_new_tokens`` (see the module docstring for
-        how the cap counts). A ``token_cap`` fault stops generation at its own cap if that is lower; the reply
-        still echoes the call's."""
+        how the cap counts). A ``token_cap`` fault models the call having had the fault's cap, if that is
+        lower: the take is cut there and the reply echoes it, as a real worker's would."""
         tokens = spoken_tokens(text)
         if not tokens:
             raise OpError("INVALID_REQUEST", f"{field} has no words to speak", {"field": field})
@@ -332,8 +332,7 @@ class FakeHandler(WorkerHandler):
         bursts, total = layout([said for said, _, _ in entries])
         full = [b.segments for b in bursts]
         natural = new_tokens(total)  # F frames: F + 1 talker steps, the last one the end token
-        call_cap = cap
-        if cap_fault is not None:  # generation stops at the fault's cap, or the call's if that is lower
+        if cap_fault is not None:  # the call is rendered as if its cap were the fault's, when that is lower
             cap = min(cap, int(cap_fault.params.get("max_new_tokens", max(2, natural * 6 // 10))))
         hit = cap <= natural  # the end token would come at step F + 1, past the cap
         frames = cap - 1 if hit else natural
@@ -379,7 +378,7 @@ class FakeHandler(WorkerHandler):
             "samples": total,
             "gen_s": round(total / SAMPLE_RATE * _REAL_TIME_FACTOR, 3),
             "hit_token_cap": hit,
-            "max_new_tokens": call_cap,
+            "max_new_tokens": cap,
             "new_tokens": frames,
         }
 

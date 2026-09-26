@@ -15,8 +15,8 @@ is started (``worker_argv``, ``worker_env``) or to enable the tests that need a 
   it, as for a real model on a machine without it;
 - ``render_requests``: for a role with ``synthesize`` or ``design``, the requests to send after that
   ``load`` so that one of those calls succeeds, that call last (for example a ``prepare_voice`` and then a
-  ``synthesize``). The test sets the last call's ``max_new_tokens`` itself. The default ``None`` skips the
-  test of the call cap's effect.
+  ``synthesize``). The test sets the last call's ``max_new_tokens`` itself. A role with those ops that gives
+  a ``load_request`` must give these too: the call-cap tests fail, not skip, without them.
 
 Nothing here needs a model or a GPU unless those fixtures load one.
 
@@ -281,15 +281,26 @@ class WorkerContract:
                 assert reply["ok"] is False and reply["error"]["code"] == "INVALID_REQUEST", (op, bad, reply)
                 assert reply["error"].get("details", {}).get("field") == "max_new_tokens", (op, bad, reply)
 
-    def _render(
+    def render_at_ceiling(
         self,
         worker: WorkerProcess,
         load_request: dict[str, Any] | None,
         render_requests: list[tuple[str, dict[str, Any]]] | None,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        """Load, send the set-up requests, and render the last call at the ceiling: (op, body, reply)."""
-        if load_request is None or render_requests is None:
-            pytest.skip(f"override load_request and render_requests to render with the {self.role} worker")
+        """Load, send the set-up requests, and render the last call at the ceiling: (op, body, reply).
+
+        Skips when the role has neither ``synthesize`` nor ``design`` or no ``load_request`` is given; fails
+        when those are there but ``render_requests`` is not, so a real worker cannot skip the cap tests.
+        """
+        if not any(op in OPS_BY_ROLE[self.role] for op in CALL_CAP_OPS):
+            pytest.skip(f"the {self.role} role has no synthesize or design")
+        if load_request is None:
+            pytest.skip(f"no loadable {self.role} models here: override the load_request fixture to run this")
+        if render_requests is None:
+            pytest.fail(
+                f"override render_requests: the {self.role} role renders, and its call cap tests (DC-4) need "
+                "the requests that make one synthesize or design call succeed after load_request"
+            )
         *setup, (op, body) = render_requests
         assert op in CALL_CAP_OPS, f"the last of render_requests must be one of {CALL_CAP_OPS}, not {op}"
         assert worker.request("load", timeout_s=self.timeout_s, **load_request)["ok"] is True
@@ -308,7 +319,7 @@ class WorkerContract:
         load_request: dict[str, Any] | None,
         render_requests: list[tuple[str, dict[str, Any]]] | None,
     ) -> None:
-        op, body, full = self._render(worker, load_request, render_requests)
+        op, body, full = self.render_at_ceiling(worker, load_request, render_requests)
         cut = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": self.small_cap})
         assert cut["ok"] is True and cut["hit_token_cap"] is True, cut
         assert cut["max_new_tokens"] == self.small_cap, cut
@@ -323,7 +334,7 @@ class WorkerContract:
     ) -> None:
         """A render of F frames takes F + 1 steps, the last one the end token: a cap of F + 1 is not a hit and
         changes nothing; a cap of F is a hit with F - 1 frames (``protocol.AudioReply``)."""
-        op, body, full = self._render(worker, load_request, render_requests)
+        op, body, full = self.render_at_ceiling(worker, load_request, render_requests)
         assert "new_tokens" in full, "the worker must report new_tokens (the decoded frames) for this contract"
         frames = full["new_tokens"]
         assert frames >= 2, f"render_requests' last call must render at least 2 frames, not {frames}"

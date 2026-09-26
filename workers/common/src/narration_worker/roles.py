@@ -11,6 +11,8 @@
 
 A handler module that cannot be imported, whether it raises ``ImportError`` or ``OSError`` (on Windows, a
 native library such as torch's DLLs failing to load), is ``RoleUnavailable``: the worker's env is broken.
+A transient load failure (``errors.is_transient_load_error``: a file another process holds) propagates
+instead, so the worker crashes and a retry can get past it.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import importlib
 import importlib.metadata
 from typing import Final
 
+from .errors import is_transient_load_error
 from .handler import WorkerHandler
 from .protocol import WorkerRole
 
@@ -46,6 +49,8 @@ def resolve_handler(role: WorkerRole, spec: str | None = None) -> type[WorkerHan
         module = importlib.import_module(module_name)
         cls = getattr(module, attr)
     except (ImportError, AttributeError, OSError) as exc:
+        if is_transient_load_error(exc):
+            raise
         raise RoleUnavailable(f"cannot load the {role!r} handler {target!r}: {type(exc).__name__}: {exc}") from exc
     if not (isinstance(cls, type) and issubclass(cls, WorkerHandler)):
         raise RoleUnavailable(f"{target!r} is not a WorkerHandler subclass")

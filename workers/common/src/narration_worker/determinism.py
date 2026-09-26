@@ -19,7 +19,7 @@ import random
 from collections.abc import MutableMapping
 from typing import Any, Final, cast
 
-from .errors import OpError
+from .errors import OpError, is_transient_load_error
 from .protocol import DeterminismSettings
 
 CUBLAS_WORKSPACE_CONFIG_VAR: Final = "CUBLAS_WORKSPACE_CONFIG"
@@ -73,7 +73,8 @@ def import_optional(name: str) -> Any | None:
     error in ``details.error``): the worker's env is broken, and saying "not installed" would hide it. That
     is an ``OSError`` from the import (on Windows, torch raises one when its DLLs fail to load), or an
     ``ImportError`` for anything but the module itself being absent (a missing dependency, a failed
-    extension).
+    extension). A transient failure (``errors.is_transient_load_error``: a file another process holds) is
+    ``INTERNAL`` with ``details.transient``, since a retry gets past it.
     """
     try:
         return importlib.import_module(name)
@@ -84,6 +85,12 @@ def import_optional(name: str) -> Any | None:
     except (ImportError, OSError) as exc:
         broken = exc
     error = f"{type(broken).__name__}: {broken}"
+    if is_transient_load_error(broken):
+        raise OpError(
+            "INTERNAL",
+            f"{name} could not be loaded because another process holds a file ({error}); try again",
+            {"module": name, "error": error, "transient": True},
+        ) from broken
     raise OpError(
         "BACKEND_NOT_INSTALLED",
         f"{name} is installed but cannot be loaded ({error}): sync the worker's venv (narration-admin install)",
