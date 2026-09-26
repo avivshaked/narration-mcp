@@ -15,6 +15,7 @@ from typing import Any
 import anyio
 import pytest
 from jsonschema import Draft202012Validator
+from mcp.shared.message import SessionMessage
 from mcp.shared.uri_template import UriTemplate
 
 from narration.config import RetentionConfig
@@ -30,6 +31,7 @@ from narration.contracts.names import (
 )
 from narration.contracts.schemas import DIALECT, TOOLS_BY_NAME
 from narration.mcp import FrontEnd, build_front_end, results
+from narration.mcp import server as server_module
 from narration.mcp.descriptions import (
     BACKOFF_RULE,
     LENGTH_IS_YOURS,
@@ -313,6 +315,37 @@ def test_other_size_bounds_stay_invalid_argument_s14(
         assert (error["code"], error["field"]) == (codes.INVALID_ARGUMENT, field or "segments[0].attempts")
 
     over_wire(build_front_end(backend), "modern", body)
+
+
+def _styled_segments() -> list[dict[str, Any]]:
+    segments = _segments(201)
+    segments[0] = {**segments[0], "style": "calm"}
+    return segments
+
+
+@pytest.mark.parametrize(
+    ("change", "field", "hint_part"),
+    [
+        ({"segments": _styled_segments()}, "segments[0].style", "section 3.3"),
+        ({"segments": _segments(201), "text_mode": "written"}, "text_mode", "section 9.2"),
+        ({"hints": [{"term": "Ossavine"}] * 501, "label": 5}, "label", "inputSchema"),
+        ({"segments": _segments(201), "options": 5}, "options", "inputSchema"),
+    ],
+)
+def test_limit_exceeded_only_when_every_failure_is_a_size_bound_s14(
+    backend: FakeBackend, change: dict[str, Any], field: str, hint_part: str
+) -> None:
+    """An oversized request that is also invalid reports the invalid field, with that field's hint."""
+
+    async def body(wire: Wire) -> None:
+        error = error_of(await wire.call("submit_job", {**VALID_ARGUMENTS["submit_job"], **change}))
+        assert (error["code"], error["field"]) == (codes.INVALID_ARGUMENT, field)
+        assert hint_part in error["hint"], error["hint"]
+        rules = [e["rule"] for e in error["details"]["errors"]]
+        assert "maxItems" in rules, "the size bound is still listed in details.errors"
+
+    over_wire(build_front_end(backend), "modern", body)
+    assert backend.calls == []
 
 
 def test_a_long_segment_is_not_refused_by_the_front_end_s3_2(backend: FakeBackend) -> None:
@@ -630,6 +663,85 @@ def test_a_cancelled_call_still_finishes_its_backend_work_s5(backend: FakeBacken
         assert backend.finished == ["submit_job"], "the backend saw the whole call"
 
 
+def test_only_the_tools_that_write_are_shielded_for_at_most_30_s_s5() -> None:
+    assert (
+        frozenset(
+            {"release_gpu", "cancel_job", "design_voice", "profile_voice", "measure_voice", "audition_pronunciation"}
+            | {"submit_job"}
+        )
+        == server_module.SHIELDED_TOOLS
+    )
+    assert server_module.WRITE_DEADLINE_S == 30.0
+
+
+async def _close_during_call(front: FrontEnd, tool: str, arguments: dict[str, Any], held: anyio.Event) -> float:
+    """Start ``tool`` (2026-07-28 era), wait until the backend holds it, close the client's side of the
+    connection, and return how long ``server.run`` then took to return."""
+    to_server, server_reads = anyio.create_memory_object_stream[SessionMessage | Exception](16)
+    server_writes, from_server = anyio.create_memory_object_stream[SessionMessage](16)
+    wire = Wire("modern", to_server)
+    returned = anyio.Event()
+    elapsed = float("inf")
+
+    async def serve() -> None:
+        await front.server.run(server_reads, server_writes, front.server.create_initialization_options())
+        returned.set()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(serve)
+        tg.start_soon(wire.read_loop, from_server)
+        await wire.send("tools/call", {"name": tool, "arguments": arguments})
+        with anyio.fail_after(5):
+            await held.wait()
+        started = anyio.current_time()
+        await to_server.aclose()
+        with anyio.fail_after(10):
+            await returned.wait()
+        elapsed = anyio.current_time() - started
+        tg.cancel_scope.cancel()
+    return elapsed
+
+
+@pytest.mark.timeout(60)  # a regression here hangs rather than fails: end it sooner than the suite's 300 s
+@pytest.mark.parametrize("tool", ["get_job", "check_text", "get_results"])
+def test_the_server_stops_at_once_when_the_client_leaves_during_a_read_s5(backend: FakeBackend, tool: str) -> None:
+    """A read-only call is not shielded: closing the client's side ends ``server.run`` promptly."""
+    if tool == "get_job":
+        backend.block_get_job = True
+        arguments, held = {"job_id": JOB_ID, "wait_s": 55}, backend.wait_started
+    else:
+        backend.gated = {tool}
+        arguments, held = VALID_ARGUMENTS[tool], backend.gate_reached
+    elapsed = anyio.run(_close_during_call, build_front_end(backend), tool, arguments, held)
+    assert elapsed < 2.0, elapsed
+    assert backend.passed_gate == [], "the read was interrupted, not finished"
+
+
+@pytest.mark.timeout(60)  # a regression here hangs rather than fails: end it sooner than the suite's 300 s
+def test_a_blocked_write_holds_the_server_only_until_its_deadline_s5(backend: FakeBackend) -> None:
+    """A shielded write outlives the client only up to the deadline; then ``server.run`` returns."""
+    backend.gated = {"submit_job"}
+    front = build_front_end(backend, write_deadline_s=0.5)
+    elapsed = anyio.run(_close_during_call, front, "submit_job", VALID_ARGUMENTS["submit_job"], backend.gate_reached)
+    assert 0.25 <= elapsed < 3.0, elapsed
+    assert backend.passed_gate == [], "the gate never opened: the deadline ended the call"
+
+
+@pytest.mark.timeout(60)  # a regression here hangs rather than fails: end it sooner than the suite's 300 s
+def test_a_write_past_its_deadline_is_an_internal_tool_error_s5(backend: FakeBackend, log_path: Path) -> None:
+    backend.gated = {"submit_job"}
+
+    async def body(wire: Wire) -> None:
+        error = error_of(await wire.call("submit_job", VALID_ARGUMENTS["submit_job"]))
+        assert (error["code"], error["retryable"]) == (codes.INTERNAL, False)
+        assert "did not answer in time" in error["message"]
+        assert error["details"] == {"tool": "submit_job", "deadline_s": 0.3, "log": str(log_path)}
+        assert tool_result(await wire.call("get_server_status"))["isError"] is False, "still serving"
+
+    over_wire(build_front_end(backend, log_path=log_path, write_deadline_s=0.3), "modern", body)
+    assert backend.passed_gate == []
+
+
 # ---------------------------------------------------------------- resources (section 7.7)
 
 
@@ -707,6 +819,9 @@ def test_a_missing_resource_is_json_rpc_invalid_params_s14(backend: FakeBackend,
         f"narration://jobs/{JOB_ID}?x=1",
         "narration://designs/..",
         "narration://measurements/sha256:" + "3F" * 32,
+        "narration://measurements/sha256%3a" + "3f" * 32,
+        "narration://measurements/%73ha256%3A" + "3f" * 32,
+        "narration://measurements/sha256%253A" + "3f" * 32,
     ],
 )
 def test_a_malformed_resource_id_is_invalid_params_before_the_backend_s7_7(
@@ -724,6 +839,26 @@ def test_every_resource_template_variable_is_an_id_kind_s7_7() -> None:
     names = {v for r in RESOURCES for v in UriTemplate.parse(r.uri_template).variable_names}
     assert names == {"design_id", "voice_hash", "job_id", "take_id"}
     assert names <= set(ID_PATTERNS)
+
+
+@pytest.mark.parametrize("era", ERAS)
+def test_a_uri_built_by_the_sdks_rfc_6570_expander_is_read_s7_7(backend: FakeBackend, era: Era) -> None:
+    """A conforming client expands ``{voice_hash}`` to ``sha256%3A…``; the backend still gets the canonical URI."""
+    ids = {"design_id": DESIGN_ID, "voice_hash": VOICE_HASH, "job_id": JOB_ID, "take_id": TAKE_ID}
+    templates = [r.uri_template for r in RESOURCES if "{" in r.uri_template]
+    expanded = [
+        UriTemplate.parse(t).expand({v: ids[v] for v in UriTemplate.parse(t).variable_names}) for t in templates
+    ]
+    canonical = [t.format_map(ids) for t in templates]
+    assert "sha256%3A" in expanded[templates.index("narration://measurements/{voice_hash}")]
+
+    async def body(wire: Wire) -> None:
+        for uri in expanded:
+            result = await wire.result("resources/read", {"uri": uri})
+            assert result["contents"][0]["uri"] == uri, "the answer names the URI that was asked for"
+
+    over_wire(build_front_end(backend), era, body)
+    assert backend.resource_reads == canonical
 
 
 def test_a_resource_read_failure_is_json_rpc_internal_error_s14(backend: FakeBackend) -> None:
