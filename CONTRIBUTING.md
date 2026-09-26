@@ -99,6 +99,23 @@ uv run basedpyright
 uv run pytest
 ```
 
+### CI
+
+Every push to `main` or a `wp/**` branch, and every pull request, runs the CI workflow
+(`.github/workflows/ci.yml`) on GitHub Actions:
+
+- **lint** runs `ruff check` and `ruff format --check`;
+- **types** runs `basedpyright`;
+- **tests** runs the default pytest suite (no `model`, `gpu`, `evidence` or `slow` tests) on Windows and
+  Linux with Python 3.12, installed with `uv sync --locked`, so a stale `uv.lock` fails;
+- **tracked** runs `tools/check_tracked.py` over the files and over the commit messages being pushed or
+  proposed (no local paths, no audio, weights or databases);
+- **schemas** checks that the published tool schemas contain no `$ref` and that every `outputSchema` is
+  an object.
+
+Nothing in CI needs a GPU, a model or a secret. To reproduce a job locally, run the same `uv run …`
+command from the workflow file.
+
 ## Commit style
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat(text): apply hints

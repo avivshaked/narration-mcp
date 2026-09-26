@@ -631,18 +631,18 @@ Updated by the lead on `main` only.
 |---|---|---|---|---|---|---|---|
 | WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
 | WP01 | Contracts v1 | 0 | WP00 | – | `active` | – | |
-| WP02 | Public project scaffolding | 0 | WP00 | – | `ready` | – | licences, README, design already in; beside WP01 |
-| WP03 | CI | 0 | WP00 | – | `ready` | – | can run beside WP01 |
+| WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
+| WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `todo` | – | |
 | WP12 | Keys, seeds, store | 1 | WP01 | – | `todo` | – | |
-| WP13 | Delivery post-processing | 1 | WP01 | – | `todo` | – | |
+| WP13 | Delivery post-processing | 1 | WP01 | – | `ready` | worktree made | |
 | WP14 | QA logic (pure) | 1 | WP01 | – | `todo` | – | |
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `todo` | – | |
 | WP16 | Worker protocol + fake worker | 1 | WP01 | – | `todo` | – | |
-| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `todo` | – | |
-| WP18 | Service material | 1 | WP01 | – | `todo` | – | H1 to freeze |
+| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `active` | `wp/17-mcp` | spike (j) first; the rest after WP01 |
+| WP18 | Service material | 1 | WP01 | – | `active` | `wp/18-material` | drafts; H1 to freeze |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `todo` | – | |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `todo` | – | sets the tier |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `blocked:owner` | worktree made | sets the tier; held after the 2026-09-26 crash |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `todo` | – | |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `todo` | – | DC-2 |
@@ -757,3 +757,12 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   `dev_models.py`. The dev models are copied and downloaded into `.dev\models`, hash-verified against the
   Hub. Found on this machine: uv needs `UV_NATIVE_TLS=1` (TLS interception; design §17.8), recorded in
   `AGENTS.local.md`.
+- 2026-09-26: the machine froze hard or lost power at about 17:14 (details in HANDOFF.md). Nothing written
+  was damaged; WP03's first attempt was lost. GPU work (WP20) is held until the owner says the machine is
+  fine to load models on.
+- 2026-09-26: **WP03 done** (PR #1): one CI workflow with lint, types, tests on Windows and Linux, tracked
+  files and commit messages, and schema checks; actions pinned by SHA and checked against their tags. Green
+  on its first run; red on each planted fault shown locally (planting a `.wav` on the public remote was
+  deliberately not done). **WP02 done** (PR #2): CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG,
+  issue and PR templates, `narration.example.toml`; `narration.toml` gitignored. The owner is asked to
+  confirm GitHub's private vulnerability reporting as the security route.
