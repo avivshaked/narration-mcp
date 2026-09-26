@@ -10,7 +10,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from pathlib import Path
-from typing import Any, NotRequired, get_origin, get_type_hints
+from typing import Any, get_type_hints
 
 import numpy as np
 import pytest
@@ -32,14 +32,15 @@ TEXT = "Some of them thrive, and some of them simply disappear, and the water ke
 
 
 def _required(typed_dict: Any) -> set[str]:
-    """A reply's required keys, besides id and ok.
+    """A reply's required keys, besides id and ok."""
+    return set(typed_dict.__required_keys__) - {"id", "ok"}
 
-    Adapter (contract-change request in status/WP16.md): ``narration_worker.protocol`` uses postponed
-    annotations, so ``__required_keys__`` counts ``NotRequired`` keys as required at run time. The type hints
-    resolved with their extras still say which keys are optional.
-    """
-    hints = get_type_hints(typed_dict, include_extras=True)
-    return {name for name, hint in hints.items() if get_origin(hint) is not NotRequired} - {"id", "ok"}
+
+def test_optional_reply_keys_are_optional_at_run_time_appA() -> None:
+    """Contracts 1.1: the protocol module keeps ``NotRequired`` visible to ``TypedDict`` (WP16's request)."""
+    assert "error" not in protocol.Reply.__required_keys__
+    assert "new_tokens" in protocol.AudioReply.__optional_keys__
+    assert _required(protocol.AudioReply) == {"sample_rate", "samples", "gen_s", "hit_token_cap"}
 
 
 @pytest.fixture
