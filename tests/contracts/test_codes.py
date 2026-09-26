@@ -47,6 +47,7 @@ FLAG_TABLE = {
     "END_INSERTION": ({"warn", "fail"}, "at_fail"),
     "SILENCE_LONG": ({"warn", "fail"}, "at_fail"),
     "CLIPPING": ({"warn"}, "never"),
+    "SIGNAL_INVALID": ({"warn", "fail"}, "at_fail"),  # plan.md DC-5: a gap-fill for section 11.1 step 1
     "TOKEN_CAP_HIT": ({"fail"}, "always"),
     "CUE_UNALIGNED": ({"warn"}, "always"),
     "CUE_LOW_CONFIDENCE": ({"warn"}, "never"),

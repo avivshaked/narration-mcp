@@ -110,6 +110,13 @@ class AnalysisKeyInputs:
 
     ``cue_spans`` are each cue's [start, end) in the spoken text; ``exact_spans`` are (cue, first word,
     end word); ``hints_qa`` are the QA inputs of the hints used: (term, asr_aliases, align_as).
+
+    ``measurement_key`` is what makes the speaker and pace thresholds part of the key: it covers the ladder
+    settings (``sim_warn_margin``, ``sim_fail_floor``, ``pace_tol_min`` among them). A take scored against a
+    measurement passes that measurement's key. A ladder take, scored while its measurement is being built
+    (with the calibration ``anchor`` and ``similarity``), passes the key of the measurement being built,
+    which is known before the ladder runs. Only work with no speaker or pace check at all
+    (``audition_pronunciation``) passes None.
     """
 
     delivery_sha256: str
@@ -349,8 +356,13 @@ class Store(Protocol):
 
     # ---- jobs and the queue
     def create_job(self, record: JobRecord) -> tuple[JobRecord, bool]:
-        """Insert a job, or return the active job with the same ``request_sha256`` or ``idempotency_key``;
-        the bool says whether it is new."""
+        """Insert a job, or return the active job with the same ``request_sha256``; the bool says whether
+        it is new.
+
+        ``idempotency_key`` deduplicates retries, and a retry is the same request. An active job with the
+        same kind and key but a different ``request_sha256`` is refused: ``NarrationError(INVALID_ARGUMENT,
+        field="idempotency_key")``, hint "use a new key for a different request" (plan.md DC-6).
+        """
         ...
 
     def get_job(self, job_id: str) -> JobRecord | None: ...

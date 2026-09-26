@@ -21,8 +21,8 @@ The ``fake`` role (plan.md WP16) implements every op with deterministic syntheti
 the same contract tests as the real workers.
 """
 
-from __future__ import annotations
-
+# No ``from __future__ import annotations`` here: it would hide ``NotRequired`` from ``TypedDict`` at run
+# time, so ``__required_keys__`` would list every key (WP16's review).
 from typing import Final, Literal, NotRequired, TypedDict
 
 WorkerRole = Literal["qwen3", "qa", "fake"]
