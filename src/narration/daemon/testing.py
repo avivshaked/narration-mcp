@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from narration import keys
-from narration.contracts import names
+from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError, WorkerCrashed, WorkerFailure, WorkerTimeout
 from narration.contracts.models import (
     CanaryRecord,
@@ -81,8 +81,8 @@ class FakeWorkerRunner:
         except WorkerFailure as exc:
             if host.should_stop():
                 return True
-            if exc.code == "BACKEND_NOT_INSTALLED":
-                self._fail(host, NarrationError("BACKEND_NOT_INSTALLED", exc.message, details=exc.details))
+            if exc.code == codes.BACKEND_NOT_INSTALLED:
+                self._fail(host, NarrationError(codes.BACKEND_NOT_INSTALLED, exc.message, details=exc.details))
                 return True
             self._failed_once(host, f"{exc.code}: {exc.message}")
             return True
@@ -134,7 +134,7 @@ class FakeWorkerRunner:
         self._job = job
         host.job_started(job)
         if not parsed or len(parsed) != len(segments or []):
-            error = NarrationError("INVALID_ARGUMENT", "the fake runner needs segments with segment_id and text")
+            error = NarrationError(codes.INVALID_ARGUMENT, "the fake runner needs segments with segment_id and text")
             self._fail(host, error)
             return
         self._segments = parsed
@@ -252,7 +252,7 @@ class FakeWorkerRunner:
         self._prepared_in = None
         log.warning("job %s: a render failed (%d of %d): %s", self._job_id(), self._failures, MAX_FAILURES, why)
         if self._failures >= MAX_FAILURES:
-            self._fail(host, NarrationError("INTERNAL", f"the fake worker failed {self._failures} times: {why}"))
+            self._fail(host, NarrationError(codes.INTERNAL, f"the fake worker failed {self._failures} times: {why}"))
 
     def _fail(self, host: RunnerHost, error: NarrationError) -> None:
         job = self._job

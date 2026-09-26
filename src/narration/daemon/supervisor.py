@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from narration.config import Config
+from narration.contracts import codes
 from narration.contracts.errors import WorkerCrashed, WorkerFailure, WorkerTimeout
 from narration.contracts.models import WorkerInfo
 from narration.contracts.names import GpuHolder, WorkerRole
@@ -402,7 +403,7 @@ class WorkerSupervisor:
         except WorkerFailure as exc:
             with self._lock:
                 slot.client = None
-            if exc.code == "BACKEND_NOT_INSTALLED":
+            if exc.code == codes.BACKEND_NOT_INSTALLED:
                 self._fail_for_good(group, slot, exc)
             raise
         except BaseException as exc:

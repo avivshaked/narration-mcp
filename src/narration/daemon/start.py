@@ -50,9 +50,7 @@ def daemon_argv(store_root: Path, config_path: Path, *, python: Path, extra: Seq
     its working directory, is not put on ``sys.path``); ``-m narration.daemon --store <store_root>`` is its
     identity marker (section 4.1)."""
     return list(
-        isolated(
-            [str(python), "-m", DAEMON_MODULE, "--store", str(store_root), "--config", str(config_path), *extra]
-        )
+        isolated([str(python), "-m", DAEMON_MODULE, "--store", str(store_root), "--config", str(config_path), *extra])
     )
 
 
