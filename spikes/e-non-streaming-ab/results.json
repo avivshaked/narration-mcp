@@ -1,0 +1,190 @@
+{
+  "spike": "e (non_streaming_mode A/B for Base)",
+  "design_sections": [
+    "10.1",
+    "20 (e)"
+  ],
+  "rendered_at": "2026-09-26T18:33:15+00:00",
+  "scored_at": "2026-09-26T18:37:07+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "transformers": "5.17.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "model": {
+    "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "revision": "fd4b254389122332181a7c3db7f27e918eec64e3"
+  },
+  "asr": {
+    "model": "openai/whisper-large-v3",
+    "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1"
+  },
+  "sv": {
+    "model": "microsoft/wavlm-base-plus-sv",
+    "revision_prefix": "feb593a6",
+    "device": "cpu"
+  },
+  "rows": [
+    {
+      "non_streaming_mode": false,
+      "voice": "d2",
+      "segment": "cal-01",
+      "audio_s": 14.24,
+      "new_tokens": 178,
+      "wpm": 177.0,
+      "wer": 0.0,
+      "spk_to_ref": 0.984,
+      "heard": "the wind came off the moor a little after dawn by noon it had crossed brannock fell flattening the grass for nineteen kilometers in the valley below shepherds counted forty-eight ewes in the lee of the wall and waited for the rain"
+    },
+    {
+      "non_streaming_mode": false,
+      "voice": "d2",
+      "segment": "cal-02",
+      "audio_s": 12.64,
+      "new_tokens": 158,
+      "wpm": 180.4,
+      "wer": 0.0263,
+      "spk_to_ref": 0.9826,
+      "heard": "In a workshop above the harbor, Ilse Marowin shapes clay the way her teacher did. A large bowl takes about three hours at the wheel, and only one in twelve comes out of the kiln without a crack."
+    },
+    {
+      "non_streaming_mode": false,
+      "voice": "d2",
+      "segment": "cal-03",
+      "audio_s": 13.68,
+      "new_tokens": 171,
+      "wpm": 179.8,
+      "wer": 0.0263,
+      "spk_to_ref": 0.9849,
+      "heard": "Every spring, the terns return to Kestron Bay in great numbers. Last season, the wardens counted 312 nesting pairs, the most in 60 years. The first chicks hatch in late May as the shallow water begins to warm."
+    },
+    {
+      "non_streaming_mode": false,
+      "voice": "d4",
+      "segment": "cal-01",
+      "audio_s": 14.0,
+      "new_tokens": 175,
+      "wpm": 180.0,
+      "wer": 0.0,
+      "spk_to_ref": 0.9789,
+      "heard": "The wind came off the moor a little after dawn. By noon it had crossed Brannock Fell, flattening the grass for nineteen kilometers. In the valley below, shepherds counted forty-eight ewes in the lee of the wall and waited for the rain."
+    },
+    {
+      "non_streaming_mode": false,
+      "voice": "d4",
+      "segment": "cal-02",
+      "audio_s": 12.4,
+      "new_tokens": 155,
+      "wpm": 183.9,
+      "wer": 0.0263,
+      "spk_to_ref": 0.9781,
+      "heard": "In a workshop above the harbor, Ilse Marowind shapes clay the way her teacher did. A large bowl takes about three hours at the wheel, and only one in twelve comes out of the kiln without a crack."
+    },
+    {
+      "non_streaming_mode": false,
+      "voice": "d4",
+      "segment": "cal-03",
+      "audio_s": 15.36,
+      "new_tokens": 192,
+      "wpm": 160.2,
+      "wer": 0.0263,
+      "spk_to_ref": 0.9791,
+      "heard": "Every spring, the terns return to Kestron Bay in great numbers. Last season, the wardens counted 312 nesting pairs, the most in 60 years. The first chicks hatch in late May as the shallow water begins to warm."
+    },
+    {
+      "non_streaming_mode": true,
+      "voice": "d2",
+      "segment": "cal-01",
+      "audio_s": 13.76,
+      "new_tokens": 172,
+      "wpm": 183.1,
+      "wer": 0.0,
+      "spk_to_ref": 0.982,
+      "heard": "the wind came off the moor a little after dawn by noon it had crossed brannock fell flattening the grass for nineteen kilometres in the valley below shepherds counted forty-eight ewes in the lee of the wall and waited for the rain"
+    },
+    {
+      "non_streaming_mode": true,
+      "voice": "d2",
+      "segment": "cal-02",
+      "audio_s": 12.64,
+      "new_tokens": 158,
+      "wpm": 180.4,
+      "wer": 0.0526,
+      "spk_to_ref": 0.988,
+      "heard": "In a workshop above the harbor, Ilsa Meroen shapes clay the way her teacher did. A large bowl takes about three hours at the wheel, and only one in 12 comes out of the kiln without a crack."
+    },
+    {
+      "non_streaming_mode": true,
+      "voice": "d2",
+      "segment": "cal-03",
+      "audio_s": 14.24,
+      "new_tokens": 178,
+      "wpm": 172.8,
+      "wer": 0.0263,
+      "spk_to_ref": 0.9864,
+      "heard": "Every spring, the terns return to Kestron Bay in great numbers. Last season, the wardens counted 312 nesting pairs, the most in 60 years. The first chicks hatch in late May, as the shallow water begins to warm."
+    },
+    {
+      "non_streaming_mode": true,
+      "voice": "d4",
+      "segment": "cal-01",
+      "audio_s": 14.24,
+      "new_tokens": 178,
+      "wpm": 177.0,
+      "wer": 0.0,
+      "spk_to_ref": 0.9856,
+      "heard": "The wind came off the moor a little after dawn. By noon it had crossed Brannock Fell, flattening the grass for nineteen kilometers. In the valley below shepherds counted forty-eight ewes in the lee of the wall and waited for the rain."
+    },
+    {
+      "non_streaming_mode": true,
+      "voice": "d4",
+      "segment": "cal-02",
+      "audio_s": 12.48,
+      "new_tokens": 156,
+      "wpm": 182.7,
+      "wer": 0.0263,
+      "spk_to_ref": 0.9772,
+      "heard": "In a workshop above the harbor, Ilse Marowin shapes clay the way her teacher did. A large bowl takes about three hours at the wheel, and only one in twelve comes out of the kiln without a crack."
+    },
+    {
+      "non_streaming_mode": true,
+      "voice": "d4",
+      "segment": "cal-03",
+      "audio_s": 14.8,
+      "new_tokens": 185,
+      "wpm": 166.2,
+      "wer": 0.0263,
+      "spk_to_ref": 0.9749,
+      "heard": "Every spring, the terns return to Kestron Bay in great numbers. Last season, the wardens counted 312 nesting pairs, the most in 60 years. The first chicks hatch in late May as the shallow water begins to warm."
+    }
+  ],
+  "summary": {
+    "non_streaming_false": {
+      "renders": 6,
+      "wer_mean": 0.0175,
+      "spk_to_ref_mean": 0.9813,
+      "spk_to_ref_min": 0.9781,
+      "wpm_mean": 176.9,
+      "audio_s_total": 82.32
+    },
+    "non_streaming_true": {
+      "renders": 6,
+      "wer_mean": 0.0219,
+      "spk_to_ref_mean": 0.9823,
+      "spk_to_ref_min": 0.9749,
+      "wpm_mean": 177.0,
+      "audio_s_total": 82.16
+    }
+  },
+  "network_attempts": []
+}
