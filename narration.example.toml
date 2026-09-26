@@ -68,7 +68,7 @@ refuse = ["[", "]", "<|", "|>"]
 [delivery]
 sample_rate = 48000
 subtype = "PCM_24"
-target_lufs = -16.0
+target_lufs = -20.0           # per take; the story flow's -16 was never reached under the ceiling (DC-8)
 true_peak_dbtp = -1.0          # this ceiling wins over target_lufs if the two would conflict
 trim_rel_db = -40.0            # relative to the take's own p95 frame RMS
 trim_pad_s = 0.08

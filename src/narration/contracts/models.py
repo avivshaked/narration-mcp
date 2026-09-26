@@ -273,21 +273,29 @@ class Trim:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Loudness:
-    """The loudness record (section 13 steps 3 and 6). ``target_lufs`` appears in App. B's take.json."""
+    """The loudness record (section 13 steps 3 and 6). ``target_lufs`` appears in App. B's take.json.
 
-    measured_lufs: float
+    ``measured_lufs`` and ``true_peak_dbtp`` are null for a take with no defined loudness: every block under
+    BS.1770-4's absolute gate (-70 LUFS), or an all-zero file. JSON cannot carry minus infinity, and a floor
+    value would be a measurement nobody made.
+    """
+
+    measured_lufs: float | None
     gain_db: float
-    true_peak_dbtp: float
+    true_peak_dbtp: float | None
     ceiling_applied: bool
     target_lufs: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeliveryTools:
-    """The resampler's and loudness meter's names and versions: part of the delivery key (section 10.2)."""
+    """What the delivery key names besides the delivery profile (section 10.2): the resampler's and loudness
+    meter's names and versions, with their pinned parameters, and ``post``, the version of the post-processing's
+    own rules (``names.POST_RULES``)."""
 
     resampler: str
     loudness_meter: str
+    post: str
 
 
 # ======================================================================== render.json (App. B)

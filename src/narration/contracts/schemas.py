@@ -407,7 +407,14 @@ _ALIGNMENT = _obj(
 )
 _DELIVERY = _obj({"path": _STR, "sha256": _STR, "samples": _INT, "sample_rate": _INT, "duration_s": _NUM})
 _TRIM = _obj({"head_s": _NUM, "tail_s": _NUM, "pad_s": _NUM})
-_LOUDNESS = _obj({"measured_lufs": _NUM, "gain_db": _NUM, "true_peak_dbtp": _NUM, "ceiling_applied": _BOOL})
+_LOUDNESS = _obj(
+    {
+        "measured_lufs": {**_NUM_OR_NULL, "description": "null when the take has no measurable loudness"},
+        "gain_db": _NUM,
+        "true_peak_dbtp": {**_NUM_OR_NULL, "description": "null when the take has no measurable loudness"},
+        "ceiling_applied": _BOOL,
+    }
+)
 _EXACT_RESULT = _obj(
     {
         "cue": _INT,

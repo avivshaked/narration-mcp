@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.2 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.3 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -32,6 +32,15 @@ applied here, each listed in the revision history below.*
   error, the retryable codes `QUEUE_FULL` and `RATE_LIMITED`, `poll_after_s` from `submit_job` and
   `get_job`, and `admission` in `get_server_status` (sections 7.2–7.4, 7.6, 14). **DC-3**: the canary is
   designed on the installing machine from shipped text, not shipped as audio (sections 6, 10.1, 15).*
+- *Revision 5.3 (2026-09-26) applies five changes the owner approved (`plan.md` section 1.5), found by the
+  first build wave's evidence and reviews. **DC-5**: the NaN/DC signal check gets its flag code,
+  `SIGNAL_INVALID` (sections 11.1, 14). **DC-6**: an `idempotency_key` reused for a different request is
+  refused (sections 7.3, 14). **DC-7**: the number reader's version 2 reads each side in phrases split
+  at punctuation and folds curly apostrophes (section 11.3, App. B). **DC-8**: the default loudness target
+  is −20 LUFS, since −16 was never reached under the true-peak ceiling on real output (sections 13, 16,
+  Q3). **DC-9**: a take with less silence than `pad_s` at an end keeps what it has, and nothing is added
+  (section 13). Two clarifications come with them: the delivery key names the post-processing rules'
+  version, and a take with no measurable loudness reports null (sections 10.2, 13, App. B).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -887,7 +896,9 @@ comments below mark where a fragment goes.
 
 - **The same request gives the same result.** When every layer is already in the cache, the job is
   created already `completed`, and `get_results` returns at once. An identical request while a job is
-  running returns that job (`idempotency_key` deduplicates retries).
+  running returns that job (`idempotency_key` deduplicates retries). A retry is the same request: a key
+  reused for a different request while its job is active is refused (`INVALID_ARGUMENT` on
+  `idempotency_key`; revision 5.3, DC-6), never answered with the other request's job.
 - **New attempts are asked for, never remembered.** A resubmission renders nothing that is cached, and
   cached takes that failed are not retaken again: their retakes are cached too. To hear new deliveries,
   a segment names new `attempts` (e.g. `[3, 4]`).
@@ -1024,7 +1035,7 @@ still cached.
      "delivery": {"path": "<store_root>\\takes\\8c\\tk_8c41d2e07a9b3f55\\delivery.wav",
                   "sha256": "…", "samples": 420480, "sample_rate": 48000, "duration_s": 8.76},
      "trim": {"head_s": 0.27, "tail_s": 0.39, "pad_s": 0.08},
-     "loudness": {"measured_lufs": -16.0, "gain_db": 5.4, "true_peak_dbtp": -2.3, "ceiling_applied": false},
+     "loudness": {"measured_lufs": -20.0, "gain_db": 1.4, "true_peak_dbtp": -6.3, "ceiling_applied": false},
      "analysis_id": "an_0f3b91c2d5e7a468",
      "cues": [
        {"index": 0, "start_s": 0.08, "end_s": 3.02, "confidence": 0.93,
@@ -1410,7 +1421,7 @@ service's pins, never from earlier requests.
 | — | `voice_hash` = H({schema: "narration.voice/v2", model, clip_sha256, transcript (NFC), language, x_vector_only_mode}) | |
 | — | measurement key = H({voice_hash, engine_profile_hash, corpus version, ladder settings}) | the voice's measurement |
 | **Render** | `render_key` = H({schema: "narration.render/v1", engine_profile_hash, voice_hash, engine_text, seed}) | `raw.wav` (`render_id`) |
-| **Delivery** | `delivery_key` = H({raw_sha256, delivery profile (trim rule, target LUFS, TP ceiling, sample rate, subtype, fades), **the resampler's and loudness meter's names and versions**, stretch: null}) | `delivery.wav` (**`take_id`**) |
+| **Delivery** | `delivery_key` = H({raw_sha256, delivery profile (trim rule, target LUFS, TP ceiling, sample rate, subtype, fades), **the resampler's and loudness meter's names and versions**, the post-processing rules' version (`narration.post/1`), stretch: null}) | `delivery.wav` (**`take_id`**) |
 | **Analysis** | `analysis_key` = H({delivery_sha256, spoken_text, cue spans, exact spans, the QA inputs of the hints used (`term`, `asr_aliases`, `align_as`), QA profile version, text-checks version, number reader version, ASR model rev, SV model rev, aligner method id, the voice's measurement key}) | QA verdict, flags, exact-span results, cue and word times (`analysis_id`) |
 
 - **Planning** walks the layers. A render hit with a delivery miss is post-processing only; a take hit
@@ -1443,7 +1454,8 @@ seed = uint32( sha256( "narration-seed/v1" ‖ voice_hash ‖ sha256(engine_text
 delivery-file seconds. A take's verdict depends only on that take and the request's inputs for it, never
 on other takes, because verdicts are cached (section 10.2).
 
-1. **Signal checks**: clipping (on raw), longest internal silence, NaN/DC, and **token cap**. A render
+1. **Signal checks**: clipping (on raw), longest internal silence, NaN/DC (`SIGNAL_INVALID`, DC-5), and
+   **token cap**. A render
    whose generated length reached `max_new_tokens` is `TOKEN_CAP_HIT` (fail), because the model stopped
    mid-text and that must never pass silently.
 2. **ASR**: Whisper-large-v3 (fp16, English, greedy, word timestamps; revision pinned). A take can be
@@ -1600,7 +1612,10 @@ A caller may mark spans of a cue's spoken text that must be heard exactly, such 
 (section 7.2 gives the form).
 
 1. **Normalise both sides the same way.** The span's expected words and the whole transcript are put
-   through Whisper's English text normaliser, after one extra rule that reads "nought" as "zero". That
+   through Whisper's English text normaliser, after one extra rule that reads "nought" as "zero". Since
+   revision 5.3 (DC-7, reader version `@2`), each side is read in phrases split at punctuation, so number
+   words never merge across a comma ("two thousand, forty" is `2000 40`, not `2040`), and ’ ‘ ʼ are
+   read as the straight apostrophe. Version `@1` failed perfect takes on both counts. That
    normaliser turns number words into digits and treats spelling variants alike. Tested here (KNOW,
    `eval/normaliser_check.py` and its output `.txt`, transformers 5.17.0):
    - "fourteen per cent", "fourteen percent" and "14%" all become `14%`;
@@ -1655,17 +1670,24 @@ caller wants none (Q7).
 - **Delivery** (take layer): deterministic, on the CPU, thread-capped, in this order:
   1. **Trim.** The threshold is **relative to the take**: its speech level (the 95th percentile of 20 ms
      frame RMS) − 40 dB. It is gain independent. `head_s` and `tail_s` are the silence found below the
-     threshold at each end of the raw audio; `pad_s` (0.08 s) of it is kept at each end. So the
-     delivery's length is the raw length − (`head_s` − `pad_s`) − (`tail_s` − `pad_s`), before
-     resampling rounds it to whole samples.
+     threshold at each end of the raw audio; up to `pad_s` (0.08 s) of it is kept at each end. A take
+     with less silence than `pad_s` at an end keeps what it has, and no silence is added (revision 5.3,
+     DC-9; 23 of 48 real takes had less at the tail). So the delivery's length is the raw length −
+     max(`head_s` − `pad_s`, 0) − max(`tail_s` − `pad_s`, 0), before resampling rounds it to whole
+     samples, and `head_s`/`tail_s` report the silence found.
   2. **Resample** to 48 kHz with a pinned resampler (its name and version are in the delivery key).
-  3. **Gain.** Static gain to **−16 LUFS** integrated (BS.1770-4, measured on the mono signal as a single
-     channel with weight 1.0); no limiter. The meter's name and version are in the delivery key.
+  3. **Gain.** Static gain to **−20 LUFS** integrated by default (`target_lufs`; BS.1770-4, measured on
+     the mono signal as a single channel with weight 1.0); no limiter. The meter's name and version are in
+     the delivery key. *Revision 5.3 (DC-8):* the default was −16 LUFS, but on the bake-off's 48 real
+     clone paragraphs the ceiling below held every take under it (−21.3 / −18.8 / −16.7 LUFS, min /
+     median / max; peak-to-loudness ratio 15.7–20.3 dB), so takes of one script differed by up to
+     4.6 LU. At −20, 40 of the 48 reach the target exactly.
   4. **Fades**: 0.01 s at the edges.
   5. **Quantise** to WAV PCM_24 mono.
   6. **True peak**, measured on **this final 48 kHz file** (4× oversampled). If it is above −1.0 dBTP,
      lower the gain until it is ≤ −1.0, re-quantise, and flag `LOUDNESS_UNDER_TARGET` (info) with the
-     shortfall.
+     shortfall. A take with no measurable loudness (every block under the −70 LUFS gate, or silence)
+     reports `measured_lufs` and `true_peak_dbtp` as null.
 
   **The true-peak ceiling wins over the loudness target**, so takes of one script can sit at slightly
   different loudness. Each take's **loudness record** {measured_lufs, gain_db, true_peak_dbtp,
@@ -1714,7 +1736,7 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 
 | Code | Retryable | Meaning / hint |
 |---|---|---|
-| `INVALID_ARGUMENT` | no | schema or semantic failure, e.g. an unknown field, duplicate segment ids, `text` ≠ the join (R2), `text_mode: "written"`, an exact span that cuts a word |
+| `INVALID_ARGUMENT` | no | schema or semantic failure, e.g. an unknown field, duplicate segment ids, `text` ≠ the join (R2), `text_mode: "written"`, an exact span that cuts a word, an `idempotency_key` reused for a different request (DC-6) |
 | `LIMIT_EXCEEDED` | no | request-size limits (segments, cues, characters, hints); a full queue is `QUEUE_FULL` |
 | `NOT_FOUND` | no | a job, design, take or measurement (e.g. expired after the retention period) |
 | `PATH_NOT_ALLOWED` | no | a clip or audio path that is not absolute, resolves to a network share or a device path, or is not a regular file (section 17) |
@@ -1756,6 +1778,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `END_INSERTION` | warn / fail | fail | words after the last cue |
 | `SILENCE_LONG` | warn / fail | fail | longest internal silence |
 | `CLIPPING` | warn | | raw samples at full scale |
+| `SIGNAL_INVALID` | warn / fail | fail | non-finite samples in the raw take (fail), or a DC offset (warn); revision 5.3, DC-5 |
 | `TOKEN_CAP_HIT` | fail | ✓ | generation stopped at `max_new_tokens` |
 | `CUE_UNALIGNED` | warn | ✓ | cue not placed; times null; never interpolated |
 | `CUE_LOW_CONFIDENCE` | warn | | alignment posterior below threshold |
@@ -1872,7 +1895,7 @@ refuse = ["[", "]", "<|", "|>"]
 [delivery]
 sample_rate = 48000
 subtype = "PCM_24"
-target_lufs = -16.0
+target_lufs = -20.0            # revision 5.3, DC-8 (was -16.0)
 true_peak_dbtp = -1.0          # wins over target_lufs
 trim_rel_db = -40.0            # relative to the take's p95 frame RMS
 trim_pad_s = 0.08
@@ -2003,7 +2026,9 @@ owner reverses it.
 2. **Which voice?** *Moved to the caller:* the story flow chooses between `d2-late-night_take1` and
    `d4-radio-drama_take2` (both allowlisted, section 16) and has the one it chooses measured. d4's lower
    similarity to its own clip (0.966–0.969 vs 0.978–0.984) is handled by its measurement.
-3. **Delivery format and loudness.** *Answered (story flow):* 48 kHz / 24-bit mono, −16 LUFS per take,
+3. **Delivery format and loudness.** *Answered (story flow):* 48 kHz / 24-bit mono, −16 LUFS per take
+   (*revised by the owner to a −20 LUFS default in revision 5.3, DC-8, after real output never reached
+   −16 under the ceiling; `target_lufs` stays configurable*),
    with the true-peak ceiling winning; each take's loudness record is returned (section 13).
 4. **Numbers.** *Moot for the service (R6 revised):* callers send numbers already in words.
 5. **Mood/delivery variants.** *Moot for the service:* a different delivery is a different clip, which
@@ -2182,9 +2207,9 @@ daemon computes the hashes. All times are in seconds.
  "delivery": {"path": "…\\delivery.wav", "sha256": "…", "sample_rate": 48000, "samples": 420480,
               "duration_s": 8.76, "format": "WAV PCM_24 mono"},
  "trim": {"head_s": 0.27, "tail_s": 0.39, "pad_s": 0.08, "rule": "p95_frame_rms - 40 dB; head_s/tail_s found, pad_s kept"},
- "loudness": {"target_lufs": -16.0, "measured_lufs": -16.0, "gain_db": 5.4, "true_peak_dbtp": -2.3,
+ "loudness": {"target_lufs": -20.0, "measured_lufs": -20.0, "gain_db": 1.4, "true_peak_dbtp": -6.3,
               "ceiling_applied": false},
- "tools": {"resampler": "<name> <version>", "loudness_meter": "<name> <version>"},
+ "tools": {"resampler": "<name> <version>", "loudness_meter": "<name> <version>", "post": "narration.post/1"},
  "post_stretched": false}
 ```
 
@@ -2207,7 +2232,7 @@ daemon computes the hashes. All times are in seconds.
   "text_checks": {"version": "text-1.1.0", "rules_sha256": "…"},
   "hints_used": [{"term": "Ossavine", "respell": "Oss-a-veen"}]},
  "versions": {"qa_profile": "default.v3", "asr": "openai/whisper-large-v3@…", "sv": "microsoft/wavlm-base-plus-sv@…",
-              "aligner_method": "ctc-snap/wav2vec2-large-960h-lv60-self@…", "number_reader": "whisper-english-normalizer+nought@1",
+              "aligner_method": "ctc-snap/wav2vec2-large-960h-lv60-self@…", "number_reader": "whisper-english-normalizer+nought@2",
               "measurement": "sha256:c07d…"},
  "alignment": {"method": "ctc-forced-align+silence-snap", "device": "cpu",
    "cross_check": {"model": "openai/whisper-large-v3", "max_disagreement_s": 0.06},

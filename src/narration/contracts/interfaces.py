@@ -461,7 +461,8 @@ class SignalStats:
 @runtime_checkable
 class DeliveryProcessor(Protocol):
     """Deterministic post-processing on the CPU, thread-capped (section 13; WP13): relative trim, pinned
-    48 kHz resampler, static gain to -16 LUFS, fades, PCM_24, true peak on the final file."""
+    48 kHz resampler, static gain to the target loudness (``DeliveryConfig.target_lufs``, default -20 LUFS;
+    plan.md DC-8), fades, PCM_24, true peak on the final file."""
 
     @property
     def tools(self) -> DeliveryTools:

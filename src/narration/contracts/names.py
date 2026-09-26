@@ -79,6 +79,10 @@ NUMBER_READER: Final = "whisper-english-normalizer+nought@2"
 (each side is read in phrases split at punctuation, so "two thousand, forty" is 2000 and 40, not 2040), and
 ’ ‘ ʼ are read as the straight apostrophe on both sides. ``@1`` was the vendored reader as-is."""
 ALIGNMENT_METHOD: Final = "ctc-forced-align+silence-snap"
+POST_RULES: Final = "narration.post/1"
+"""The version of the delivery post-processing's own rules (section 13): framing, percentile, fade shape,
+quantiser, gain rounding and the ceiling procedure. It is in the delivery key (``DeliveryTools.post``), so a
+change to any of them that changes bytes needs a new version (WP13's review)."""
 PROFILE_VERSION: Final = "profile-1"
 """The voice profile's measurement set (section 3.6 as changed by DC-1: pyin f0, Boersma HNR, CPPS)."""
 
