@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from narration.contracts.models import JobRecord
+from narration.contracts.models import DaemonStatus, JobRecord
 from narration.daemon.seam import NullRunner, RunnerHost, ShutdownReason, return_job
 from narration.daemon.service import EXIT_OK
 from narration.daemon.sweep import read_status
@@ -243,17 +243,26 @@ def test_an_unreadable_status_of_the_holder_is_not_a_daemon_stopping_s4(
 
 
 def test_a_stop_posted_before_the_daemon_started_stops_it_before_any_work_s4_1(
-    run_daemon: DaemonFactory, store: NarrationStore
+    run_daemon: DaemonFactory, store: NarrationStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     job = make_job(store, "Never taken.")
     posted = store.post_command("stop")
     time.sleep(0.02)
+    written: list[str] = []
+    put = store.put_daemon_status
+
+    def record(status: DaemonStatus) -> None:
+        written.append(status.state)
+        put(status)
+
+    monkeypatch.setattr(store, "put_daemon_status", record)
     runner = HoldJob()
     daemon = run_daemon(runner)
     assert daemon.join() == EXIT_OK
     done = store.wait_for_command(posted.command_id, timeout_s=0)
     assert done is not None and done.result == {"stopped": True, "requeued": []}
     assert runner.job is None and job_status(store, job).status == "queued", "no step was taken"
+    assert written and "idle" not in written and written[-1] == "stopped", "it never said it serves"
 
 
 def test_a_stop_posted_while_waiting_for_the_singleton_is_honoured_s4_1(
