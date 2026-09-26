@@ -1,0 +1,44 @@
+# Local dev state (plan.md P5): caches, models, stores, GPU lock, local config
+.dev/
+worktrees/
+.pytest-tmp/
+narration.local.toml
+AGENTS.local.md
+.claude/settings.local.json
+.claude/worktrees/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
+
+# Never in git (AGENTS.md rule 2): audio, weights, checkpoints, databases
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.m4a
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.gguf
+*.sqlite
+*.sqlite-*
+*.db
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

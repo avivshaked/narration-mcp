@@ -1,0 +1,75 @@
+Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
+
+Copyright (c) 2026 Aviv Shaked
+
+
+WHAT THIS COVERS
+────────────────
+The written work in this repository:
+
+    README.md
+    AGENTS.md
+    CLAUDE.md
+    HANDOFF.md
+    plan.md
+    COMMERCIAL.md
+    CONTRIBUTING.md
+    SECURITY.md
+    CHANGELOG.md
+    docs/**                (the design, the decision records and the guides)
+    status/**              (work-package status reports)
+    spikes/**/README.md    (what each spike measured, and what it found)
+
+Source code is licensed separately under the PolyForm Noncommercial License
+1.0.0 — see LICENSE. So is material/**, the service's own corpus, benchmark and
+fixture texts: the code reads them, and they are covered by the code licence
+alongside it.
+
+Third-party files carried in this repository are neither: they keep their own
+licences, which neither of this repository's licences replaces or extends.
+THIRD_PARTY_NOTICES lists each one.
+
+
+THE LICENCE
+───────────
+This work is licensed under the Creative Commons Attribution-NonCommercial 4.0
+International License.
+
+Full legal text:  https://creativecommons.org/licenses/by-nc/4.0/legalcode
+Human summary:    https://creativecommons.org/licenses/by-nc/4.0/
+
+The canonical text is referenced rather than reproduced here deliberately. It
+runs to several thousand words, and a transcription error in a licence is worse
+than a link — the version at the URL above is authoritative.
+
+
+IN SHORT
+────────
+You are free to share and adapt this material for any non-commercial purpose,
+provided you give appropriate credit, link to the licence, and indicate if
+changes were made. Commercial use needs a separate licence from the copyright
+holder. COMMERCIAL.md says what counts as commercial, what plainly does not, and
+how to ask.
+
+The licence's own test: a use is commercial when it is "primarily intended for
+or directed towards commercial advantage or monetary compensation". Reading,
+citing, quoting, teaching from and building on this work at a school, a
+university or a public research organisation is non-commercial, whatever funds
+the institution — the same reading the code licence writes down explicitly.
+
+
+HOW TO ATTRIBUTE
+────────────────
+    "narration-mcp" by Aviv Shaked, licensed under CC BY-NC 4.0.
+    https://github.com/avivshaked/narration-mcp
+
+
+NOT COVERED BY THIS LICENCE
+───────────────────────────
+Third-party material quoted under fair dealing / fair use, such as short
+quotations from model cards, papers and specifications. It remains the copyright
+of its authors and is attributed at the point of use.
+
+Model weights are NOT distributed with this repository. The models the service
+uses are downloaded from their publishers at install time, under their own
+licences, which the service records with every result.

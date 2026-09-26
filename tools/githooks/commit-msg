@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses a commit message that contains a local path (AGENTS.md, hard rule 4).
+. "$(git rev-parse --show-toplevel)/tools/githooks/_python.sh"
+run_check --msg-file "$1"
