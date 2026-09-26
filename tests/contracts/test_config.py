@@ -25,7 +25,7 @@ def test_the_shipped_example_config_loads_with_its_placeholders(tmp_path: Path) 
 def test_defaults_are_the_design_defaults_s16(tmp_path: Path) -> None:
     config = Config.for_tests(tmp_path)
     assert config.defaults.takes == 1 and config.defaults.max_retakes == 2
-    assert config.delivery.target_lufs == -16.0 and config.delivery.true_peak_dbtp == -1.0
+    assert config.delivery.target_lufs == -20.0 and config.delivery.true_peak_dbtp == -1.0
     assert config.gpu.min_free_margin_mb == 1024 and config.gpu.wait_timeout_min == 30
     assert config.limits.max_submits_per_min == 10 and config.limits.max_queued_jobs == 20
     assert config.workers.env["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"

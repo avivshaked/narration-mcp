@@ -107,7 +107,7 @@ class TextConfig:
 class DeliveryConfig:
     sample_rate: int = 48000
     subtype: str = "PCM_24"
-    target_lufs: float = -16.0
+    target_lufs: float = -20.0  # plan.md DC-8: -16 was never reached under the -1 dBTP ceiling on real output
     true_peak_dbtp: float = -1.0
     trim_rel_db: float = -40.0
     trim_pad_s: float = 0.08

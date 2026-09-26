@@ -53,13 +53,17 @@ TAKE_JSON = {
     },
     "trim": {"head_s": 0.27, "tail_s": 0.39, "pad_s": 0.08, "rule": "p95_frame_rms - 40 dB"},
     "loudness": {
-        "target_lufs": -16.0,
-        "measured_lufs": -16.0,
-        "gain_db": 5.4,
-        "true_peak_dbtp": -2.3,
+        "target_lufs": -20.0,
+        "measured_lufs": -20.0,
+        "gain_db": 1.4,
+        "true_peak_dbtp": -6.3,
         "ceiling_applied": False,
     },
-    "tools": {"resampler": "scipy.signal.resample_poly 1.18", "loudness_meter": "pyloudnorm 0.2.0"},
+    "tools": {
+        "resampler": "scipy.signal.resample_poly 1.18",
+        "loudness_meter": "pyloudnorm 0.2.0",
+        "post": "narration.post/1",
+    },
     "post_stretched": False,
     "flags": [],
 }
