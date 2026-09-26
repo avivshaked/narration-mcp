@@ -25,6 +25,7 @@ from typing import Any, Final
 from narration import keys
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError, WorkerCrashed, WorkerFailure, WorkerTimeout
+from narration.contracts.interfaces import WorkerClient
 from narration.contracts.models import (
     CanaryRecord,
     JobRecord,
@@ -64,7 +65,8 @@ class FakeWorkerRunner:
         self._next = 0
         self._failures = 0
         self._voice: tuple[str, Path] | None = None
-        self._prepared_in: int | None = None
+        self._prepared_in: WorkerClient | None = None
+        """The worker instance the voice was prepared in (``seam``: worker state belongs to the instance)."""
 
     # ------------------------------------------------------------------ the JobRunner protocol
     def step(self, host: RunnerHost) -> bool:
@@ -197,7 +199,7 @@ class FakeWorkerRunner:
     def _ready(self, host: RunnerHost) -> tuple[str, Path]:
         """Load the fake model and prepare the voice in the group's current worker (again after a restart)."""
         client = host.workers.client(GROUP)
-        if self._prepared_in == client.pid and self._voice is not None and GROUP in host.workers.loaded():
+        if self._prepared_in is client and self._voice is not None and GROUP in host.workers.loaded():
             return self._voice
         host.job_phase("loading_model")
         host.workers.load(GROUP, {"device": "cpu"}, gpu=True, timeout_s=REQUEST_TIMEOUT_S)
@@ -229,7 +231,7 @@ class FakeWorkerRunner:
             timeout_s=REQUEST_TIMEOUT_S,
         )
         self._voice = (voice_hash, clip)
-        self._prepared_in = client.pid
+        self._prepared_in = client
         return self._voice
 
     def _clip_sha256(self) -> str:

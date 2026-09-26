@@ -28,8 +28,21 @@ runner needs from the daemon comes through the ``RunnerHost`` it is handed.
   runner. An exception that escapes ``step`` is logged as a bug, and the daemon waits before the next step.
 - The workers are the daemon's (``host.workers``, a ``WorkerPool``): one per model group, ``qwen`` or
   ``qa``. Which group is resident, and when to swap, is the runner's choice; the pool only refuses a second
-  GPU group while one is loaded (``[gpu] one_group_at_a_time``), and the daemon unloads idle models by
-  itself after ``idle_unload_s``.
+  GPU group while one is loaded (``[gpu] one_group_at_a_time``, ``ResidencyError``, which this module
+  exports), and the daemon unloads idle models by itself after ``idle_unload_s``.
+- **Worker state belongs to the worker instance.** While the runner holds no job (between ``job_finished``
+  and the next ``job_started``), the daemon may stop every worker between two steps: ``release_gpu``, and
+  the idle unload. A crash does the same at any time. So anything the runner keeps about what is inside a
+  worker (a loaded model, a prepared voice) must be keyed to that worker instance: ``workers.client(group)``
+  returns the same client object for as long as that worker process lives, and a new object for a new
+  process. Compare the object itself (keep a reference to it); a pid may be reused.
+- **A worker that cannot start** (``BACKEND_NOT_INSTALLED``: its venv is missing or broken) is never started
+  again for the rest of the daemon's life; every call for its group raises the same error, and the runner
+  fails the job with it. ``narration-admin install`` (WP37) stops the daemon after it repairs a worker, and
+  the next use starts a fresh daemon.
+- ``host.platform`` is the ``narration.platform`` ``Platform`` the daemon uses (in tests, the stand-in
+  platform). The runner checks paths with it, such as a caller's clip (``check_readable_path``, section
+  17.3) and the files it writes (``check_store_path``, section 17.2).
 - ``host.set_gpu_facts`` and ``host.set_est_drain`` feed ``run/daemon.json``: the NVML readings and the
   VRAM wait (DC-2's ``admission.gpu``), and the queue's drain estimate (``admission.queue.est_drain_s``).
 
@@ -46,9 +59,23 @@ from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol, runtime_checkable
 
 from narration.config import Config
-from narration.contracts.interfaces import Store, WorkerClient
+from narration.contracts.interfaces import Platform, Store, WorkerClient
 from narration.contracts.models import JobRecord
 from narration.contracts.names import GpuHolder, JobPhase, WorkerRole
+
+__all__ = [
+    "DAEMON_HOLDER",
+    "GROUP_ROLES",
+    "GpuFacts",
+    "JobRunner",
+    "NullRunner",
+    "ResidencyError",
+    "RunnerHost",
+    "ShutdownReason",
+    "StopMode",
+    "WorkerPool",
+    "return_job",
+]
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +91,11 @@ DAEMON_HOLDER: Final = "narrationd"
 
 GROUP_ROLES: Final[dict[GpuHolder, WorkerRole]] = {"qwen": "qwen3", "qa": "qa"}
 """The worker role that serves each model group (section 4: Qwen, or Whisper + WavLM)."""
+
+
+class ResidencyError(RuntimeError):
+    """A GPU load for one group while another group's models are on the GPU (``[gpu] one_group_at_a_time``,
+    section 4): the caller must unload the resident group first."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -144,6 +176,11 @@ class RunnerHost(Protocol):
 
     @property
     def workers(self) -> WorkerPool: ...
+
+    @property
+    def platform(self) -> Platform:
+        """The daemon's ``narration.platform`` ``Platform``: path checks (sections 17.2 and 17.3) and the rest."""
+        ...
 
     @property
     def holder(self) -> str:

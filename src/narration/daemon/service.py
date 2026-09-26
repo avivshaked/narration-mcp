@@ -81,6 +81,10 @@ class _Host:
         return self._supervisor
 
     @property
+    def platform(self) -> ProcessPlatform:
+        return self._daemon.platform
+
+    @property
     def holder(self) -> str:
         return DAEMON_HOLDER
 
@@ -135,7 +139,7 @@ class Daemon:
         self.settings = settings
         self.config = config
         self.store = store
-        self._platform = platform
+        self.platform = platform
         self._runner = runner
         self._supervisor_factory = supervisor_factory or self._default_supervisor
         self._pid = os.getpid() if pid is None else pid
@@ -177,7 +181,7 @@ class Daemon:
         deadline = self._clock() + self.settings.takeover_wait_s
         waited = False
         while True:
-            with self._platform.singleton(root) as acquired:
+            with self.platform.singleton(root) as acquired:
                 if acquired:
                     if waited:
                         log.info("the stopping daemon has gone; taking over")
@@ -456,7 +460,7 @@ class Daemon:
     def _default_supervisor(self, on_change: Callable[[], None]) -> WorkerSupervisor:
         return WorkerSupervisor(
             self.config,
-            self._platform,
+            self.platform,
             roles=FAKE_ROLES if self.settings.fake_workers else None,
             below_normal=self.settings.below_normal,
             close_timeout_s=self.settings.worker_close_s,

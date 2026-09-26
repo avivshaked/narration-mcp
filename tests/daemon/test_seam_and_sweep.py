@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import time
+from types import SimpleNamespace
+from typing import Any, cast
 
 import psutil
 import pytest
@@ -23,7 +25,7 @@ from narration.daemon.sweep import (
     read_status,
     sweep,
 )
-from narration.daemon.testing import FakeWorkerRunner
+from narration.daemon.testing import SCRATCH_DIR, VOICE_SEED, FakeWorkerRunner
 from narration.store import NarrationStore
 from narration.store.layout import StorePathError
 from narration.store.store import utc_iso
@@ -64,6 +66,74 @@ def test_the_shipped_runners_and_the_supervisor_keep_the_seam(
         runner=NullRunner(),
     )
     assert isinstance(_Host(daemon, supervisor), RunnerHost)
+
+
+def test_the_host_gives_the_runner_the_daemons_platform_read_only(
+    config: Config, store: NarrationStore, platform: StandInPlatform
+) -> None:
+    daemon = Daemon(
+        settings=DaemonSettings(store_root=config.server.store_root),
+        config=config,
+        store=store,
+        platform=platform,
+        runner=NullRunner(),
+    )
+    host = _Host(daemon, WorkerSupervisor(config, platform))
+    assert host.platform is platform
+    with pytest.raises(AttributeError):
+        host.platform = StandInPlatform()  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_the_seam_exports_the_residency_error_the_pool_raises() -> None:
+    from narration.daemon import seam, supervisor
+
+    assert seam.ResidencyError is supervisor.ResidencyError
+    assert "ResidencyError" in seam.__all__
+
+
+class _Client:
+    """A worker client that records its requests."""
+
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+        self.requests: list[str] = []
+
+    def request(self, op: str, params: Any, *, timeout_s: float) -> dict[str, Any]:
+        self.requests.append(op)
+        return {}
+
+
+class _Pool:
+    """A pool with one loaded group, whose worker the test swaps."""
+
+    def __init__(self, client: _Client) -> None:
+        self.current = client
+
+    def client(self, group: str, **_: Any) -> _Client:
+        return self.current
+
+    def loaded(self) -> tuple[str, ...]:
+        return ("qwen",)
+
+    def load(self, group: str, params: Any, *, gpu: bool, timeout_s: float) -> dict[str, Any]:
+        return {}
+
+
+def test_worker_state_is_kept_per_worker_instance_not_per_pid(config: Config, store: NarrationStore) -> None:
+    # seam: a prepared voice belongs to the worker instance; a new worker may be given an old worker's pid.
+    clip = store.scratch_path(SCRATCH_DIR, f"voice-{VOICE_SEED}.wav")
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"a clip made earlier")
+    first = _Client(pid=4242)
+    pool = _Pool(first)
+    host = cast(RunnerHost, SimpleNamespace(workers=pool, config=config, store=store, job_phase=lambda _phase: None))
+    runner = FakeWorkerRunner()
+    runner._ready(host)  # pyright: ignore[reportPrivateUsage]
+    runner._ready(host)  # pyright: ignore[reportPrivateUsage]
+    assert first.requests == ["prepare_voice"], "prepared once while that worker lives"
+    pool.current = second = _Client(pid=4242)
+    runner._ready(host)  # pyright: ignore[reportPrivateUsage]
+    assert second.requests == ["prepare_voice"], "a new worker with the same pid is prepared again"
 
 
 def test_a_running_job_goes_back_to_the_queue_s4_1(store: NarrationStore) -> None:

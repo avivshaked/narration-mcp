@@ -10,6 +10,8 @@ environment and the CPU thread cap of ``launch.worker_env``. Each worker process
 - is started again on the next use after it crashed, up to ``CRASH_LIMIT`` crashes in ``CRASH_WINDOW_S``;
 - is never started again, for the rest of the daemon's life, once it could not start at all
   (``BACKEND_NOT_INSTALLED``: its venv is missing or broken; section 14 makes that not retryable).
+  ``narration-admin install`` (WP37) stops the daemon after it repairs a worker; the next use starts a
+  fresh daemon, which tries again.
 
 It tracks which groups have models loaded, and which one is on the GPU. With ``[gpu]
 one_group_at_a_time`` it refuses a second GPU group (``ResidencyError``); which group to load, and when to
@@ -50,7 +52,7 @@ from narration.contracts.names import GpuHolder, WorkerRole
 from narration.platform import ProcessPlatform
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command, worker_project
 
-from .seam import GROUP_ROLES
+from .seam import GROUP_ROLES, ResidencyError
 from .settings import isolated, scrub_python_env
 
 log = logging.getLogger(__name__)
@@ -80,11 +82,6 @@ def worker_cwd(config: Config, group: GpuHolder, role: WorkerRole, python: Path)
 CommandFactory = Callable[[WorkerRole, str | None], WorkerCommand]
 """Builds a worker's command from its role and the engine profile's cuBLAS pin."""
 ClientFactory = Callable[..., SubprocessWorkerClient]
-
-
-class ResidencyError(RuntimeError):
-    """A GPU load for one group while another group's models are on the GPU (``[gpu] one_group_at_a_time``,
-    section 4): the caller must unload the resident group first."""
 
 
 class SupervisorClosed(WorkerCrashed):
