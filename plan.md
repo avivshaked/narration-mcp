@@ -382,12 +382,12 @@ error and on a planted `.wav`.
 | WP | Title | Design | Owns | Depends | GPU |
 |---|---|---|---|---|---|
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `review` | `wp/12-store` | reviewer running; DC-6 |
-| WP13 | Delivery post-processing | 1 | WP01 | – | `active` | `wp/13-post` | |
-| WP14 | QA logic (pure) | 1 | WP01 | – | `review` | `wp/14-qa` | reviewer running; DC-5 |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `review` | `wp/12-store` | review round 2 fixed; the reviewer is re-verifying |
+| WP13 | Delivery post-processing | 1 | WP01 | – | `active` | `wp/13-post` | review: MERGE-WITH-FOLLOWUPS; fixing, with DC-8 (−23 LUFS) and DC-10 |
+| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | review: BLOCK; fixing, with DC-7 (reader @2) and DC-10 |
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `review` | `wp/16-workers` | reviewer running |
-| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `review` | `wp/17-mcp` | reviewer running; ADR 0001 accepted |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PR #10 | 2026-09-26; reviewed twice; low follow-ups a–c in HANDOFF |
+| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `active` | `wp/17-mcp` | review: MERGE-WITH-FOLLOWUPS; fixing (cancel shield, LIMIT_EXCEEDED, id shapes) |
 | WP18 | The service's own material | §3.2, §11.2, §10.1 canary, §15, Phase 4 demo | `material\` | WP01 (for the text rules) | no (listening: H1) |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `active` | `wp/20-gpu-lane` | owner lifted the GPU hold 2026-09-26 evening; sets the tier |
@@ -641,7 +641,7 @@ Updated by the lead on `main` only.
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
 | WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
-| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; two Fable review passes applied; contracts 1.1 in PR #7 |
+| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.4 (PRs #7, #8, #9, #11) since |
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `active` | `wp/10-text` | stacked on WP01 |
@@ -816,3 +816,17 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     one). WP13 and WP15 are running.
   - Contracts 1.1 (PR #7) answers the reviews' requests, with two lead gap-fills, DC-5 (`SIGNAL_INVALID`)
     and DC-6 (a reused `idempotency_key` with a different request is refused).
+- 2026-09-26, night: **Independent review of every Wave 1 branch before merge** (one read-only Opus
+  reviewer per branch). It found about 40 real defects in branches whose suites all passed, including:
+  a gc race that could delete a just-published take (WP12); numbers merging across commas, which failed
+  perfect takes (WP14); cached QA results leaking one request's segment ids and offsets (WP14); MCP
+  cancellation cutting `submit_job` off mid-call (WP17). Every finding is fixed before merge, and a
+  re-review verifies the fixes of any branch that had a BLOCK or a data-loss finding.
+  - Merged: WP16 (PR #10). Contracts 1.2 (PR #8: id shapes, closed `pace`, request-free QA results),
+    1.3 (PR #9) and 1.4 (PR #11).
+  - **Owner decisions** (design revisions 5.3 and 5.4): DC-5, DC-6, DC-7 and DC-9 approved; DC-8, the
+    default loudness target, first −20 and then **−23 LUFS** (EBU R128's pair with −1 dBTP) after the
+    review measured −22 reached by all 48 real paragraphs; DC-10, a trim that a DC offset or a
+    near-silent take cannot defeat.
+  - WP20's spike renders are listenable in its worktree's `.dev\spikes\` (gitignored; deleted with the
+    worktree).

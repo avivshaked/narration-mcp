@@ -5,20 +5,20 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
 
-- **Stage: Wave 0 done; Wave 1 mostly in review; the GPU lane is running.**
-  - Merged into `main` and pushed: WP00, WP01 (contracts, PR #4), WP02, WP03, WP10 (text, PR #6),
-    WP18 (material drafts, PR #3) and WP19 (platform, PR #5).
-  - **Contracts 1.1** (PR #7) is in CI: the Wave 1 reviews' requests, plus the lead gap-fills DC-5 and DC-6.
-  - **In review:** WP12 (store), WP14 (QA), WP16 (workers) and WP17 (MCP front end). A read-only reviewer
-    agent is checking each branch (WP16 and WP17 share one). After that: merge each (PR), after
-    contracts 1.1.
-  - **Running:** WP13 (post-processing), WP15 (alignment, CPU) and **WP20 (the Qwen worker and GPU
-    spikes)**.
-- **GPU:** the owner lifted the hold on 2026-09-26 evening ("proceed with a working service"). Avast's
-  shields are off, and the owner is at the machine to investigate any freeze. WP20 holds the GPU lock in
-  bounded runs of 30 minutes or less.
-- **Hangs:** two hard hangs on 2026-09-26, caused by Avast's Auto-Sandbox taking custody of venv launcher
-  `.exe`s. Agents run every tool as `uv run python -m …`. Details: plan.md §9 and `AGENTS.local.md`.
+- **Stage: Wave 1 is being reviewed and merged; the GPU lane is running.**
+  - Merged into `main` and pushed: WP00–WP03, WP18, WP01, WP19, WP10, WP16, and contracts 1.1–1.4.
+    Design revision 5.4. Main has 1689 tests passing.
+  - **Every branch gets an independent read-only reviewer before merge.** The reviews found about 40 real
+    defects in branches whose suites all passed. Findings are fixed before merge, and a branch that had
+    a BLOCK or a data-loss finding is re-verified by its reviewer.
+  - **WP12** (store): round 2 fixed; its reviewer is re-verifying. It carries a lead commit (config's
+    `allow_sha256` whole match). Rebase onto main when the verification is done, then PR.
+  - **WP13** (post), **WP14** (QA), **WP17** (MCP): their agents are fixing the review findings.
+  - **WP15** (alignment, CPU) and **WP20** (Qwen worker, GPU) are building. WP20 has run spikes (h)(i),
+    (d), (e), DC-4 and its acceptance renders; the audio is in its worktree's `.dev\spikes\`.
+- **GPU:** the owner lifted the hold on 2026-09-26 evening. WP20 holds the GPU lock in bounded runs.
+- **Hangs:** Avast's Auto-Sandbox took custody of venv launcher `.exe`s. Agents run every tool as
+  `uv run python -m …`. Avast was off for the session.
 - **Agents:** at most 6 at once. Opus 5.5 by default; Fable for the hardest problems.
 
 ## Decided (details in plan.md §1.4 and §1.5)
@@ -44,7 +44,7 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **DC-5 and DC-6** (lead gap-fills, plan.md §1.5): the owner may overrule either.
+- DC-4 (`max_new_tokens`): WP20's ADR will propose.
 - **Gate H1:** listening to about 10 renders of the service's own texts before the corpus is frozen. The
   suggested sample is in `status/WP18.md`. It needs the GPU.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
@@ -57,23 +57,25 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps
 
-1. Merge contracts 1.1 (PR #7). Then, as their reviews come back, merge WP12, WP14, WP16 and WP17
-   (rebase onto `main`, PR, CI, `--no-ff`). Tell WP13, WP15 and WP20 to rebase after each merge they
-   need (WP20 needs WP16, and WP15 needs WP10 and WP16).
-2. Open follow-ups:
-   - WP17: schema size bounds on `segments`, `cues` and `hints` become `LIMIT_EXCEEDED` (§14 names
-     them request-size limits).
-   - WP14: switch its word adapter to `narration.text.words`, and its local signal code to
-     `codes.SIGNAL_INVALID`.
-   - WP12: refuse a reused `idempotency_key` (DC-6).
-   - WP18: the fixture changes WP10 listed; switch `tests/material` to `narration.text`.
-3. Wave 2 on the CPU once its dependencies merge:
-   - WP30 (daemon: WP12, WP16, WP19);
-   - WP31 (job engine: WP12 to WP14, WP16);
-   - then WP36 (front end to daemon) and WP37 (CLI).
-   On the GPU: WP22 (QA worker) after WP15 and WP16, then WP32 (engine profiles and canary). This is the
-   path to a working service.
-4. Gate H1 (the owner listens to about 10 renders) once WP20's worker renders.
+1. Merge as each branch comes back: rebase onto `main`, full suite, PR, CI, `--no-ff`, remove the
+   worktree.
+   - WP12 after its re-verification.
+   - WP13, WP14 and WP17 after their fixes. Re-verify WP14, which had a BLOCK.
+2. Follow-ups not yet assigned:
+   - **WP16** (low; before WP30 and WP20/WP22 lean on the client):
+     - (a) `_fail` should stop the writer thread (enqueue the sentinel);
+     - (b) a writer error should `_stop` the client, not wait out a timeout;
+     - (c) start-up classification: exit 2 only for `RoleUnavailable`/`ImportError`; map torch's DLL
+       `OSError` to `BACKEND_NOT_INSTALLED`.
+   - **WP18**: the fixture changes WP10 listed; switch `tests/material` to `narration.text` and
+     `narration.lint`.
+   - **WP36 must restamp** cached QA results with the request's segment id and exact-span offsets
+     (contracts 1.2).
+3. **Wave 2** once its dependencies merge:
+   - on the CPU: WP30 (daemon: WP12, WP16, WP19), WP31 (job engine: WP12–WP14, WP16), then WP36 and
+     WP37;
+   - on the GPU: WP22 (QA worker) after WP15, then WP32 (engine profiles and canary).
+4. Gate H1 (the owner listens to about 10 renders) once the full pipeline renders.
 
 ## Things a new session should know
 
