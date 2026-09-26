@@ -25,6 +25,8 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Any, Final
 
+import psutil
+
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 
@@ -391,6 +393,10 @@ class WindowsPlatform:
     def spawn_detached(self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str]) -> int:
         """Start ``argv`` detached (section 4.1) and return its pid, without waiting for it.
 
+        The pid is that of ``argv[0]``. When that is a venv's ``Scripts\\python.exe`` (a launcher), the
+        interpreter runs as the launcher's child with a pid of its own, so a daemon should record its own
+        ``os.getpid()`` rather than rely on this value.
+
         Creation flags ``CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``; stdin,
         stdout and stderr on ``NUL``; no other handle inherited (``close_fds``); ``env`` is the whole
         environment. If Windows refuses with access denied (the Job Object this process runs in forbids
@@ -444,7 +450,14 @@ class WindowsPlatform:
             job.close()
 
     def set_below_normal_priority(self, pid: int) -> None:
-        """Set ``BELOW_NORMAL_PRIORITY_CLASS`` on process ``pid`` (section 4.1); raises ``OSError`` on failure."""
+        """Set ``BELOW_NORMAL_PRIORITY_CLASS`` on process ``pid`` and its descendants (section 4.1).
+
+        The descendants matter because a venv's ``Scripts\\python.exe`` is a launcher: the interpreter that
+        does the work is its child, and a priority class set on a running parent does not reach a child it
+        already started. ``pid`` is set first, so a child it starts afterwards inherits the class; then every
+        descendant present is set (psutil checks each one's identity, so a reused pid is never touched).
+        Raises ``OSError`` if ``pid`` cannot be set; a descendant that has exited meanwhile is skipped.
+        """
         process = _OpenProcess(_PROCESS_SET_INFORMATION, False, pid)
         if not process:
             raise _last_error()
@@ -453,6 +466,17 @@ class WindowsPlatform:
                 raise _last_error()
         finally:
             _CloseHandle(process)
+        try:
+            descendants = psutil.Process(pid).children(recursive=True)
+        except psutil.NoSuchProcess:
+            return
+        for child in descendants:
+            try:
+                child.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            except psutil.NoSuchProcess:
+                continue
+            except psutil.AccessDenied as exc:
+                raise PermissionError(f"cannot set the priority of process {child.pid}, a child of {pid}") from exc
 
     def check_readable_path(self, path: str) -> Path:
         r"""Check a caller's path to a file the service will read (section 17.3); return it resolved.
