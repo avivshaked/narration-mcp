@@ -4,6 +4,7 @@ the engine and runner over them. No GPU and no model: every worker is the fake r
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any
 import pytest
 
 from narration.config import Config
-from narration.contracts.models import JobRecord
+from narration.contracts.models import JobRecord, ProvenanceEntry
 from narration.contracts.names import JobKind
 from narration.jobs.engine import EngineParts, JobEngine
 from narration.jobs.gpu import VramProbe
@@ -20,11 +21,13 @@ from narration.jobs.runner import EngineRunner
 from narration.post import DeliveryPipeline
 from narration.qa import Scorer
 from narration.store import NarrationStore
+from narration.store.store import utc_iso
 from narration.text import TextPipeline
 from narration.workers import SubprocessWorkerClient, worker_command
 from tests.store.standin import StandInPlatform
 
 from .support import (
+    DESIGN_ID,
     ENGINE_ID,
     METHOD_ID,
     FakePool,
@@ -125,6 +128,7 @@ def make_world(root: Path, anchor: tuple[float, ...], *, holder: str | None = No
         store.set_current_engine_profile("base", ENGINE_ID)
     clip = root / "voice" / "clip.wav"
     clip_sha256 = write_clip(clip)
+    store.add_provenance(ProvenanceEntry(clip_sha256=clip_sha256, design_id=DESIGN_ID, date=utc_iso(time.time())))
     store.put_measurement(measurement(clip_sha256, anchor))
     clock = MonotonicClock()
     host = Host(store=store, config=config, workers=FakePool(config, spec), clock=clock)

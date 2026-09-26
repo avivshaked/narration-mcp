@@ -6,20 +6,22 @@ Every text is invented for these tests.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 from collections import Counter
 from typing import Any
 
 import pytest
 
+from narration.config import VoicesConfig
 from narration.contracts import codes
-from narration.contracts.models import Progress
+from narration.contracts.models import Progress, ProvenanceEntry
 from narration.jobs.admission import GPU_RECHECK_S, GPU_UNAVAILABLE_RETRY_S
 from narration.jobs.engine import OOM_WAIT_S
 from narration.jobs.pins import call_cap
 
 from .conftest import World
-from .support import GENERATION, KETTLE, LAMPS, LANTERN, ORCHARD, QWEN_VRAM_MB, FixedProbe, write_clip
+from .support import DESIGN_ID, GENERATION, KETTLE, LAMPS, LANTERN, ORCHARD, QWEN_VRAM_MB, FixedProbe, write_clip
 
 
 def _step_until(world: World, predicate: object, *, limit: int = 200) -> None:
@@ -230,17 +232,44 @@ def test_stop_now_gives_the_job_back_and_the_next_daemon_finishes_it_from_the_ca
 # ======================================================================== job-level failures
 
 
-def test_a_voice_with_no_measurement_fails_the_job_s3_2(world: World) -> None:
+def _other_clip(world: World) -> tuple[dict[str, Any], str]:
     other = world.root / "voice" / "other.wav"
     other.write_bytes(world.clip.read_bytes() + b"\x00\x00")
+    sha = hashlib.sha256(other.read_bytes()).hexdigest()
     body = world.request(LAMPS)
     body["voice"]["path"] = str(other)
-    body["voice"]["sha256"] = hashlib.sha256(other.read_bytes()).hexdigest()
+    body["voice"]["sha256"] = sha
+    return body, sha
+
+
+def test_a_voice_with_no_measurement_fails_the_job_s3_2(world: World) -> None:
+    body, sha = _other_clip(world)
+    world.store.add_provenance(ProvenanceEntry(clip_sha256=sha, design_id=DESIGN_ID, date="2026-01-01"))
     job = world.submit_body(body)
     world.run()
     failed = world.job(job.job_id)
     assert failed.status == "failed" and failed.error is not None and failed.error.code == codes.VOICE_NOT_MEASURED
     assert world.pool.starts == 0
+
+
+def test_a_clip_the_service_did_not_design_is_never_cloned_s17_4(world: World) -> None:
+    body, _ = _other_clip(world)  # a clip in neither the provenance list nor allow_sha256
+    job = world.submit_body(body)
+    world.run()
+    failed = world.job(job.job_id)
+    assert failed.status == "failed" and failed.error is not None
+    assert failed.error.code == codes.VOICE_NOT_SYNTHETIC and failed.error.field == "voice.sha256"
+    assert world.pool.starts == 0  # no worker ever saw it
+
+
+def test_a_clip_the_owner_allowed_is_cloned_s17_4(world: World) -> None:
+    body, sha = _other_clip(world)
+    world.config = dataclasses.replace(world.config, voices=VoicesConfig(allow_sha256=(sha,)))
+    world.new_engine()
+    job = world.submit_body(body)
+    world.run()
+    failed = world.job(job.job_id)
+    assert failed.error is not None and failed.error.code == codes.VOICE_NOT_MEASURED  # past the provenance rule
 
 
 def test_a_clip_that_changed_since_submit_is_voice_file_mismatch_s17(world: World) -> None:

@@ -26,10 +26,11 @@ and the per-job consistency report come after every take is scored, and never ch
 11.1).
 
 **Failures.** A job-level problem raises ``NarrationError`` for the runner to record on the job: no engine
-pinned, the engine changed, the voice is not measured or its clip changed, the VRAM wait timed out, a
-worker that cannot be installed or loaded. A take-level execution problem is flagged on its segment
-(severity ``error``), and the job goes on with the rest: ``GPU_OOM`` after one retry, a worker that crashed
-twice (``WORKER_CRASHED``), ``RENDER_FAILED``, ``QA_UNAVAILABLE``.
+pinned, the engine changed, a clip the service did not design and the owner did not allow (section 17.4,
+checked here as well as at submit, since this is where a clip is cloned), the voice is not measured or its
+clip changed, the VRAM wait timed out, a worker that cannot be installed or loaded. A take-level execution
+problem is flagged on its segment (severity ``error``), and the job goes on with the rest: ``GPU_OOM`` after
+one retry, a worker that crashed twice (``WORKER_CRASHED``), ``RENDER_FAILED``, ``QA_UNAVAILABLE``.
 """
 
 from __future__ import annotations
@@ -313,6 +314,13 @@ class JobEngine:
             language=names.LANGUAGE,
             x_vector_only_mode=config.engines.qwen3_base.x_vector_only_mode,
         )
+        sha = request.voice.sha256
+        if not store.is_provenance(sha) and sha not in config.voices.allow_sha256:
+            raise NarrationError(  # section 17.4, checked at submit too: the engine is what clones the clip
+                codes.VOICE_NOT_SYNTHETIC,
+                f"the clip {sha} is neither one this service designed nor one the owner allowed",
+                field="voice.sha256",
+            )
         measurement = store.get_measurement(voice_hash, profile.engine_profile_id)
         if measurement is None:
             raise NarrationError(

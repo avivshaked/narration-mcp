@@ -75,6 +75,8 @@ ENGINE_HASH: Final = "sha256:" + hashlib.sha256(b"narration job engine tests: en
 QA_VRAM_MB: Final = 5000
 QWEN_VRAM_MB: Final = 7000
 METHOD_ID: Final = f"{names.ALIGNMENT_METHOD}/{FAKE_ALIGNER_MODEL}@{FAKE_REVISION}"
+DESIGN_ID: Final = "01J0000000000000000000TEST"
+"""The design that made the test clip, as the provenance list records it (section 17.4)."""
 FRAME_S: Final = 0.02
 
 
