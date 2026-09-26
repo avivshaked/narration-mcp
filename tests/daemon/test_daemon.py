@@ -323,6 +323,70 @@ def test_a_stop_posted_while_waiting_for_the_singleton_is_honoured_s4_1(
     assert final is not None and final.state == "stopped"
 
 
+def test_a_stop_the_exiting_daemon_answered_stops_the_one_waiting_to_take_over_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    written: list[tuple[str, str | None]] = []
+    put = store.put_daemon_status
+
+    def record(status: DaemonStatus) -> None:
+        written.append((status.state, status.started_at))
+        put(status)
+
+    monkeypatch.setattr(store, "put_daemon_status", record)
+    go_on = threading.Event()
+    first = LooksAgain(after=go_on)
+    a = run_daemon(first, idle_exit_s=0.3)
+    assert first.looked.wait(WAIT_S) and first.answers == [False]  # A is exiting: it said stopping
+    job = make_job(store, "Queued while A exits.")
+    second = HoldJob()
+    b = run_daemon(second, takeover_wait_s=20.0)
+    time.sleep(0.3)
+    assert b.thread.is_alive(), "B waits for A to go"
+    posted = store.post_command("stop")  # an operator's stop, after B's launch
+    wait_until(lambda: a.daemon.stopping == "segment", what="A to read the stop")
+    go_on.set()
+    assert a.join() == EXIT_OK
+    answered = store.wait_for_command(posted.command_id, timeout_s=0)
+    assert answered is not None and answered.result == {"stopped": True, "requeued": []}, "A answered it"
+    assert b.join() == EXIT_OK, "B stops too"
+    assert second.job is None and job_status(store, job).status == "queued", "B claimed no job"
+    b_started = b.daemon.started_at
+    assert b_started is not None, "B took over"
+    assert ("idle", b_started) not in written, "B never said it serves"
+    assert ("stopping", b_started) in written and written[-1][0] == "stopped", "B stopped as a stop does"
+
+
+def test_an_answered_stop_posted_before_the_launch_does_not_stop_the_daemon_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore
+) -> None:
+    old = store.post_command("stop")
+    store.complete_command(old.command_id, {"stopped": True, "requeued": []})  # answered by a daemon since gone
+    time.sleep(0.02)
+    daemon = run_daemon(NullRunner())
+    assert daemon.wait_serving().state == "idle"
+    daemon.command("stop")
+    assert daemon.join() == EXIT_OK
+
+
+@pytest.mark.parametrize(("after_stamp_s", "honoured"), [(0.0005, True), (0.0015, False)])
+def test_an_answered_stop_is_judged_by_its_millisecond_against_the_launch_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, after_stamp_s: float, honoured: bool
+) -> None:
+    posted = store.post_command("stop_now")
+    store.complete_command(posted.command_id, {"stopped": True, "requeued": []})
+    runner = HoldJob()
+    job = make_job(store, "Queued before the launch.")
+    daemon = run_daemon(runner, launched_at=parse_iso(posted.requested_at) + after_stamp_s)
+    if honoured:
+        assert daemon.join() == EXIT_OK
+        assert runner.job is None and job_status(store, job).status == "queued", "no work was done"
+    else:
+        daemon.wait_status(lambda s: s.state == "busy", "the daemon to take the job")
+        daemon.command("stop")
+        assert daemon.join() == EXIT_OK
+
+
 @pytest.mark.parametrize(("after_stamp_s", "honoured"), [(0.0005, True), (0.0015, False), (-0.5, True)])
 def test_a_stop_is_judged_by_its_millisecond_against_the_launch_s4_1(
     run_daemon: DaemonFactory, store: NarrationStore, after_stamp_s: float, honoured: bool

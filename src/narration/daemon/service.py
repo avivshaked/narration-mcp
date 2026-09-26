@@ -8,9 +8,10 @@
    or it cannot be read) this one waits up to ``takeover_wait_s`` for the singleton, and takes over, so a
    job queued while a daemon was exiting is not left waiting. It gives up as soon as the holder says
    ``idle`` or ``busy`` (it found work as it was about to exit), and at ``takeover_wait_s``;
-2. records its own pid and start time, sweeps up after the previous daemon (``sweep``), and reads the
-   pending commands once (see "Which stops a daemon honours"). A ``stop`` it honours stops it before any
-   work, and it never says ``idle``; otherwise it writes ``run/daemon.json`` (``idle``);
+2. records its own pid and start time, sweeps up after the previous daemon (``sweep``), looks for a stop
+   posted since its launch that another daemon has already answered, and reads the pending commands once
+   (see "Which stops a daemon honours"). A stop it honours stops it before any work, and it never says
+   ``idle``; otherwise it writes ``run/daemon.json`` (``idle``);
 3. opens the worker supervisor (its kill-on-close group) and starts the runner thread, which drives the
    ``JobRunner`` one ``step`` at a time, unloads idle models after ``idle_unload_s``, and asks to exit
    after ``idle_exit_s`` with nothing to do. It says ``stopping`` first, then asks the runner ``has_work``
@@ -24,14 +25,23 @@
 Every file the store publishes is written to a temp name and renamed, so a ``stop_now`` never leaves a
 partial file published (section 4.1).
 
-**Which stops a daemon honours** (lead's decision, WP30 review). A ``stop`` is for the service, not for one
-daemon process, but only for the service as it was when the stop was asked. A daemon honours a pending
-``stop`` or ``stop_now`` posted after it was launched (``launched_at``), whenever it reads it: even one posted
-while it waited for the singleton, which the daemon it took over from never read. It completes one posted
-before it was launched with ``stopped: false`` and keeps serving: that stop was asked of a daemon that has
-gone without reading it, or of none. Both times are read from the wall clock (``time.time``), as
-``started_at`` is; a command's ``requested_at`` is cut to the millisecond, so a stop posted in the
-millisecond of the launch counts as posted after it (``posted_after_launch``).
+**Which stops a daemon honours** (lead's decisions, WP30 review and re-review). A ``stop`` is for the
+service, not for one daemon process, but only for the service as it was when the stop was asked. A daemon
+honours every ``stop`` or ``stop_now`` posted after it was launched (``launched_at``), pending or already
+answered:
+
+- a pending one, whenever it reads it: even one posted while it waited for the singleton, which the daemon
+  it took over from never read;
+- one the daemon it took over from answered while this one waited (``stopped: true``: that daemon was
+  exiting anyway). On taking the singleton, before any work, it lists the commands posted since its launch
+  (``Store.commands_since``); if one of them is a ``stop`` or ``stop_now`` already answered, it stops as a
+  ``stop`` would, having done nothing, so the answer the other daemon gave holds for the service.
+
+It completes a pending stop posted before it was launched with ``stopped: false`` and keeps serving, and it
+ignores an answered one: that stop was asked of a daemon that has gone, or of none. Both times are read
+from the wall clock (``time.time``), as ``started_at`` is; a command's ``requested_at`` is cut to the
+millisecond, so a stop posted in the millisecond of the launch counts as posted after it
+(``posted_after_launch``).
 
 So ``narration-admin daemon stop`` (WP37) posts a stop only when ``start.running_daemon`` says a daemon
 runs: a stop posted with none running stops nothing, and is answered ``stopped: false`` by the next daemon.
@@ -261,6 +271,7 @@ class Daemon:
             self.settings.store_root,
             report.previous,
         )
+        self._honour_answered_stops()  # a stop answered by the daemon before this one (see the docstring)
         self._handle_commands()  # a stop already pending is honoured before any work (see the docstring)
         if self.stopping is None:  # a daemon that is to stop at once never says it serves
             self._board.set_state("idle")
@@ -335,6 +346,29 @@ class Daemon:
                 self._request_stop("now" if command.kind == "stop_now" else "segment")
             else:  # pragma: no cover - the store refuses other kinds
                 log.error("unknown daemon command %r", command.kind)
+
+    def _honour_answered_stops(self) -> None:
+        """Before any work: stop if a stop posted after this daemon's launch was already answered by another
+        daemon (see "Which stops a daemon honours")."""
+        try:
+            since = self.store.commands_since(utc_iso(self.launched_at - STAMP_PRECISION_S))
+        except Exception:
+            log.exception("could not list the commands posted since this daemon was launched")
+            return
+        for command in since:
+            if (
+                command.kind in ("stop", "stop_now")
+                and command.done_at is not None
+                and posted_after_launch(command.requested_at, self.launched_at)
+            ):
+                log.info(
+                    "%s %s was posted after this daemon was launched and answered by the daemon before it; "
+                    "stopping before any work",
+                    command.kind,
+                    command.command_id,
+                )
+                self._request_stop("segment")  # nothing is in flight, so a stop_now needs nothing more
+                return
 
     def _complete_stale_stop(self, command_id: str, kind: str) -> None:
         """Answer a stop posted before this daemon was launched, and keep serving."""

@@ -63,7 +63,9 @@ then asks ``has_work`` once more:
   another daemon. That one waits (up to ``takeover_wait_s``) while the holder says anything but ``idle``
   or ``busy`` (``stopping``, then ``stopped`` until it releases the singleton), and takes over once it has
   gone. If the holder says ``idle`` or ``busy`` again (it found work after all), the new daemon gives up
-  at once, exits 0 and writes nothing, as any second daemon does.
+  at once, exits 0 and writes nothing, as any second daemon does. If the holder answered a stop posted
+  after the new daemon was launched, the new daemon stops too, before any work: ``step`` is never called
+  (``service``, "Which stops a daemon honours").
 
 **The front-end's order** (WP36). This holds only if a front-end commits the job to the store *before* it
 reads the daemon's status (``start.ensure_daemon``). The front-end commits, then reads the status; the
