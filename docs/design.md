@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.6 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.7 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -55,6 +55,9 @@ applied here, each listed in the revision history below.*
   covers them (section 11.2). A take under the loudness gate keeps its measured true peak (section 13).*
 - *Revision 5.6 (the same day) describes number reader `@2` as built: clock times, a leading minus, the
   degree sign, money, and the comma trade-off (section 11.3; DC-7).*
+- *Revision 5.7 (the same day) records spike (d): the clone path is `bit_exact` on the pinned stack, the
+  one exemption from deterministic algorithms (the voice prompt's encode), a worker's own WAV writer, and
+  the tier decided by `engine pin` on the installing machine (section 10.1; ADR 0002).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -1378,7 +1381,11 @@ The text tests use the service's own fixtures, never a caller's script:
      - `sdpa` attention;
      - TF32 off;
      - cuDNN deterministic, benchmark off;
-     - `torch.use_deterministic_algorithms(True, warn_only=True)`;
+     - `torch.use_deterministic_algorithms(True, warn_only=True)`, except during the whole
+       `create_voice_clone_prompt` call (the voice prompt's encode and speaker embedding). There the worker
+       turns it off and restores the previous mode on every exit path. Torch 2.11's deterministic
+       replicate padding cannot take the Mimi encoder's tensor-valued pad, so with the switch on, encoding
+       a voice fails. Padding's forward pass is a gather, which is deterministic either way (KNOW; ADR 0002);
      - **`CUBLAS_WORKSPACE_CONFIG=:4096:8`**, set in the worker's environment before CUDA starts. This
        is required for deterministic cuBLAS.
    - Audio-changing Qwen settings, pinned explicitly (never left to library defaults):
@@ -1398,13 +1405,18 @@ The text tests use the service's own fixtures, never a caller's script:
        - The cap only truncates (KNOW: renders at 8192, 2048 and the exact step count are
          bit-identical), so a render that ends under its cap is the same under any cap. A runaway
          render stops after about a minute instead of about 22 (BELIEVE, extrapolated).
-   - **Tier.** Bit-exact output within one process is KNOW only for VoiceDesign (section 1, row B). For
-     the Base clone path the service uses, it is BELIEVE, within one process and across processes; the
-     Phase 0 repeat test (d) decides, on the clone path with the switches above. The tier is reported in
-     `get_server_status`:
+   - **Files.** Identical audio makes an identical file. A worker writes its WAV itself (format, `fact`
+     chunk and data), because `soundfile.write` adds a `PEAK` chunk holding the time of writing, which
+     would give two identical renders different hashes (KNOW; ADR 0002).
+   - **Tier.** The Phase 0 repeat test (d) found both paths **`bit_exact`** on the pinned stack (KNOW, on
+     one machine; ADR 0002). Forty clone renders in seven processes, in three orders, gave one hash per
+     item, with the switches above or with torch's defaults; VoiceDesign matched too. Nothing is promised
+     across machines, so `narration-admin engine pin` repeats a short version of that test on the
+     installing machine and records the tier: all hashes equal gives `bit_exact`, anything else
+     `similar`, which `doctor` reports. The tier is reported in `get_server_status`:
      - **`bit_exact`**: a take evicted from the cache comes back with the same id; the canary gate
        compares hashes.
-     - **`similar`** (if (d) fails): the same request renders the same attempts again but not the same
+     - **`similar`** (if the pin's repeat test differs): the same request renders the same attempts again but not the same
        bytes, so a take id is stable only while its take is cached. The canary gate compares similarity
        only, and `CANARY_MISMATCH` is not raised on every batch. Callers keep their own copies (they do;
        R12), and the design says plainly that an attempt reproduces a delivery, not a file.
