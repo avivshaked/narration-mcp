@@ -2,10 +2,15 @@
 ``stop_now``, and a detached start that outlives its session.
 
 Every daemon here is started by the test (as its child, or through a session stand-in it starts) and is
-stopped by the test in ``finally``, through the store and, if that fails, by killing it: only after checking
-that the process is the one the test started (its parent is the launcher the test or its session got back,
-and it was created after the test began). Worker pids come from the daemon's own ``run/daemon.json`` and
-are checked to be descendants of that daemon before anything reads them.
+stopped by the test in ``finally``, through the store and, if that fails, by killing it. A test never kills
+or reads a process by a bare pid (AGENTS.md hard rule 7): it acts only through ``psutil.Process`` objects
+captured while their identity is proven (psutil then refuses a pid that another process has taken since):
+
+- a daemon started as the test's child: from the child's own tree, while the test holds the child's handle
+  (an unwaited ``Popen``), so its pid cannot have been reused;
+- a detached daemon: ``owned.capture_daemon`` (created before the status it wrote, child of the launcher
+  the session got back);
+- workers: the captured daemon's descendants (psutil checks each child is younger than its parent).
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from narration.daemon.sweep import read_status
 from narration.store import NarrationStore
 
 from .conftest import fake_env, make_job, wait_until
+from .owned import OwnedDaemon, capture_daemon, stop_detached
 
 if sys.platform != "win32":
     raise pytest.skip.Exception(
@@ -90,35 +96,42 @@ def daemon_child(service: Path, *extra: str, env: dict[str, str] | None = None) 
             try:
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                kill_tree(process.pid)
+                tree = popen_tree(process)
+                for member in tree:
+                    with contextlib.suppress(psutil.NoSuchProcess):
+                        member.kill()
+                psutil.wait_procs(tree, timeout=15)
                 process.wait(timeout=30)
 
 
-def kill_tree(pid: int) -> None:
-    """Kill a process this test started, and its descendants."""
+def popen_tree(process: subprocess.Popen[bytes]) -> list[psutil.Process]:
+    """A child of this test and its descendants. Call it only while the child is not yet waited for: the
+    test then holds its handle, so its pid still names it."""
     try:
-        root = psutil.Process(pid)
-        tree = [root, *root.children(recursive=True)]
+        root = psutil.Process(process.pid)
+        return [root, *root.children(recursive=True)]
     except psutil.NoSuchProcess:
-        return
-    for member in tree:
-        with contextlib.suppress(psutil.NoSuchProcess):
-            member.kill()
-    psutil.wait_procs(tree, timeout=15)
+        return []
 
 
-def descendants(pid: int) -> set[int]:
-    try:
-        return {p.pid for p in psutil.Process(pid).children(recursive=True)}
-    except psutil.NoSuchProcess:
-        return set()
+def daemon_in(process: subprocess.Popen[bytes], pid: int | None) -> psutil.Process:
+    """The daemon interpreter ``pid`` inside this test's child ``process`` (a venv launcher runs it as its
+    child)."""
+    found = [p for p in popen_tree(process) if p.pid == pid]
+    assert found, f"pid {pid} is not in the daemon this test started"
+    return found[0]
 
 
-def alive(pid: int) -> bool:
-    try:
-        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
-    except psutil.NoSuchProcess:
-        return False
+def still_running(processes: list[psutil.Process]) -> list[psutil.Process]:
+    """The ones still running (``is_running`` is False for a pid another process has taken since)."""
+    running: list[psutil.Process] = []
+    for process in processes:
+        try:
+            if process.is_running() and process.status() != psutil.STATUS_ZOMBIE:
+                running.append(process)
+        except psutil.NoSuchProcess:
+            continue
+    return running
 
 
 def wait_status(
@@ -150,7 +163,7 @@ def temp_leftovers(root: Path) -> list[Path]:
 def test_a_second_daemon_for_the_same_store_does_not_start_s4(service: Path, real_store: NarrationStore) -> None:
     with daemon_child(service, "--idle-exit-s", "120") as first:
         serving = wait_status(real_store, lambda s: s.state == "idle" and s.pid is not None, "the first daemon")
-        assert serving.pid in {first.pid} | descendants(first.pid), "the daemon records its own pid (section 4.1)"
+        assert serving.pid in {p.pid for p in popen_tree(first)}, "the daemon records its own pid (section 4.1)"
         second = subprocess.run(
             daemon_argv(service, "--idle-exit-s", "120"), stdin=subprocess.DEVNULL, capture_output=True, timeout=60
         )
@@ -173,12 +186,11 @@ def test_workers_die_with_the_daemon_even_when_it_is_killed_s4(
     with daemon_child(service, *FAKE, "--idle-exit-s", "120", env=fake_env(tmp_path, spec)) as child:
         wait_until(lambda: (j := real_store.get_job(job.job_id)) is not None and j.progress.segments_done == 1, 60)
         busy = wait_status(real_store, lambda s: s.state == "busy" and bool(s.workers), "a worker in flight")
-        assert busy.pid is not None and busy.pid in descendants(child.pid)
-        workers = {w.pid for w in busy.workers}
-        assert workers <= descendants(busy.pid), "the workers are the daemon's own children"
-        worker_tree = set().union(*({pid} | descendants(pid) for pid in workers))
-        psutil.Process(busy.pid).kill()  # the daemon dies hard: no finally, no shutdown
-        wait_until(lambda: not any(alive(pid) for pid in worker_tree), 20, "the workers to die with the daemon")
+        daemon = daemon_in(child, busy.pid)
+        workers = daemon.children(recursive=True)
+        assert {w.pid for w in busy.workers} <= {p.pid for p in workers}, "the workers are the daemon's own"
+        daemon.kill()  # the daemon dies hard: no finally, no shutdown
+        wait_until(lambda: not still_running(workers), 20, "the workers to die with the daemon")
         child.wait(timeout=30)
     left = real_store.get_job(job.job_id)
     assert left is not None and left.status == "running", "a killed daemon gives nothing back itself"
@@ -197,15 +209,13 @@ def test_stop_now_ends_the_workers_and_leaves_no_partial_file_s4_1(
     with daemon_child(service, *FAKE, "--idle-exit-s", "120", env=fake_env(tmp_path, spec)) as child:
         wait_until(lambda: (j := real_store.get_job(job.job_id)) is not None and j.progress.segments_done == 1, 60)
         busy = wait_status(real_store, lambda s: s.state == "busy" and bool(s.workers), "a worker in flight")
-        assert busy.pid is not None
-        workers = {w.pid for w in busy.workers}
-        assert workers <= descendants(busy.pid)
-        worker_tree = set().union(*({pid} | descendants(pid) for pid in workers))
+        workers = daemon_in(child, busy.pid).children(recursive=True)
+        assert {w.pid for w in busy.workers} <= {p.pid for p in workers}
         posted = real_store.post_command("stop_now")
         started = time.monotonic()
         assert child.wait(timeout=30) == 0
         assert time.monotonic() - started < 15.0, "stop_now does not wait out the 60 s segment"
-    assert not any(alive(pid) for pid in worker_tree)
+    assert still_running(workers) == []
     after = real_store.get_job(job.job_id)
     assert after is not None and (after.status, after.progress.segments_done) == ("queued", 1)
     assert rendered(real_store) == 1
@@ -246,13 +256,13 @@ def test_a_detached_daemon_outlives_its_session_s4_1(service: Path, real_store: 
     if "code" in result:
         pytest.skip(f"this test runner's own Job Object forbids breakaway ({result})")
     launcher = int(result["spawned_pid"])
-    status: DaemonStatus | None = None
+    owned: OwnedDaemon | None = None
     try:
         status = wait_status(real_store, lambda s: s.state == "idle" and s.pid is not None, "the detached daemon")
-        assert status.pid is not None
-        daemon = psutil.Process(status.pid)
+        owned = capture_daemon(status, launcher)
+        assert owned is not None and owned.daemon is not None, "the daemon is the one the session started"
+        daemon = owned.daemon
         assert daemon.create_time() >= test_began - 1.0
-        assert status.pid == launcher or daemon.ppid() == launcher, "the daemon the session started"
         # It serves after its session and the session's job are gone: a command and a job, through the store.
         done = real_store.wait_for_command(real_store.post_command("release_gpu").command_id, timeout_s=30)
         assert done is not None and done.result == {"released": False, "holder_before": None, "busy_job": None}
@@ -261,12 +271,10 @@ def test_a_detached_daemon_outlives_its_session_s4_1(service: Path, real_store: 
         # No console for the daemon (KNOW, spike g): it runs as pythonw.exe, and neither it nor its launcher has
         # a conhost.exe child. (Its workers do: CREATE_NO_WINDOW makes a console without a window.)
         assert daemon.name().lower() == "pythonw.exe"
-        own = {launcher, status.pid}
-        everything = psutil.Process(launcher).children(recursive=True) if status.pid != launcher else []
-        consoles = [p.pid for p in [*everything, *daemon.children(recursive=True)] if p.name().lower() == "conhost.exe"]
-        assert [pid for pid in consoles if psutil.Process(pid).ppid() in own] == []
+        consoles = [q.pid for root in owned.roots() for q in root.children() if q.name().lower() == "conhost.exe"]
+        assert consoles == [], "neither the daemon nor its launcher has a console of its own"
     finally:
-        _stop_detached(real_store, status, launcher, test_began)
+        stop_detached(real_store, owned)
 
 
 def test_a_session_whose_job_forbids_breakaway_starts_no_daemon_s4_1(
@@ -293,22 +301,3 @@ def test_a_session_whose_job_forbids_breakaway_starts_no_daemon_s4_1(
     assert result["retry_after_s"] == 60.0
     time.sleep(1.0)
     assert read_status(real_store) is None, "no daemon was started, detached or not"
-
-
-def _stop_detached(store: NarrationStore, status: DaemonStatus | None, launcher: int, began: float) -> None:
-    """Stop the detached daemon this test's session started: a ``stop`` through the store, and if it does not
-    exit, a kill of that process (checked to be the one the session started) and its tree."""
-    posted = store.post_command("stop")
-    store.wait_for_command(posted.command_id, timeout_s=30)
-    pid = status.pid if status is not None and status.pid is not None else launcher
-    deadline = time.monotonic() + 30
-    while alive(pid) and time.monotonic() < deadline:
-        time.sleep(0.1)
-    if not alive(pid):
-        return
-    process = psutil.Process(pid)
-    if process.create_time() >= began - 1.0 and (pid == launcher or process.ppid() == launcher):
-        kill_tree(pid)
-    with contextlib.suppress(psutil.NoSuchProcess):
-        if alive(launcher) and psutil.Process(launcher).create_time() >= began - 1.0:
-            kill_tree(launcher)

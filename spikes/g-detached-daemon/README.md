@@ -29,10 +29,12 @@ Reproduce (about 20 s):
 uv run python spikes/g-detached-daemon/spike_g.py
 ```
 
-It writes its stores under `<repo>/.dev/spike-g/`. Every process it measures or stops is one it started.
-A daemon counts as the scenario's only when it was created after the scenario began and its parent is the
-launcher its session got back. `tests/daemon/test_process.py` pins the behaviours WP30 depends on,
-in the default suite on Windows.
+It writes its stores under `<repo>/.dev/spike-g/`. Every process it measures or stops is one it can prove
+it started (`tests/daemon/owned.py`). While the daemon runs, the session checks that the process at the pid in
+`run/daemon.json` was created before the status it wrote, and that it is the child of the launcher the
+session got back. It records both processes' exact creation times. The orchestrator then acts only on a pid
+whose creation time is exactly the recorded one, through a `psutil.Process` object, and never by a bare
+pid. `tests/daemon/test_process.py` pins the behaviours WP30 depends on, in the default suite on Windows.
 
 ## How a session is modelled
 

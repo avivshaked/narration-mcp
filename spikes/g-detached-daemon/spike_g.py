@@ -25,9 +25,13 @@ Scenarios:
 - ``console-python``: ``plain``, but the daemon runs as the venv's ``python.exe`` rather than ``pythonw.exe``:
   the control for the console finding.
 
-Every process this script measures or stops is one it started: a daemon is accepted only when it was
-created after its scenario began and its parent is the launcher its session got back. Stores live under
-``<repo>/.dev/spike-g/``. The results (no paths, no audio) go to ``results/``.
+Every process this script measures or stops is one it can prove it started (``tests/daemon/owned.py``). The
+session, while the daemon runs, checks that the process at the pid in ``run/daemon.json`` was created before
+the status it wrote and is the child of the launcher it got back, and records both processes' exact creation
+times. The orchestrator then acts only on a pid whose creation time is exactly the recorded one, through a
+``psutil.Process`` object (which refuses a pid taken since by another program). It never kills or reads a
+process by a bare pid. Stores live under ``<repo>/.dev/spike-g/``. The results (no paths, no audio) go to
+``results/``.
 
     uv run python spikes/g-detached-daemon/spike_g.py
 """
@@ -48,6 +52,9 @@ from pathlib import Path
 from typing import Any
 
 import psutil
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.daemon.owned import OwnedDaemon
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -74,6 +81,7 @@ def session(spec: dict[str, Any]) -> None:
     from narration.platform import get_platform
     from narration.platform._windows import _JobObject, _own_job_breakaway  # pyright: ignore[reportPrivateUsage]
     from narration.store import NarrationStore
+    from tests.daemon.owned import capture_daemon
 
     began = time.time()
     store_root, config = Path(spec["store"]), Path(spec["config"])
@@ -112,6 +120,8 @@ def session(spec: dict[str, Any]) -> None:
                 status = read_status(store)
                 if status is not None and status.state == "idle" and status.pid is not None:
                     result["daemon_pid"] = status.pid
+                    owned = capture_daemon(status, int(result["spawned_pid"]))
+                    result["identity"] = owned.identity() if owned is not None else None
                     break
                 time.sleep(0.05)
     result["serving_before_exit_s"] = round(time.time() - began, 2) if "daemon_pid" in result else None
@@ -123,22 +133,6 @@ def session(spec: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------- the orchestrator
-def alive(pid: int) -> bool:
-    try:
-        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
-    except psutil.NoSuchProcess:
-        return False
-
-
-def ours(pid: int, launcher: int, began: float) -> bool:
-    """Whether ``pid`` is the process the scenario's session started (or that launcher's interpreter)."""
-    try:
-        process = psutil.Process(pid)
-        return process.create_time() >= began - 1.0 and (pid == launcher or process.ppid() == launcher)
-    except psutil.NoSuchProcess:
-        return False
-
-
 def wait_for(predicate: Callable[[], bool], timeout_s: float) -> bool:
     deadline = time.monotonic() + timeout_s
     while not predicate():
@@ -171,14 +165,20 @@ def window_handles(pids: list[int]) -> dict[int, bool]:
     return seen
 
 
-def tree(launcher: int, daemon: int) -> list[dict[str, Any]]:
-    """The processes under the launcher, by role, with no paths: name, role, parent role, window."""
-    roles: dict[int, str] = {launcher: "daemon-launcher"}
-    if daemon != launcher:
-        roles[daemon] = "daemon"
+def tree(owned: OwnedDaemon) -> list[dict[str, Any]]:
+    """The daemon's processes by role, with no paths: name, role, parent role, window. Only the proven
+    daemon, its launcher, and their descendants (psutil checks each child is younger than its parent)."""
+    roles: dict[int, str] = {}
+    if owned.launcher is not None:
+        roles[owned.launcher.pid] = "daemon-launcher"
+    if owned.daemon is not None:
+        roles[owned.daemon.pid] = "daemon"
+    root = owned.launcher or owned.daemon
+    if root is None:
+        return []
     facts: dict[int, tuple[str, int, list[str]]] = {}
     try:
-        members = [psutil.Process(launcher), *psutil.Process(launcher).children(recursive=True)]
+        members = [root, *root.children(recursive=True)]
     except psutil.NoSuchProcess:
         return []
     for member in members:
@@ -207,8 +207,10 @@ def tree(launcher: int, daemon: int) -> list[dict[str, Any]]:
         for pid, (name, parent, argv) in facts.items()
     ]
     windows = window_handles([row["pid"] for row in rows])
+    still = {m.pid for m in members if m.is_running()}  # a reading for a pid taken meanwhile is dropped
     for row in rows:
-        row["has_window"] = windows.get(row.pop("pid"))
+        pid = row.pop("pid")
+        row["has_window"] = windows.get(pid) if pid in still else None
     return rows
 
 
@@ -216,9 +218,8 @@ def run_scenario(name: str, setup: dict[str, str]) -> dict[str, Any]:
     from narration.daemon.start import running_daemon
     from narration.platform import get_platform
     from narration.store import NarrationStore
-
-    sys.path.insert(0, str(REPO))
     from tests.daemon.conftest import make_job
+    from tests.daemon.owned import reattach
 
     folder = WORK / name
     shutil.rmtree(folder, ignore_errors=True)  # this script's own folder under .dev
@@ -230,7 +231,6 @@ def run_scenario(name: str, setup: dict[str, str]) -> dict[str, Any]:
     spec = {**setup, "store": str(folder / "store"), "config": str(config), "out": str(out)}
     head = [sys.executable] if setup["via"] == "python" else [shutil.which("uv") or "uv", "run", "--no-sync", "python"]
     record: dict[str, Any] = {"scenario": name, **setup}
-    began = time.time()
     session_run = subprocess.run(
         [*head, str(Path(__file__).resolve()), "--session", json.dumps(spec)],
         cwd=REPO,
@@ -249,24 +249,27 @@ def run_scenario(name: str, setup: dict[str, str]) -> dict[str, Any]:
     record["start_error"] = said.get("error")
     record["serving_before_session_exit_s"] = said.get("serving_before_exit_s")
     launcher, daemon = said.get("spawned_pid"), said.get("daemon_pid")
+    identity = said.get("identity")
+    owned = reattach(identity) if identity is not None else None
     with NarrationStore(folder / "store", get_platform()) as store:
         if launcher is None:
             time.sleep(1.0)
             record["daemon_json_after"] = None if store.get_daemon_status() is None else "present"
             return record
         record["daemon_served_before_session_exit"] = daemon is not None
-        if daemon is None:
-            _cleanup(launcher, daemon, began)
-            return record
+        record["daemon_identity_proven"] = identity is not None
+        if daemon is None or identity is None:
+            return record  # nothing is provably ours: nothing is touched
         time.sleep(1.5)  # the session is gone; give a closing job time to act
-        record["daemon_alive_after_session"] = alive(daemon) and ours(daemon, launcher, began)
+        record["daemon_alive_after_session"] = bool(owned and owned.daemon and owned.daemon.is_running())
         if not record["daemon_alive_after_session"]:
-            record["launcher_alive_after_session"] = alive(launcher) and ours(launcher, launcher, began)
+            record["launcher_alive_after_session"] = bool(owned and owned.launcher and owned.launcher.is_running())
             record["running_daemon_after"] = running_daemon(store) is not None
-            _cleanup(launcher, daemon, began)
+            _cleanup(owned)
             return record
-        record["daemon_is_launcher_child"] = daemon != launcher
-        record["daemon_name"] = psutil.Process(daemon).name().lower()
+        assert owned is not None and owned.daemon is not None
+        record["daemon_is_launcher_child"] = owned.launcher is not None
+        record["daemon_name"] = owned.daemon.name().lower()
         asked = time.monotonic()
         answer = store.wait_for_command(store.post_command("release_gpu").command_id, timeout_s=30)
         record["release_gpu_answered_after_session"] = answer is not None and answer.result is not None
@@ -275,28 +278,21 @@ def run_scenario(name: str, setup: dict[str, str]) -> dict[str, Any]:
         finished = wait_for(lambda: (j := store.get_job(job.job_id)) is not None and j.status == "completed", 60)
         record["job_completed_after_session"] = finished
         time.sleep(0.3)
-        record["tree"] = tree(launcher, daemon)
+        record["tree"] = tree(owned)
         posted = store.post_command("stop")
         stopped = store.wait_for_command(posted.command_id, timeout_s=30)
         record["stop_result"] = None if stopped is None else stopped.result
-        record["exited_after_stop"] = wait_for(lambda: not alive(daemon) and not alive(launcher), 30)
+        record["exited_after_stop"] = wait_for(lambda: not owned.running(), 30)
         final = store.get_daemon_status()
         record["final_state"] = None if final is None else final.state
-    _cleanup(launcher, daemon, began)
+    _cleanup(owned)
     return record
 
 
-def _cleanup(launcher: int, daemon: int | None, began: float) -> None:
-    """Kill what is left of this scenario's daemon, only when it is provably the one its session started."""
-    for pid in (daemon, launcher):
-        if pid is not None and alive(pid) and ours(pid, launcher, began):
-            with contextlib.suppress(psutil.NoSuchProcess):
-                process = psutil.Process(pid)
-                members = [process, *process.children(recursive=True)]
-                for member in members:
-                    with contextlib.suppress(psutil.NoSuchProcess):
-                        member.kill()
-                psutil.wait_procs(members, timeout=15)
+def _cleanup(owned: OwnedDaemon | None) -> None:
+    """Kill what is left of this scenario's daemon, through the processes proven to be it (never by pid)."""
+    if owned is not None and owned.running():
+        owned.kill()
 
 
 def summary(records: list[dict[str, Any]]) -> str:
