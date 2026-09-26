@@ -42,7 +42,10 @@ LOCK_HOLDER_ENV = "NARRATION_GPU_LOCK_HOLDER"
 DEFAULT_HOLDER = "qwen3tts-gpu-tests"
 NEED_MB = 7000
 """VRAM the Qwen group needs, with room: about 5.8 GB measured for a 30 s render (spike h+i)."""
-LOCK_MINUTES = 20
+LOCK_MINUTES = 30
+"""The lock covers the whole session: the longest bounded run AGENTS.md allows. The acceptance run's own
+timeout (``ACCEPTANCE_TIMEOUT_S``) leaves room inside it for the other GPU tests."""
+ACCEPTANCE_TIMEOUT_S = 15 * 60
 DETERMINISM = {
     "tf32": False,
     "cudnn_deterministic": True,
@@ -272,7 +275,9 @@ def test_acceptance_render_matches_the_bakeoff_take_s10_1(tmp_path: Path) -> Non
         pytest.skip("the QA worker's venv is not synced (it scores the similarity)")
     out = tmp_path / "acceptance.json"
     script = CHECKOUT / "spikes" / "acceptance-wp20" / "run.py"
-    completed = subprocess.run([sys.executable, str(script), "--out", str(out)], check=False, timeout=1800)
+    completed = subprocess.run(
+        [sys.executable, str(script), "--out", str(out)], check=False, timeout=ACCEPTANCE_TIMEOUT_S
+    )
     results = json.loads(out.read_text(encoding="utf-8"))
     scores = {f"{r['voice']} {r['segment']}": r["similarity_to_bakeoff_take"] for r in results["renders"]}
     assert completed.returncode == 0 and results["accepted"], scores
