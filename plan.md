@@ -646,19 +646,19 @@ Updated by the lead on `main` only.
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
 | WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
-| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.5 (PRs #7, #8, #9, #11, #12) since |
+| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.6 (PRs #7, #8, #9, #11, #12, #14) since |
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
 | WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; reviewed twice; low follow-ups 1–5 in HANDOFF |
-| WP13 | Delivery post-processing | 1 | WP01 | – | `review` | `wp/13-post` | fixes done (DC-8 −23 LUFS, DC-10, its own WAV writer); the reviewer is verifying |
-| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | re-review: fixing A–D (window words, ranking, edge gain, reader @2 times/money/minus) |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PR #10 | 2026-09-26; follow-ups a–c on `wp/16-followups` |
-| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `review` | `wp/17-mcp` | fixes done (cancel shield, exact validator, LIMIT_EXCEEDED, id shapes); the reviewer is verifying |
+| WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
+| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | re-review 2: fixing F1 (a split name's function-word fragment) and F3 (°) |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | built; adding DC-11's wildcard and contracts 1.6, then review |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PR #10 | 2026-09-26; follow-ups a–c done and (d) DC-4's per-call cap on `wp/16-followups` |
+| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `active` | `wp/17-mcp` | re-review: MERGE-WITH-FOLLOWUPS; fixing 4 small items |
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; every set `draft` until H1 freezes it |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `review` | `wp/20-gpu-lane` | acceptance met; tier `bit_exact` (ADR 0002); DC-4 is ADR 0003, for the owner |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `review` | `wp/20-gpu-lane` | acceptance met; tier `bit_exact` (ADR 0002); DC-4 decided (per-call cap); reviewer running |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | started 2026-09-26 night |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `todo` | – | DC-2 |
@@ -835,3 +835,15 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     near-silent take cannot defeat.
   - WP20's spike renders are listenable in its worktree's `.dev\spikes\` (gitignored; deleted with the
     worktree).
+- 2026-09-26, night (continued): **WP12 (PR #13), contracts 1.6 (PR #14) and WP13 (PR #15) merged.**
+  - CI's Linux run caught a real WP12 bug: POSIX `rename` silently replaces a file or an empty folder,
+    so the store's "never replace" rename held only on Windows. It now refuses on every OS.
+  - **The owner decided DC-4:** a per-call `max_new_tokens`, min(8192, max(128, ceil(2.5 × characters))).
+    WP20 measured that the cap only truncates, so no render that ends under it changes (ADR 0003).
+    Design revision 5.5 applies it, with DC-12 (a cue no retake can place is not a retake trigger)
+    and the aligner's thresholds as configuration. DC-11 (the aligner's wildcard) is approved on
+    condition of WP15's measurement.
+  - WP20 finished: its renders reproduce the bake-off's takes sample for sample, and the tier is
+    `bit_exact` (spike d: 40 renders in 7 processes, one hash per item). It is under review.
+  - WP30 (daemon) started. The lead's earlier docs script had written status rows into section 3's
+    Wave 1 table; restored (aeb8a08).

@@ -5,21 +5,27 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
 
-- **Stage: Wave 1 is being reviewed and merged; the GPU lane is running.**
-  - Merged into `main` and pushed: WP00–WP03, WP18, WP01, WP19, WP10, WP16, and contracts 1.1–1.4.
-    Design revision 5.4. Main has 1689 tests passing.
-  - **Every branch gets an independent read-only reviewer before merge.** The reviews found about 40 real
+- **Stage: Wave 1 is nearly merged; Wave 2 has started.**
+  - Merged into `main` and pushed: WP00–WP03, WP18, WP01, WP19, WP10, WP16, WP12, WP13, and contracts
+    1.1–1.6. Design revision 5.5. Main has 2142 tests passing.
+  - **Every branch gets an independent read-only reviewer before merge.** The reviews found about 50 real
     defects in branches whose suites all passed. Findings are fixed before merge, and a branch that had
     a BLOCK or a data-loss finding is re-verified by its reviewer.
-  - **WP12** (store): round 2 fixed; its reviewer is re-verifying. It carries a lead commit (config's
-    `allow_sha256` whole match). Rebase onto main when the verification is done, then PR.
-  - **WP13** (post), **WP14** (QA), **WP17** (MCP): their agents are fixing the review findings.
-  - **WP15** (alignment, CPU) and **WP20** (Qwen worker, GPU) are building. WP20 has run spikes (h)(i),
-    (d), (e), DC-4 and its acceptance renders; the audio is in its worktree's `.dev\spikes\`.
-- **GPU:** the owner lifted the hold on 2026-09-26 evening. WP20 holds the GPU lock in bounded runs.
+  - **WP14** (QA): fixing the second re-review's F1 and F3, then merge (no further review needed).
+  - **WP17** (MCP): fixing the re-review's four small items, then merge.
+  - **WP15** (alignment): built; adding DC-11's wildcard (on condition of its measurement) and
+    contracts 1.6's fields; then an independent review.
+  - **WP16 follow-ups** (`wp/16-followups`): a–c done; adding (d), DC-4's per-call cap, to the fake
+    worker; then the WP16/WP17 reviewer verifies.
+  - **WP20** (Qwen worker, GPU): done, under review. After the review it adds the per-call cap (DC-4).
+    Its renders are listenable in its worktree's `.dev\spikes\`.
+  - **WP30** (daemon): building.
+- **GPU:** the owner lifted the hold on 2026-09-26 evening. Agents take the GPU lock in bounded runs.
 - **Hangs:** Avast's Auto-Sandbox took custody of venv launcher `.exe`s. Agents run every tool as
   `uv run python -m …`. Avast was off for the session.
 - **Agents:** at most 6 at once. Opus 5.5 by default; Fable for the hardest problems.
+- A removed worktree can leave an empty folder that Windows reports busy (a shell's working directory).
+  It is gitignored; delete it later.
 
 ## Decided (details in plan.md §1.4 and §1.5)
 
@@ -48,7 +54,6 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   suggested sample is in `status/WP18.md`. It needs the GPU.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
 - Later:
-  - DC-4 (`max_new_tokens`, from WP20's evidence);
   - the GitHub description, which still says voices are "locked" (WP44);
   - gates H2 to H4.
 - Low priority: the default `design_text` (§16) is the bakeoff's reference text. WP18 copied it into the
@@ -57,24 +62,33 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 ## Next steps
 
 1. Merge as each branch comes back: rebase onto `main`, full suite, PR, CI, `--no-ff`, remove the
-   worktree.
-   - WP12 after its re-verification.
-   - WP13, WP14 and WP17 after their fixes. Re-verify WP14, which had a BLOCK.
-2. Follow-ups not yet assigned:
-   - **WP16** (low; before WP30 and WP20/WP22 lean on the client):
-     - (a) `_fail` should stop the writer thread (enqueue the sentinel);
-     - (b) a writer error should `_stop` the client, not wait out a timeout;
-     - (c) start-up classification: exit 2 only for `RoleUnavailable`/`ImportError`; map torch's DLL
-       `OSError` to `BACKEND_NOT_INSTALLED`.
+   worktree. Next: WP14, WP17, the WP16 follow-ups, then WP20 and WP15 after their reviews.
+2. **Start WP31** (job engine) as soon as WP14 merges; its dependencies WP12, WP13 and WP16 are in.
+   Tell it:
+   - construct `DeliveryPipeline(fade_s=config.delivery.fade_s)`;
+   - compute each call's cap with `names.max_new_tokens_for`;
+   - use `codes.is_retake_trigger(code, severity, details)`.
+3. Follow-ups not yet assigned:
+   - **WP12** (low; review round 2):
+     1. gc holds the write lock for the whole collection; batch it before `narration-admin gc` exists;
+     2. post-commit trash removal is best-effort;
+     3. a failed COMMIT in `_publish_dir`;
+     4. `put_canary_clip` destroys the clip on failure;
+     5. `_collect`'s restore ordering.
    - **WP18**: the fixture changes WP10 listed; switch `tests/material` to `narration.text` and
      `narration.lint`.
    - **WP36 must restamp** cached QA results with the request's segment id and exact-span offsets
-     (contracts 1.2).
-3. **Wave 2** once its dependencies merge:
-   - on the CPU: WP30 (daemon: WP12, WP16, WP19), WP31 (job engine: WP12–WP14, WP16), then WP36 and
-     WP37;
+     (contracts 1.2), and turn `QaUnavailable` into the segment's `QA_UNAVAILABLE`. Its backend calls,
+     except `get_job`'s wait, must finish well inside the front-end's shield deadline.
+   - **WP22**: package `workers/qa`; wire WP15's `AlignOp` into `QaHandler`; write WAVs with a
+     byte-reproducible writer, never soundfile's defaults (soundfile's float WAV has a time-stamped
+     `PEAK` chunk).
+   - **WP36**: pass `reply=None` to the aligner's `resolve` only for an `ALIGNMENT_ERROR` reply.
+   - **CI**: nothing type-checks `workers/qwen3tts` (WP20's note).
+4. **Wave 2**, in dependency order:
+   - on the CPU: WP31, then WP36 and WP37;
    - on the GPU: WP22 (QA worker) after WP15, then WP32 (engine profiles and canary).
-4. Gate H1 (the owner listens to about 10 renders) once the full pipeline renders.
+5. Gate H1 (the owner listens to about 10 renders) once the full pipeline renders.
 
 ## Things a new session should know
 
