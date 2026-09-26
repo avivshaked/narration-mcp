@@ -179,8 +179,19 @@ def test_a_folder_rename_gives_up_after_its_retries(tmp_path: Path, monkeypatch:
 def test_a_rename_onto_an_existing_folder_is_not_retried(tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
-    with pytest.raises(OSError):
+    with pytest.raises(FileExistsError):
         files.rename_retrying(tmp_path / "a", tmp_path / "b")
+    assert (tmp_path / "a").is_dir() and (tmp_path / "b").is_dir()
+
+
+def test_a_rename_never_replaces_an_existing_file_on_any_os_s15(tmp_path: Path) -> None:
+    # POSIX rename replaces a file silently; return_sources would overwrite a caller's new file.
+    (tmp_path / "a.wav").write_bytes(b"ours")
+    (tmp_path / "b.wav").write_bytes(b"the caller's")
+    with pytest.raises(FileExistsError):
+        files.rename_retrying(tmp_path / "a.wav", tmp_path / "b.wav")
+    assert (tmp_path / "b.wav").read_bytes() == b"the caller's"
+    assert (tmp_path / "a.wav").read_bytes() == b"ours"
 
 
 def test_remove_tree_is_quiet_about_entries_that_vanish(tmp_path: Path) -> None:

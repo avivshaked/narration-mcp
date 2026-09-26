@@ -12,6 +12,7 @@ not allow it.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import os
 import secrets
@@ -114,8 +115,17 @@ def _retry_sleep(attempt: int) -> None:
 
 def rename_retrying(src: Path, dst: Path) -> None:
     """``os.rename`` (never replacing an existing ``dst``), retried while Windows refuses it because
-    something inside ``src`` is open. Any other error is raised at once."""
+    something inside ``src`` is open. Any other error is raised at once.
+
+    Raises ``FileExistsError`` if ``dst`` exists. Windows refuses such a rename itself, but POSIX
+    ``rename`` silently replaces a file or an empty folder, so ``dst`` is checked first on every OS. That
+    check is not atomic with the rename. That is safe for the store's own tree, which is renamed only
+    under the store's write lock; a caller's source path could lose a race only to another program
+    writing that same path at that moment.
+    """
     for attempt in range(REPLACE_ATTEMPTS):
+        if os.path.lexists(dst):
+            raise FileExistsError(errno.EEXIST, "already exists; not replaced", str(dst))
         try:
             os.rename(src, dst)
             return
