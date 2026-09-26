@@ -29,6 +29,7 @@ import psutil
 
 from narration.contracts.interfaces import Store
 from narration.contracts.models import DaemonStatus
+from narration.store.layout import StorePathError
 from narration.store.store import parse_iso
 
 from .seam import return_job
@@ -40,6 +41,36 @@ START_TOLERANCE_S: Final = 2.0
 (the daemon records ``started_at`` after its process started, so a real one is never later)."""
 EXIT_WAIT_S: Final = 10.0
 """How long the sweep waits for a previous daemon that is still exiting."""
+
+READ_ATTEMPTS: Final = 10
+READ_PAUSE_S: Final = 0.02
+
+
+def read_status(
+    store: Store,
+    *,
+    attempts: int = READ_ATTEMPTS,
+    pause_s: float = READ_PAUSE_S,
+    sleep: Callable[[float], None] = time.sleep,
+) -> DaemonStatus | None:
+    """``run/daemon.json`` as ``Store.get_daemon_status`` reads it, read again after a short pause when the
+    read fails the way it can while the daemon renames a new file over it.
+
+    KNOW (WP30, Windows): a reader that opens the file during that rename gets ``PermissionError`` (about
+    one read in twenty in a tight loop), and ``os.path.realpath``, which the store's path check uses, can
+    return a ``\\\\?\\``-prefixed path for a file replaced during the call, which the check takes for a path
+    outside the store (``StorePathError``). Both pass within milliseconds. Any other error, or either one
+    ``attempts`` times running, is raised.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return store.get_daemon_status()
+        except (PermissionError, StorePathError):
+            if attempt >= attempts:
+                raise
+            sleep(pause_s)
+    raise ValueError(f"attempts must be at least 1, not {attempts}")
+
 
 PreviousDaemon = Literal["none", "clean", "died", "exiting"]
 """What the previous ``run/daemon.json`` says: none was written, it stopped cleanly, it died, or its process

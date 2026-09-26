@@ -14,10 +14,12 @@ For the front-end's autostart (WP36) and ``narration-admin daemon start | status
 Starting a daemon when one already runs is harmless: the second one exits quietly (the singleton). One that
 finds the running daemon ``stopping`` waits for it to go, then takes over.
 
-**The interpreter (KNOW, spike g).** On Windows the daemon runs as ``pythonw.exe``, the venv's windowless
-Python, when it is there: a venv's ``python.exe`` is a launcher that starts the interpreter as a console
-program, and a console program started detached gets a console window of its own, which a user could close
-(killing the daemon). ``pythonw.exe`` has no console, and the daemon starts its workers with
+**The interpreter.** On Windows the daemon runs as ``pythonw.exe``, the venv's windowless Python, when it
+is there. A venv's ``python.exe`` is a launcher that starts the interpreter as a console program, and that
+interpreter, started detached, gets a new console of its own (KNOW, spike g: a ``conhost.exe`` child).
+Windows may show such a console as a window that a user could close, killing the daemon (BELIEVE: spike g
+saw no window owned by the daemon's own processes, but did not look at terminal hosts outside its tree).
+``pythonw.exe`` gets no console at all (KNOW, spike g), and the daemon starts its workers with
 ``CREATE_NO_WINDOW``.
 """
 
@@ -34,7 +36,7 @@ from typing import Final
 from narration.contracts.interfaces import Platform, Store
 from narration.contracts.models import DaemonStatus
 
-from .sweep import daemon_alive
+from .sweep import daemon_alive, read_status
 
 DAEMON_MODULE: Final = "narration.daemon"
 RUNNING_STATES: Final = ("idle", "busy")
@@ -97,7 +99,7 @@ def start_detached(
 def running_daemon(store: Store) -> DaemonStatus | None:
     """The status of the daemon that runs for this store, or None when none does (its ``run/daemon.json``
     is missing, says ``stopped``, or names a process that is gone)."""
-    status = store.get_daemon_status()
+    status = read_status(store)
     return status if daemon_alive(status) else None
 
 

@@ -110,8 +110,10 @@ class SupervisorClosed(WorkerCrashed):
 def worker_creationflags(*, below_normal: bool) -> int:
     """The process-creation flags of a worker: no console window, and below-normal priority if asked.
 
-    ``CREATE_NO_WINDOW``: a detached daemon has no console, so a console program it starts (a worker's
-    ``python.exe``) would otherwise get a console window of its own. ``BELOW_NORMAL_PRIORITY_CLASS`` holds
+    ``CREATE_NO_WINDOW``: a detached daemon has no console, and a console program it starts (a worker's
+    ``python.exe``) without this flag gets a new console of its own, which Windows may show as a window.
+    With it, the worker still gets a console (spike g saw its ``conhost.exe``), but one with no window.
+    ``BELOW_NORMAL_PRIORITY_CLASS`` holds
     from the process's first instant, and a venv launcher's child (the interpreter) inherits it. Both are 0
     off Windows, where they do not exist.
     """

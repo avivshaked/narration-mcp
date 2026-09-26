@@ -40,7 +40,7 @@ from .seam import DAEMON_HOLDER, GpuFacts, JobRunner, ShutdownReason, StopMode, 
 from .settings import DaemonSettings
 from .status import StatusBoard
 from .supervisor import FAKE_ROLES, WorkerSupervisor
-from .sweep import sweep
+from .sweep import read_status, sweep
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ class Daemon:
                     if waited:
                         log.info("the stopping daemon has gone; taking over")
                     return self._run_held()
-            holder = self.store.get_daemon_status()
+            holder = read_status(self.store)
             if holder is None or holder.state != "stopping" or self._clock() >= deadline:
                 log.info(
                     "another daemon runs for this store (pid %s, %s); exiting",
@@ -194,7 +194,7 @@ class Daemon:
 
     def _run_held(self) -> int:
         self.started_at = utc_iso(self._wall())
-        previous = self.store.get_daemon_status()
+        previous = read_status(self.store)
         self._board = StatusBoard(self.store, pid=self._pid, started_at=self.started_at, wall=self._wall)
         report = sweep(self.store, previous, started_at=self.started_at)
         log.info(
@@ -234,6 +234,7 @@ class Daemon:
             supervisor = self._supervisor
             if supervisor is not None:
                 supervisor.poll()
+            self.board.flush()
             if self._runner_done.is_set():
                 return
             if self._now_deadline is not None and self._clock() >= self._now_deadline:

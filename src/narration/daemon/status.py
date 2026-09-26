@@ -129,6 +129,12 @@ class StatusBoard:
             self._unload_at = None
             self._publish()
 
+    def flush(self) -> None:
+        """Write the record again if the last write failed (the daemon's control loop calls this each
+        turn, so a status that could not be written is not left stale until the next change)."""
+        with self._lock:
+            self._publish()
+
     # ------------------------------------------------------------------ the record
     def snapshot(self) -> DaemonStatus:
         """The status as it would be written now."""
@@ -181,7 +187,7 @@ class StatusBoard:
         try:
             self._store.put_daemon_status(self._record())
         except Exception:
-            log.exception("could not write run/daemon.json; the next change will try again")
+            log.exception("could not write run/daemon.json; will try again")
             return
         self._written = key
         self.writes += 1
