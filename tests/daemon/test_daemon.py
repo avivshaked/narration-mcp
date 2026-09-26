@@ -17,6 +17,7 @@ import pytest
 from narration.contracts.models import DaemonStatus, JobRecord
 from narration.daemon.seam import NullRunner, RunnerHost, ShutdownReason, return_job
 from narration.daemon.service import EXIT_OK, STALE_STOP_REASON
+from narration.daemon.start import ensure_daemon
 from narration.daemon.sweep import read_status
 from narration.daemon.testing import SCRATCH_DIR, FakeWorkerRunner
 from narration.platform.testing import StandInPlatform
@@ -384,6 +385,23 @@ def test_a_job_queued_after_the_last_look_is_run_by_the_next_daemon_s4(
     assert a.join() == EXIT_OK
     wait_until(lambda: job_status(store, job).status == "completed", what="B to run the job")
     assert b.join() == EXIT_OK
+
+
+def test_a_front_end_that_commits_then_reads_the_status_strands_no_job_s4(
+    run_daemon: DaemonFactory, store: NarrationStore, tmp_path: Path
+) -> None:
+    # seam, "The front-end's order": the daemon writes stopping, then looks; the front-end commits, then
+    # reads. After a look that found nothing, a committed job's front-end sees stopping and starts a daemon.
+    go_on = threading.Event()
+    first = LooksAgain(after=go_on)
+    a = run_daemon(first, idle_exit_s=0.3)
+    assert first.looked.wait(WAIT_S) and first.answers == [False]
+    make_job(store, "Committed before the front-end looks.")
+    front_end = StandInPlatform()
+    result = ensure_daemon(store, tmp_path / "narration.toml", platform=front_end)
+    go_on.set()
+    assert result.started and len(front_end.spawned) == 1, "it saw stopping, and started a daemon"
+    assert a.join() == EXIT_OK
 
 
 def test_a_daemon_waiting_to_take_over_gives_up_when_the_holder_stays_s4(

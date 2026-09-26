@@ -64,6 +64,12 @@ then asks ``has_work`` once more:
   or ``busy`` (``stopping``, then ``stopped`` until it releases the singleton), and takes over once it has
   gone. If the holder says ``idle`` or ``busy`` again (it found work after all), the new daemon gives up
   at once, exits 0 and writes nothing, as any second daemon does.
+
+**The front-end's order** (WP36). This holds only if a front-end commits the job to the store *before* it
+reads the daemon's status (``start.ensure_daemon``). The front-end commits, then reads the status; the
+daemon writes ``stopping``, then asks ``has_work``. So either the daemon's look comes after the commit and
+sees the job, or the front-end's read comes after ``stopping`` and starts another daemon. A front-end that
+reads the status first, then commits, can see ``idle`` and still lose its job to the exit.
 """
 
 from __future__ import annotations

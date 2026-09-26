@@ -137,6 +137,12 @@ def ensure_daemon(
 
     A daemon that is ``stopping`` does not count: a new one is started, and takes over once it has gone.
     Raises as ``start_detached`` does.
+
+    **Call it after the job is committed to the store, never before.** The front-end commits, then reads
+    the status here; a daemon about to exit writes ``stopping``, then looks for work once more
+    (``JobRunner.has_work``). So either that look sees the job, or this read sees ``stopping`` and starts
+    a daemon (``seam``, "The front-end's order"). Called before the commit, it can see ``idle`` from a
+    daemon that then exits without the job.
     """
     status = running_daemon(store)
     if status is not None and status.state in RUNNING_STATES:
