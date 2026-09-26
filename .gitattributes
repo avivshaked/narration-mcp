@@ -4,3 +4,6 @@
 *.cmd text eol=crlf
 *.png binary
 *.jpg binary
+
+# Parallel work packages each add lines under [Unreleased]: keep both sides.
+CHANGELOG.md merge=union
