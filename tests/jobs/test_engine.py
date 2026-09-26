@@ -367,11 +367,41 @@ def test_progress_grows_with_retakes_and_never_goes_back_s7_4(world: World) -> N
         seen.append(world.job(job.job_id).progress)
     dones = [p.done_s for p in seen]
     totals = [p.total_s for p in seen]
+    finished = [p.segments_done for p in seen]
     assert dones == sorted(dones)
     assert totals == sorted(totals) and totals[-1] == pytest.approx(3 * totals[0])
+    assert finished == sorted(finished)  # a segment about to be retaken is not done yet
     assert seen[-1].fraction == 1.0 and seen[-1].segments_done == seen[-1].segments_total == 1
     phases = {p for p in world.host.phases if p is not None}
     assert {"loading_model", "rendering", "postprocessing", "scoring", "retaking", "suggesting"} <= phases
+
+
+def test_a_job_taken_again_resumes_its_round_and_never_shows_less_s7_4(world: World) -> None:
+    world.faults({"kind": "token_cap", "when": {"text_contains": "lamplighter"}})  # retaken every round
+    job = world.submit(LAMPS, KETTLE, max_retakes=2)
+    seen: list[tuple[int, Progress]] = []
+
+    def step() -> bool:
+        busy = world.runner.step(world.host)
+        record = world.job(job.job_id)
+        seen.append((record.round, record.progress))
+        return busy
+
+    while world.pool.calls[("qwen", "synthesize")] < 4:  # round 1 rendered, round 2 not yet
+        step()
+    world.runner.shutdown(world.host, "segment")  # given back mid-job, and taken again from the cache
+    assert world.job(job.job_id).status == "queued"
+    while step():
+        pass
+
+    done = world.job(job.job_id)
+    assert done.status == "completed" and done.round == 2
+    rounds = [r for r, _ in seen]
+    assert rounds == sorted(rounds)
+    for field in ("done_s", "total_s", "segments_done"):
+        values = [getattr(p, field) for _, p in seen]
+        assert values == sorted(values), field
+    assert world.pool.texts().count(LAMPS) == 3  # nothing was rendered twice
 
 
 def test_the_consistency_report_is_kept_with_the_job_and_changes_no_verdict_s11_1(world: World) -> None:

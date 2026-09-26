@@ -123,6 +123,11 @@ class SegmentWork:
         """The attempt numbers the segment has used so far, in every slot."""
         return {a.attempt for a in self.attempts()}
 
+    def finished(self, max_retakes: int) -> bool:
+        """Whether the segment has nothing left to make: every slot's current attempt is settled, and none
+        will be retaken. A finished segment stays finished, so ``segments_done`` never drops."""
+        return all(a.settled for a in self.current()) and not any(wants_retake(s, max_retakes) for s in self.slots)
+
 
 @dataclass(slots=True, eq=False)
 class JobRun:
@@ -141,6 +146,10 @@ class JobRun:
     """Render keys this job rendered, including before it was given back and taken again."""
     done_floor: float = 0.0
     """The most ``progress.done_s`` the job has shown: progress never goes back."""
+    segments_floor: int = 0
+    """The most ``progress.segments_done`` the job has shown."""
+    round_floor: int = 0
+    """The highest round the job has shown, before it was given back and taken again."""
     round: int = 0
     phase: JobPhase | None = None
     message: str | None = None
@@ -155,6 +164,11 @@ class JobRun:
     def job_id(self) -> str:
         """The job's id."""
         return self.job.job_id
+
+    @property
+    def shown_round(self) -> int:
+        """The round the job record shows: the current one, never below one it showed before."""
+        return max(self.round, self.round_floor)
 
 
 def is_retake_trigger(attempt: Attempt) -> bool:

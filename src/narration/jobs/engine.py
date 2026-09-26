@@ -177,6 +177,8 @@ class JobEngine:
             scratch=store.scratch_path(SCRATCH_JOBS, job.job_id, "work").parent,
             fresh_keys={a.render_key for s in job.items for a in s.attempts if a.fresh},
             done_floor=job.progress.done_s,
+            segments_floor=job.progress.segments_done,
+            round_floor=job.round,
         )
         self.residency.need_mb["qwen"] = profile.vram_need_mb
         for index, (segment_in, text) in enumerate(zip(request.segments, planned, strict=True)):
@@ -198,6 +200,12 @@ class JobEngine:
             run.segments.append(seg)
             for slot, number in enumerate(requested_attempts(segment_in, request.takes)):
                 seg.slots.append([self.stages.plan_attempt(host, run, seg, slot, number, 0)])
+        # A job taken again (after a stop, or giving way) walks the rounds it finished, from the cache, so it
+        # resumes at the round it was in rather than at round 0.
+        while all(a.settled for seg in run.segments for a in seg.current()) and self._start_retakes(
+            host, run, announce=False
+        ):
+            pass
         run.message = f"planned {len(run.segments)} segment(s) on {profile.engine_profile_id}"
         log.info("job %s: %s", job.job_id, run.message)
         return run
@@ -238,9 +246,10 @@ class JobEngine:
             attempt.deferred_until = 0.0
         return "stopped" if host.should_stop() else "waited"
 
-    def _start_retakes(self, host: RunnerHost, run: JobRun) -> bool:
+    def _start_retakes(self, host: RunnerHost, run: JobRun, *, announce: bool = True) -> bool:
         """At the end of a settled round: one retake for every slot whose take is a retake trigger, on the next
-        attempt numbers in slot order, up to ``max_retakes`` per slot (section 8). False when there is none."""
+        attempt numbers in slot order, up to ``max_retakes`` per slot (section 8). False when there is none.
+        ``announce`` False (planning a job taken again) sets no phase and writes no message."""
         created = 0
         for seg in run.segments:
             used = seg.used()
@@ -254,9 +263,10 @@ class JobEngine:
         if not created:
             return False
         run.round += 1
-        self.core.phase(host, run, "retaking")
-        run.message = f"round {run.round}: {created} retake(s) of take slots that failed QA"
-        log.info("job %s: %s", run.job_id, run.message)
+        if announce:
+            self.core.phase(host, run, "retaking")
+            run.message = f"round {run.round}: {created} retake(s) of take slots that failed QA"
+            log.info("job %s: %s", run.job_id, run.message)
         return True
 
     # ------------------------------------------------------------------ the record and the endings

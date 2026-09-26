@@ -63,7 +63,7 @@ class JobView:
             expect_status="running",
             status="completed",
             phase=None,
-            round=run.round,
+            round=run.shown_round,
             outcome=outcome,
             progress=self.progress(run, complete=True),
             items=self.items(run),
@@ -79,7 +79,7 @@ class JobView:
                     expect_status="cancelling",
                     status="cancelled",
                     phase=None,
-                    round=run.round,
+                    round=run.shown_round,
                     progress=self.progress(run, complete=True),
                     items=self.items(run),
                     message=run.message,
@@ -144,7 +144,7 @@ class JobView:
             expect_status="cancelling",
             status="cancelled",
             phase=None,
-            round=run.round,
+            round=run.shown_round,
             progress=self.progress(run),
             items=self.items(run),
             message=run.message,
@@ -156,7 +156,7 @@ class JobView:
         """Record a job-level failure: status ``failed`` with the error. A job being cancelled is cancelled."""
         changes: dict[str, Any] = {"phase": None, "error": error.error, "message": f"failed: {error.message}"}
         if run is not None:
-            changes.update(round=run.round, progress=self.progress(run), items=self.items(run))
+            changes.update(round=run.shown_round, progress=self.progress(run), items=self.items(run))
         updated = host.store.update_job(job.job_id, expect_status="running", status="failed", **changes)
         if updated is None:
             current = host.store.get_job(job.job_id)
@@ -176,7 +176,7 @@ class JobView:
             run.job_id,
             expect_status="running",
             phase=run.phase,
-            round=run.round,
+            round=run.shown_round,
             progress=self.progress(run),
             items=self.items(run),
             message=run.message,
@@ -191,25 +191,29 @@ class JobView:
     # ------------------------------------------------------------------ what the job record shows
     def progress(self, run: JobRun, *, complete: bool = False) -> Progress:
         """Progress in estimated audio seconds (section 7.4). Each attempt counts its segment's estimate, a third
-        per layer made; ``total_s`` grows as retakes are added, and ``done_s`` never goes back."""
+        per layer made; ``total_s`` grows as retakes are added. ``done_s`` and ``segments_done`` never go
+        back: a segment is done when nothing is left to make for it, retakes included, and a job taken again
+        shows no less than it showed before."""
         total = done = 0.0
-        settled = 0
+        finished = 0
+        max_retakes = run.request.max_retakes
         for seg in run.segments:
             for attempt in seg.attempts():
                 total += seg.est_s
                 done += seg.est_s * STAGE_DONE[attempt.stage]
-            if seg.state is not None or all(a.settled for a in seg.current()):
-                settled += 1
+            if seg.state is not None or seg.finished(max_retakes):
+                finished += 1
         if complete:
             done = total
         done = max(done, run.done_floor)
         total = max(total, done)
-        run.done_floor = done
+        finished = max(finished, run.segments_floor)
+        run.done_floor, run.segments_floor = done, finished
         return Progress(
             done_s=round(done, 3),
             total_s=round(total, 3),
             fraction=round(done / total, 4) if total > 0 else 1.0,
-            segments_done=settled,
+            segments_done=finished,
             segments_total=len(run.segments),
         )
 
