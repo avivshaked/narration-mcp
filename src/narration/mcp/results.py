@@ -10,12 +10,13 @@ checks ``structuredContent`` against it.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterator, Mapping
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, Final
 
 import mcp_types as types
-from jsonschema import Draft202012Validator
+from jsonschema.protocols import Validator
 
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
@@ -117,12 +118,31 @@ def internal_error(tool: str, exc: BaseException, *, log_path: Path | None) -> E
     )
 
 
-def output_failures(validator: Draft202012Validator, structured: Mapping[str, Any]) -> list[dict[str, str]]:
-    """Where a result breaks its tool's ``outputSchema``: each failure's path and rule, never its value."""
-    return [
+def non_finite_paths(value: Any) -> list[str]:
+    """The path of every NaN or infinite number in a result, anywhere in it: JSON has no such values."""
+    found: list[str] = []
+    stack: list[tuple[list[str | int], Any]] = [([], value)]
+    while stack:
+        parts, item = stack.pop()
+        if isinstance(item, float) and not math.isfinite(item):
+            found.append(field_path(parts) or "$")
+        elif isinstance(item, Mapping):
+            stack.extend(([*parts, str(k)], v) for k, v in item.items())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(([*parts, i], v) for i, v in enumerate(item))
+    return sorted(found)
+
+
+def output_failures(validator: Validator, structured: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Where a result breaks its tool's ``outputSchema`` or holds a non-finite number: each failure's path
+    and rule (``finite`` for NaN or infinity), never its value."""
+    failures = [
         {"path": field_path(e.absolute_path) or "$", "rule": str(e.validator)}
         for e in validator.iter_errors(dict(structured))
     ]
+    reported = {f["path"] for f in failures}
+    failures += [{"path": p, "rule": "finite"} for p in non_finite_paths(structured) if p not in reported]
+    return failures
 
 
 def output_mismatch_error(tool: str, failures: list[dict[str, str]], *, log_path: Path | None) -> Error:

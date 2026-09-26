@@ -9,10 +9,13 @@ legacy ``initialize`` handshake and 2026-07-28's per-request ``_meta`` with ``se
   ``NarrationError`` and any other exception all come back as tool errors (``isError: true``), the last as
   ``INTERNAL``; only an unknown tool is a JSON-RPC error (-32602). Every result is checked against the
   tool's ``outputSchema`` before it is sent, because the SDK client checks it too.
-- Cancelling a ``get_job`` request cancels only its wait, never the job: the cancellation reaches the
-  backend's awaiting call and is never caught here.
+- Cancellation (``notifications/cancelled``) ends only a ``get_job`` wait, never the job: the SDK cancels
+  the handler, the cancellation reaches the backend's awaiting call, and nothing here catches it. Every
+  other tool's backend call runs shielded, so a cancelled ``submit_job`` still finishes what it started
+  (writing its job row); the SDK then drops the reply, as MCP requires.
 - Resources are the ``narration://`` templates of section 7.7, read through the backend, each read with
-  its ``ttlMs`` and ``cacheScope: "private"``. A missing resource is JSON-RPC -32602.
+  its ``ttlMs`` and ``cacheScope: "private"``. A missing resource, or a URI whose ids are malformed, is
+  JSON-RPC -32602; a malformed id never reaches the backend.
 - Prompts are the four of section 7.8.
 """
 
@@ -22,10 +25,10 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
+import anyio
 import mcp_types as types
-from jsonschema import Draft202012Validator
 from mcp.server import Server, ServerRequestContext
 from mcp.server.caching import CacheHint
 from mcp.server.stdio import stdio_server
@@ -39,12 +42,15 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Backend, ProgressCallback
 from narration.contracts.names import (
+    ID_PATTERNS,
     PROMPTS,
     RESOURCE_CACHE_SCOPE,
     RESOURCES,
     SERVER_NAME,
     TOOL_NAMES,
+    IdKind,
     ResourceTemplate,
+    is_id,
 )
 from narration.contracts.schemas import TOOLS_BY_NAME
 from narration.contracts.serial import to_json
@@ -58,7 +64,7 @@ from .descriptions import (
     TOOL_TEXTS,
     tool_description,
 )
-from .validation import ArgumentValidator, build_validators
+from .validation import ArgumentValidator, ExactValidator, build_validators
 
 logger = logging.getLogger("narration.mcp")
 
@@ -68,6 +74,9 @@ DESTRUCTIVE_TOOLS: Final = frozenset({"cancel_job"})
 """Tools whose effect is not additive (MCP ``destructiveHint``): cancelling stops work that was asked for."""
 RESOURCE_NOT_FOUND_CODES: Final = frozenset({codes.NOT_FOUND, codes.INVALID_ARGUMENT, codes.PATH_NOT_ALLOWED})
 """Backend errors on a resource read that mean "no such resource" (JSON-RPC -32602)."""
+INTERRUPTIBLE_TOOLS: Final = frozenset({"get_job"})
+"""Tools whose backend call a cancellation may interrupt: ``get_job``, whose wait is what cancellation ends
+(section 5). Every other tool's call runs shielded, so it is never cut off between two backend steps."""
 
 type Context = ServerRequestContext[Any, Any]
 type ToolCall = Callable[[Mapping[str, Any], Context], Awaitable[dict[str, Any]]]
@@ -142,14 +151,27 @@ def build_prompts() -> list[types.Prompt]:
 
 
 def match_resource(uri: str) -> ResourceTemplate | None:
-    """The section 7.7 resource a URI names, or None. Every template variable must be non-empty."""
+    """The section 7.7 resource a URI names, or None.
+
+    Every template variable must be a well-formed id of its kind (``names.is_id``: ``job_id``,
+    ``design_id``, ``take_id``, ``voice_hash``), and the URI must be exactly the template filled with those
+    ids: no percent-encoding, query or fragment. So an id that is malformed or smuggled in (``%2e%2e%2f``,
+    a drive path, a trailing newline) never reaches the backend.
+    """
     for resource in RESOURCES:
         if not _is_template(resource):
             if uri == resource.uri_template:
                 return resource
             continue
         variables = UriTemplate.parse(resource.uri_template).match(uri)
-        if variables is not None and all(isinstance(v, str) and v for v in variables.values()):
+        if variables is None:
+            continue
+        filled = resource.uri_template
+        for name, value in variables.items():
+            if name not in ID_PATTERNS or not is_id(cast(IdKind, name), value):
+                return None
+            filled = filled.replace("{" + name + "}", cast(str, value))
+        if filled == uri:
             return resource
     return None
 
@@ -205,7 +227,7 @@ def build_front_end(
     bus = bus if bus is not None else InMemorySubscriptionBus()
     tools = build_tools(retention)
     validators: dict[str, ArgumentValidator] = build_validators()
-    output_validators = {name: Draft202012Validator(TOOLS_BY_NAME[name].output_schema) for name in TOOL_NAMES}
+    output_validators = {name: ExactValidator(TOOLS_BY_NAME[name].output_schema) for name in TOOL_NAMES}
     prompt_specs = {p.name: p for p in PROMPTS}
 
     async def get_job(args: Mapping[str, Any], ctx: Context) -> dict[str, Any]:
@@ -256,7 +278,14 @@ def build_front_end(
         arguments: dict[str, Any] = dict(params.arguments or {})
         try:
             validators[name].validate(arguments)
-            structured = await call(arguments, ctx)
+            structured: object = None
+            if name in INTERRUPTIBLE_TOOLS:
+                structured = await call(arguments, ctx)
+            else:
+                # A cancellation must not cut a call off between two backend steps (a job row written, its
+                # plan not); the SDK still drops the reply to a cancelled request.
+                with anyio.CancelScope(shield=True):
+                    structured = await call(arguments, ctx)
             if not isinstance(structured, dict):
                 raise TypeError(f"the backend returned {type(structured).__name__}, not an object")
             return checked(name, results.success(structured))
