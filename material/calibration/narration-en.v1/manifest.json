@@ -1,0 +1,18 @@
+{
+  "set": "narration-en.v1",
+  "kind": "calibration",
+  "version": 1,
+  "status": "draft",
+  "language": "en",
+  "description": "The calibration corpus for measure_voice (design section 3.2): three calibration paragraphs (150 to 300 spoken characters) and one ladder paragraph per rung of the length ladder (80, 150, 250, 300, 350, 400, 450, 500 and 560 spoken characters, each within 5 per cent). Narration prose in spoken form, with number words marked as exact spans and invented names.",
+  "design": "docs/design.md revision 5.2, sections 3.2, 7.2, 11.3 and 16",
+  "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
+  "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
+  "files": [
+    {
+      "path": "paragraphs.json",
+      "bytes": 8109,
+      "sha256": "79e13691308424bb57970b563de608fcda0bdb7c9e524a36905e7ac73e57e140"
+    }
+  ]
+}

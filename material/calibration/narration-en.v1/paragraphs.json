@@ -1,0 +1,199 @@
+{
+  "set": "narration-en.v1",
+  "language": "en",
+  "invented_names": [
+    "Brannock Fell",
+    "Ilse Marrowin",
+    "Kestrin Bay",
+    "Tarnholm",
+    "Wendle Cross",
+    "Harl Glacier",
+    "Saltmarrow",
+    "Velmora Pass",
+    "Pellwick Green",
+    "Aldwen",
+    "Ennick Mill"
+  ],
+  "calibration": [
+    {
+      "segment_id": "cal-01",
+      "spoken_chars": 235,
+      "cues": [
+        {"text": "The wind came off the moor a little after dawn."},
+        {
+          "text": "By noon it had crossed Brannock Fell, flattening the grass for nineteen kilometres.",
+          "exact": [{"start": 63, "end": 71}]
+        },
+        {
+          "text": "In the valley below, shepherds counted forty-eight ewes in the lee of the wall and waited for the rain.",
+          "exact": [{"start": 39, "end": 50}]
+        }
+      ]
+    },
+    {
+      "segment_id": "cal-02",
+      "spoken_chars": 196,
+      "cues": [
+        {"text": "In a workshop above the harbour, Ilse Marrowin shapes clay the way her teacher did."},
+        {"text": "A large bowl takes about three hours at the wheel,", "exact": [{"start": 25, "end": 30}]},
+        {"text": "and only one in twelve comes out of the kiln without a crack.", "exact": [{"start": 16, "end": 22}]}
+      ]
+    },
+    {
+      "segment_id": "cal-03",
+      "spoken_chars": 233,
+      "cues": [
+        {"text": "Every spring, the terns return to Kestrin Bay in great numbers."},
+        {
+          "text": "Last season the wardens counted three hundred and twelve nesting pairs, the most in sixty years.",
+          "exact": [{"start": 32, "end": 56}, {"start": 84, "end": 89}]
+        },
+        {"text": "The first chicks hatch in late May, as the shallow water begins to warm."}
+      ]
+    }
+  ],
+  "ladder": [
+    {
+      "segment_id": "ladder-080",
+      "target_spoken_chars": 80,
+      "spoken_chars": 80,
+      "cues": [
+        {"text": "The lighthouse at Tarnholm stands forty metres tall.", "exact": [{"start": 34, "end": 39}]},
+        {"text": "It still turns every night."}
+      ]
+    },
+    {
+      "segment_id": "ladder-150",
+      "target_spoken_chars": 150,
+      "spoken_chars": 151,
+      "cues": [
+        {"text": "Snow came early to the high passes this year."},
+        {"text": "By October the drifts near the summit hut were two metres deep,", "exact": [{"start": 47, "end": 50}]},
+        {"text": "and the road stayed shut for eleven days.", "exact": [{"start": 29, "end": 35}]}
+      ]
+    },
+    {
+      "segment_id": "ladder-250",
+      "target_spoken_chars": 250,
+      "spoken_chars": 248,
+      "cues": [
+        {
+          "text": "In the square at Wendle Cross, a clock has kept time for two hundred and six years.",
+          "exact": [{"start": 57, "end": 76}]
+        },
+        {"text": "Its keeper climbs the tower every Sunday to wind it by hand."},
+        {"text": "The job takes forty turns of the old crank,", "exact": [{"start": 14, "end": 19}]},
+        {"text": "and in all that time the clock has stopped only four times.", "exact": [{"start": 48, "end": 52}]}
+      ]
+    },
+    {
+      "segment_id": "ladder-300",
+      "target_spoken_chars": 300,
+      "spoken_chars": 301,
+      "cues": [
+        {
+          "text": "On the south slope above the village, thirty-one hives stand in a single row.",
+          "exact": [{"start": 38, "end": 48}]
+        },
+        {"text": "The bees work the heather from July until the first hard frosts."},
+        {
+          "text": "A strong colony can gather twenty kilograms of honey in a good summer,",
+          "exact": [{"start": 27, "end": 33}]
+        },
+        {"text": "though last year, after weeks of cold rain, most of the hives gave barely half of that."}
+      ]
+    },
+    {
+      "segment_id": "ladder-350",
+      "target_spoken_chars": 350,
+      "spoken_chars": 347,
+      "cues": [
+        {"text": "The Harl Glacier has been measured every autumn since the survey began."},
+        {"text": "Each year a small team walks its lower edge and sets markers in the ice."},
+        {
+          "text": "In the past fifty years the front has pulled back by more than nine hundred metres,",
+          "exact": [{"start": 12, "end": 17}, {"start": 63, "end": 75}]
+        },
+        {"text": "and the lake at its foot is now deep enough for boats."},
+        {"text": "The team expects it to double in size within twenty-five years.", "exact": [{"start": 45, "end": 56}]}
+      ]
+    },
+    {
+      "segment_id": "ladder-400",
+      "target_spoken_chars": 400,
+      "spoken_chars": 404,
+      "cues": [
+        {"text": "Twice a day the tide pushes into the marshes at Saltmarrow, filling the channels one by one."},
+        {"text": "At the highest spring tides the water covers almost everything,"},
+        {"text": "and only the sea wall and a few old posts stay dry."},
+        {"text": "Birds use the hours between the tides to feed."},
+        {
+          "text": "In a single winter count, volunteers recorded fourteen thousand waders,",
+          "exact": [{"start": 46, "end": 63}]
+        },
+        {
+          "text": "among them six kinds of plover and a lone spoonbill that stayed until March.",
+          "exact": [{"start": 11, "end": 14}]
+        }
+      ]
+    },
+    {
+      "segment_id": "ladder-450",
+      "target_spoken_chars": 450,
+      "spoken_chars": 448,
+      "cues": [
+        {
+          "text": "The railway to Velmora Pass climbs one thousand four hundred metres in just over seven kilometres.",
+          "exact": [{"start": 35, "end": 60}, {"start": 81, "end": 86}]
+        },
+        {"text": "That makes it one of the steepest lines of its kind in the world."},
+        {"text": "The carriages are pushed rather than pulled, so the engine is always below them on the slope."},
+        {"text": "In summer the trains run every hour from early morning until dusk,"},
+        {"text": "and on busy weekends an extra carriage is added to each one."},
+        {"text": "In winter the line closes, and the track is left to the snow."}
+      ]
+    },
+    {
+      "segment_id": "ladder-500",
+      "target_spoken_chars": 500,
+      "spoken_chars": 502,
+      "cues": [
+        {
+          "text": "Every Thursday, the market at Pellwick Green fills the square before seven in the morning.",
+          "exact": [{"start": 69, "end": 74}]
+        },
+        {"text": "Farmers bring cheese, eggs and late apples from the hill farms up the valley,"},
+        {"text": "and some of them still walk in from twelve kilometres away.", "exact": [{"start": 36, "end": 42}]},
+        {"text": "The weavers set up last, along the north side, where the light is best for showing colour."},
+        {
+          "text": "A good blanket from their looms takes three weeks to make, and it will last a lifetime.",
+          "exact": [{"start": 38, "end": 43}]
+        },
+        {
+          "text": "By noon the stalls are quiet, and by two in the afternoon the square is swept and empty again.",
+          "exact": [{"start": 37, "end": 40}]
+        }
+      ]
+    },
+    {
+      "segment_id": "ladder-560",
+      "target_spoken_chars": 560,
+      "spoken_chars": 560,
+      "cues": [
+        {"text": "For most of its length the river Aldwen is too deep and too fast to cross on foot."},
+        {
+          "text": "The only bridge for thirty kilometres stands at Ennick Mill, where the valley narrows between two walls of rock.",
+          "exact": [{"start": 20, "end": 26}, {"start": 94, "end": 97}]
+        },
+        {"text": "It was built from local stone by a crew of sixty-four masons,", "exact": [{"start": 43, "end": 53}]},
+        {"text": "and it took them the better part of nine years.", "exact": [{"start": 36, "end": 40}]},
+        {"text": "Floods have tested it many times since then, and it has been repaired more than once."},
+        {
+          "text": "The worst of them rose six metres in a single night and carried away every tree along the bank,",
+          "exact": [{"start": 23, "end": 26}]
+        },
+        {"text": "but the bridge held, and by morning the first carts were crossing again."}
+      ]
+    }
+  ]
+}

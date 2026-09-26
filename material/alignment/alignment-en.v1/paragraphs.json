@@ -1,0 +1,117 @@
+{
+  "set": "alignment-en.v1",
+  "language": "en",
+  "invented_names": ["Quenby Reach", "Mossbeck Down", "Tolvenny", "Maren Tollis", "Farrowgate", "Kelsowen", "Ardvessa"],
+  "boundary_rule": "pause is true when the cue before the boundary ends a sentence (. ! ? or …, optionally followed by a closing quote or bracket) and false when it ends mid-sentence with no punctuation at all. No cue ends in a comma, semicolon, colon or dash, where a pause is uncertain.",
+  "paragraphs": [
+    {
+      "segment_id": "align-01",
+      "spoken_chars": 104,
+      "boundaries": [{"after_cue": 0, "pause": false}, {"after_cue": 1, "pause": true}],
+      "cues": [
+        {"text": "The morning ferry to Quenby Reach carries"},
+        {"text": "about forty passengers and a few cars."},
+        {"text": "Then it turns for home."}
+      ]
+    },
+    {
+      "segment_id": "align-02",
+      "spoken_chars": 101,
+      "boundaries": [{"after_cue": 0, "pause": true}],
+      "cues": [
+        {"text": "Rain."},
+        {"text": "For three days it did not stop, and the lanes around Mossbeck Down turned into shallow streams."}
+      ]
+    },
+    {
+      "segment_id": "align-03",
+      "spoken_chars": 119,
+      "boundaries": [{"after_cue": 0, "pause": false}, {"after_cue": 1, "pause": false}],
+      "cues": [
+        {"text": "When the old mill at"},
+        {"text": "Tolvenny closed in the spring, the families who had worked there for"},
+        {"text": "three generations moved away."}
+      ]
+    },
+    {
+      "segment_id": "align-04",
+      "spoken_chars": 223,
+      "boundaries": [{"after_cue": 0, "pause": true}],
+      "cues": [
+        {
+          "text": "A pair of otters has been seen along the lower river this summer, the first confirmed sighting in more than twenty years, and the wardens are asking walkers to keep their dogs on the lead."
+        },
+        {"text": "Nobody knows where they came from."}
+      ]
+    },
+    {
+      "segment_id": "align-05",
+      "spoken_chars": 70,
+      "boundaries": [{"after_cue": 0, "pause": false}, {"after_cue": 1, "pause": true}],
+      "cues": [{"text": "The recipe calls for"}, {"text": "two cups of flour and a single egg."}, {"text": "Nothing more."}]
+    },
+    {
+      "segment_id": "align-06",
+      "spoken_chars": 129,
+      "boundaries": [{"after_cue": 0, "pause": false}, {"after_cue": 1, "pause": true}],
+      "cues": [
+        {"text": "Maren Tollis walks the coast path every morning"},
+        {"text": "from the harbour steps to the chapel on the headland and back."},
+        {"text": "Eleven kilometres."}
+      ]
+    },
+    {
+      "segment_id": "align-07",
+      "spoken_chars": 159,
+      "boundaries": [{"after_cue": 0, "pause": true}, {"after_cue": 1, "pause": true}],
+      "cues": [
+        {"text": "The storm reached the islands just after midnight."},
+        {"text": "By dawn it had gone."},
+        {"text": "The fishing boats stayed in harbour for the rest of the week while the swell went down."}
+      ]
+    },
+    {
+      "segment_id": "align-08",
+      "spoken_chars": 91,
+      "boundaries": [{"after_cue": 0, "pause": false}],
+      "cues": [
+        {"text": "Of the"},
+        {"text": "nine hundred trees planted along the ridge in the first winter, almost all survived."}
+      ]
+    },
+    {
+      "segment_id": "align-09",
+      "spoken_chars": 70,
+      "boundaries": [{"after_cue": 0, "pause": true}, {"after_cue": 1, "pause": true}],
+      "cues": [{"text": "Brisk winds."}, {"text": "Clear skies."}, {"text": "A good day for drying the hay at Farrowgate."}]
+    },
+    {
+      "segment_id": "align-10",
+      "spoken_chars": 116,
+      "boundaries": [{"after_cue": 0, "pause": false}],
+      "cues": [
+        {"text": "Some of the oldest walls in the valley were built by"},
+        {"text": "hand without mortar, and most of them are still standing today."}
+      ]
+    },
+    {
+      "segment_id": "align-11",
+      "spoken_chars": 107,
+      "boundaries": [{"after_cue": 0, "pause": true}],
+      "cues": [
+        {"text": "The chapel choir at Kelsowen rehearses on Tuesday evenings."},
+        {"text": "Twenty-six voices, and not one of them trained."}
+      ]
+    },
+    {
+      "segment_id": "align-12",
+      "spoken_chars": 122,
+      "boundaries": [{"after_cue": 0, "pause": false}, {"after_cue": 1, "pause": false}],
+      "cues": [
+        {"text": "If the weather holds, the climbers will set out for"},
+        {"text": "the summit of Mount Ardvessa before first light"},
+        {"text": "and return by evening."}
+      ]
+    }
+  ]
+}

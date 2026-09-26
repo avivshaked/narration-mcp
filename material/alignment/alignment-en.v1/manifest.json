@@ -1,0 +1,18 @@
+{
+  "set": "alignment-en.v1",
+  "kind": "alignment",
+  "version": 1,
+  "status": "draft",
+  "language": "en",
+  "description": "The alignment benchmark (design section 11.2): twelve paragraphs of cues in spoken form, with common words, number words, invented names, short and long cues, and cue boundaries with a pause (after a sentence) and without one (a cue that ends mid-sentence). Each boundary is marked with the pause expected, so the measured error can be split by boundary kind.",
+  "design": "docs/design.md revision 5.2, sections 11.2 and 7.2",
+  "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
+  "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
+  "files": [
+    {
+      "path": "paragraphs.json",
+      "bytes": 4554,
+      "sha256": "532c35ca6646ee958727249e22e73134284750ee06711e9dda27a8640b1bf065"
+    }
+  ]
+}
