@@ -39,9 +39,9 @@ file's `path`, `bytes` and `sha256`.
   VoiceDesign; `gate` {`text`, `seed`} for the gate render. `voice.design_text` is the service's default
   design text, copied from design section 16. Section 3.2's calibration set renders "the design text" too;
   which one that is (this default, or the voice's own transcript) is for `measure_voice` to settle.
-- **Fixtures**: each file states its conventions at the top. Fields the design does not fix are listed in a
-  case's `unsure`, with a `note`; the tests that consume a fixture decide them and update it. Invisible and
-  combining characters are written as `\u` escapes.
+- **Fixtures**: each file states its conventions at the top. Where the design left a point open, the code
+  that consumes the fixture settled it (the text pipeline and lint in WP10, QA in WP14), and a case's `note`
+  says which rule it pins. Invisible and combining characters are written as `\u` escapes.
 
 ## The rules the spoken texts follow
 
@@ -57,8 +57,10 @@ nothing on it:
 - the alignment benchmark uses only letters that fold to A–Z, the aligner's alphabet (design 11.2);
 - the canary's description is positive-only: no word from the negation list of design 3.5.
 
-`tests/material/` checks all of this, recomputes every hash, and checks the ladder's lengths against the
-rungs in design section 16.
+`tests/material/` checks all of this with the service's own code: every segment goes through the text
+pipeline (`narration.text`) as a caller's would, and the canary's description through the lint
+(`narration.lint`). It also recomputes every hash, and checks the ladder's lengths against the rungs in
+design section 16.
 
 ## Versions and the freeze
 

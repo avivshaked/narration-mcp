@@ -3,10 +3,10 @@
   "design_revision": "5.2",
   "conventions": [
     "Each case gives an input (a Segment as in design section 7.2, plus optional request-level hints and strict_text) and what the design fixes about the outcome.",
-    "Only the fields present under expect are asserted. A cue's warnings list, when present, is the complete list of text-check findings for that cue (empty = none).",
-    "outcome is ok (the text pipeline accepts the segment) or refused (a tool error; error.code given).",
-    "Offsets are Unicode code points. A warning's offset and a hint's offset are into the cue's canonical text (after NFC and whitespace), and an exact span's start/end are into the cue as sent.",
-    "unsure lists the paths of expect fields this fixture's author could not fix from the design; note says why. WP10 decides them and updates the fixture.",
+    "Only the fields present under expect are asserted. A cue's warnings list, when present, is the complete list of text-check findings for that cue (empty = none), and a flags list is the complete list of segment-level flags. Within an entry, only the keys listed are compared.",
+    "outcome is ok (the text pipeline accepts the segment) or refused (a tool error; error.code given, and error.field where it is fixed). A refusal lists its offenders in error.details.offenders.",
+    "Offsets are Unicode code points. A warning's offset and a hint's offset are into the cue's spoken (canonical) text, and hints_applied is ordered by offset. An exact span's start and end, and a refused offender's offset, are into the text as sent.",
+    "The points the design left open were settled when the text pipeline was built (WP10); a case's note says which rule it pins.",
     "Invisible or combining characters are written as \\u escapes so a reader can see them."
   ],
   "cases": [
@@ -30,8 +30,7 @@
       "about": "Tab and newline are whitespace (7.2) and also control characters (9.1 refuses control characters).",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "The river\tbends\nnorth."}]}},
       "expect": {"outcome": "ok", "cues": [{"spoken": "The river bends north."}], "spoken_chars": 22},
-      "unsure": ["expect.outcome", "expect.cues[0].spoken", "expect.spoken_chars"],
-      "note": "The design does not say whether tab, newline and carriage return are collapsed as whitespace (7.2) or refused as control characters (9.1 step 1 runs before canonical form). This fixture assumes they are whitespace and only other control characters are refused; WP10 decides."
+      "note": "Tab, line feed and carriage return are whitespace, collapsed by canonical form; every other control character is refused (the lead's ruling when the text pipeline was built, WP10)."
     },
     {
       "name": "canonical_form_adds_no_punctuation_or_capital",
@@ -56,13 +55,12 @@
         "engine": "The ferry left at dawn, and nobody saw it go.",
         "spoken_chars": 45,
         "cues": [
-          {"spoken": "The ferry left at", "span": [0, 17]},
-          {"spoken": "dawn, and nobody", "span": [18, 34]},
-          {"spoken": "saw it go.", "span": [35, 45]}
+          {"spoken": "The ferry left at", "spoken_span": [0, 17], "engine_span": [0, 17]},
+          {"spoken": "dawn, and nobody", "spoken_span": [18, 34], "engine_span": [18, 34]},
+          {"spoken": "saw it go.", "spoken_span": [35, 45], "engine_span": [35, 45]}
         ]
       },
-      "unsure": ["expect.cues[0].span", "expect.cues[1].span", "expect.cues[2].span"],
-      "note": "Each cue's span in the join is written here as [start, end) in code points; the field's name and shape are WP10's."
+      "note": "spoken_span and engine_span are each cue's [start, end) in the joined spoken and engine texts, in code points; with no hint they are equal."
     },
     {
       "name": "join_uses_canonical_cues",
@@ -122,9 +120,7 @@
           "text": "The ferry left at dawn"
         }
       },
-      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "segments[0].text"}},
-      "unsure": ["expect.error.field"],
-      "note": "The field path format is WP01/WP17's; the design fixes only the code."
+      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "segments[0].text"}}
     },
     {
       "name": "spoken_length_counts_code_points_not_utf16_units",
@@ -196,8 +192,7 @@
           }
         ]
       },
-      "unsure": ["expect.cues[0].hints_applied"],
-      "note": "Offsets are assumed to be code points into the cue's spoken (canonical) text; in the engine text the second application is at a different offset. The order of hints_applied (by offset here) is also WP10's."
+      "note": "Offsets are code points into the cue's spoken text, and hints_applied is ordered by offset."
     },
     {
       "name": "hint_possessive_replaces_the_term_only",
@@ -236,9 +231,7 @@
         "segment": {"segment_id": "t", "cues": [{"text": "The Tarn-side cottages were empty."}]},
         "hints": [{"term": "Tarn", "respell": "Tahrn"}]
       },
-      "expect": {"outcome": "ok", "cues": [{"engine": "The Tahrn-side cottages were empty."}]},
-      "unsure": ["expect.cues[0].engine"],
-      "note": "Assumes the hyphen counts as punctuation for the whole-word rule, as the passing punctuation list suggests."
+      "expect": {"outcome": "ok", "cues": [{"engine": "The Tahrn-side cottages were empty."}]}
     },
     {
       "name": "hint_multiword_term_matches_after_canonical_form",
@@ -278,6 +271,28 @@
       }
     },
     {
+      "name": "hint_split_across_three_cues_is_flagged_once",
+      "design": "9.1 step 5, R3",
+      "about": "A term that would match only across three cues is not applied, and is flagged once, naming its first and last cue.",
+      "input": {
+        "segment": {"segment_id": "t", "cues": [{"text": "We climbed Upper"}, {"text": "Velmora"}, {"text": "Pass before noon."}]},
+        "hints": [{"term": "Upper Velmora Pass", "respell": "Upper Vell-mora Pass"}]
+      },
+      "expect": {
+        "outcome": "ok",
+        "cues": [{"hints_applied": []}, {"hints_applied": []}, {"hints_applied": []}],
+        "engine": "We climbed Upper Velmora Pass before noon.",
+        "flags": [
+          {
+            "code": "TERM_SPLIT_ACROSS_CUES",
+            "severity": "warn",
+            "cue": 0,
+            "details": {"term": "Upper Velmora Pass", "cues": [0, 2], "offset": 11}
+          }
+        ]
+      }
+    },
+    {
       "name": "hint_offsets_are_per_cue",
       "design": "9.1",
       "about": "A term is matched inside each cue, and each application records its offset in that cue.",
@@ -300,6 +315,44 @@
       "about": "A term sent without a respelling leaves the engine text as the spoken text.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Oskarin rowed out."}]}, "hints": [{"term": "Oskarin"}]},
       "expect": {"outcome": "ok", "cues": [{"spoken": "Oskarin rowed out.", "engine": "Oskarin rowed out."}]}
+    },
+    {
+      "name": "hint_repeated_term_is_refused",
+      "design": "9.1, 14",
+      "about": "One request never mixes two renderings of a term, so a term sent twice is refused.",
+      "input": {
+        "segment": {"segment_id": "t", "cues": [{"text": "Tarn is still."}]},
+        "hints": [{"term": "Tarn", "respell": "Tahrn"}, {"term": "Tarn", "respell": "Tarren"}]
+      },
+      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "hints[1].term"}}
+    },
+    {
+      "name": "hint_empty_respelling_is_refused",
+      "design": "9.1, 14",
+      "about": "An empty respelling would silence the term, so it is refused.",
+      "input": {"segment": {"segment_id": "t", "cues": [{"text": "Tarn is still."}]}, "hints": [{"term": "Tarn", "respell": ""}]},
+      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "hints[0].respell"}}
+    },
+    {
+      "name": "hint_respelled_term_with_digits_raises_no_warning",
+      "design": "9.1",
+      "about": "The checks read the engine text: a term with digits that a respelling replaces is not a warning.",
+      "input": {
+        "segment": {"segment_id": "t", "cues": [{"text": "The ferry docks at Bay 12 tonight."}]},
+        "hints": [{"term": "Bay 12", "respell": "Bay Twelve"}]
+      },
+      "expect": {
+        "outcome": "ok",
+        "cues": [
+          {
+            "spoken": "The ferry docks at Bay 12 tonight.",
+            "engine": "The ferry docks at Bay Twelve tonight.",
+            "hints_applied": [{"term": "Bay 12", "respell": "Bay Twelve", "offset": 19}],
+            "warnings": []
+          }
+        ]
+      },
+      "note": "The lead's ruling when the text pipeline was built (WP10): a digit the engine never reads is not a warning."
     },
     {
       "name": "warn_digit",
@@ -330,8 +383,7 @@
       "about": "A superscript digit is a digit warning.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Mark it with a small ² in the margin."}]}},
       "expect": {"outcome": "ok", "cues": [{"warnings": [{"token": "²", "kind": "digit", "offset": 21, "severity": "warn"}]}]},
-      "note": "A digit is also 'not a letter', so a literal reading of the symbol rule would flag it twice. These fixtures expect one warning per token, of kind digit.",
-      "unsure": ["expect.cues[0].warnings"]
+      "note": "A digit is reported as a digit only, never also as a symbol."
     },
     {
       "name": "warn_symbols",
@@ -370,8 +422,8 @@
       "design": "9.1",
       "about": "A symbol inside a token is still a symbol warning.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "The north/south road."}]}},
-      "expect": {"outcome": "ok", "cues": [{"warnings": [{"kind": "symbol", "severity": "warn"}]}]},
-      "note": "Whether token is the whole token (north/south) or the character (/), and which offset is reported, is WP10's."
+      "expect": {"outcome": "ok", "cues": [{"warnings": [{"token": "/", "kind": "symbol", "offset": 9, "severity": "warn"}]}]},
+      "note": "A symbol finding is the run of symbol characters, located at its first character, not the whole token."
     },
     {
       "name": "pipe_and_angle_bracket_alone_warn_not_refused",
@@ -388,6 +440,16 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "name": "format_character_warns_and_is_not_refused",
+      "design": "9.1",
+      "about": "A format character (ZERO WIDTH SPACE) is not refused: it is a symbol warning, and the text is spoken as sent.",
+      "input": {"segment": {"segment_id": "t", "cues": [{"text": "The word\u200bbreak."}]}},
+      "expect": {
+        "outcome": "ok",
+        "cues": [{"spoken": "The word\u200bbreak.", "warnings": [{"token": "\u200b", "kind": "symbol", "offset": 8, "severity": "warn"}]}]
       }
     },
     {
@@ -520,10 +582,18 @@
       "expect": {
         "outcome": "refused",
         "error": {"code": "TEXT_REFUSED"},
-        "offenders": [{"token": "40", "kind": "digit", "offset": 13, "severity": "warn"}]
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "code": "WRITTEN_FORM_TOKEN",
+            "token": "40",
+            "kind": "digit",
+            "offset": 13,
+            "severity": "warn"
+          }
+        ]
       },
-      "unsure": ["expect.offenders"],
-      "note": "How the offenders are listed (error.details) is WP01/WP10's; the design says every offender is listed."
+      "note": "The offenders are listed in error.details.offenders."
     },
     {
       "name": "strict_text_and_letter_info",
@@ -531,8 +601,7 @@
       "about": "A lone letter is info, not a warning, so strict_text is assumed not to refuse it.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Plan B failed."}]}, "strict_text": true},
       "expect": {"outcome": "ok", "cues": [{"warnings": [{"token": "B", "kind": "letter", "offset": 5, "severity": "info"}]}]},
-      "unsure": ["expect.outcome"],
-      "note": "The design says strict_text refuses on text warnings; whether an info-level letter finding counts is WP10's."
+      "note": "strict_text refuses only on findings of severity warn; a letter is info."
     },
     {
       "name": "exact_span_offsets_are_code_points_in_accented_text",
@@ -545,8 +614,7 @@
         }
       },
       "expect": {"outcome": "ok", "cues": [{"exact": [{"words": ["forty-two"], "word_range": [4, 5]}]}]},
-      "unsure": ["expect.cues[0].exact[0].word_range"],
-      "note": "word_range is [first, end) in whitespace-separated words of the cue; the stored form is WP10's."
+      "note": "word_range is [first, end) over the cue's words, as narration.text.words numbers them."
     },
     {
       "name": "exact_span_offsets_are_code_points_beyond_the_bmp",
@@ -555,8 +623,7 @@
       "input": {
         "segment": {"segment_id": "t", "cues": [{"text": "𐌷𐌰𐌿𐍃 held nineteen lamps.", "exact": [{"start": 10, "end": 18}]}]}
       },
-      "expect": {"outcome": "ok", "cues": [{"exact": [{"words": ["nineteen"], "word_range": [2, 3]}]}]},
-      "unsure": ["expect.cues[0].exact[0].word_range"]
+      "expect": {"outcome": "ok", "cues": [{"exact": [{"words": ["nineteen"], "word_range": [2, 3]}]}]}
     },
     {
       "name": "exact_span_word_range_survives_canonical_form",
@@ -571,8 +638,7 @@
       "expect": {
         "outcome": "ok",
         "cues": [{"spoken": "Café held nineteen lamps.", "exact": [{"words": ["nineteen"], "word_range": [2, 3]}]}]
-      },
-      "unsure": ["expect.cues[0].exact[0].word_range"]
+      }
     },
     {
       "name": "exact_span_over_several_words",
@@ -584,8 +650,7 @@
           "cues": [{"text": "They counted three hundred and twelve geese.", "exact": [{"start": 13, "end": 37}]}]
         }
       },
-      "expect": {"outcome": "ok", "cues": [{"exact": [{"words": ["three", "hundred", "and", "twelve"], "word_range": [2, 6]}]}]},
-      "unsure": ["expect.cues[0].exact[0].word_range"]
+      "expect": {"outcome": "ok", "cues": [{"exact": [{"words": ["three", "hundred", "and", "twelve"], "word_range": [2, 6]}]}]}
     },
     {
       "name": "exact_span_may_end_before_trailing_punctuation",
@@ -600,8 +665,7 @@
       "about": "A span may end after trailing punctuation; punctuation is ignored in the comparison.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "They counted seven.", "exact": [{"start": 13, "end": 19}]}]}},
       "expect": {"outcome": "ok", "cues": [{"exact": [{"words": ["seven"]}]}]},
-      "unsure": ["expect.cues[0].exact[0].words"],
-      "note": "Whether words echoes seven or seven. is WP10's; the span is valid either way."
+      "note": "words echoes the word's core, seven."
     },
     {
       "name": "exact_span_may_start_before_leading_punctuation",
@@ -611,8 +675,7 @@
         "segment": {"segment_id": "t", "cues": [{"text": "They saw (forty) geese.", "exact": [{"start": 9, "end": 16}]}]}
       },
       "expect": {"outcome": "ok", "cues": [{"exact": [{"words": ["forty"]}]}]},
-      "unsure": ["expect.outcome"],
-      "note": "The design says a span may end before or after trailing punctuation; this assumes the same for leading punctuation."
+      "note": "Either end of a span may fall in the punctuation around a word; only an end inside a word's core cuts it."
     },
     {
       "name": "exact_span_that_cuts_a_hyphenated_word_is_refused",
@@ -621,8 +684,7 @@
       "input": {
         "segment": {"segment_id": "t", "cues": [{"text": "They counted forty-two cranes.", "exact": [{"start": 13, "end": 18}]}]}
       },
-      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "segments[0].cues[0].exact[0]"}},
-      "unsure": ["expect.error.field"]
+      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "segments[0].cues[0].exact[0]"}}
     },
     {
       "name": "exact_span_that_cuts_letters_is_refused",
@@ -631,8 +693,7 @@
       "input": {
         "segment": {"segment_id": "t", "cues": [{"text": "They counted nineteen cranes.", "exact": [{"start": 17, "end": 21}]}]}
       },
-      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "segments[0].cues[0].exact[0]"}},
-      "unsure": ["expect.error.field"]
+      "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT", "field": "segments[0].cues[0].exact[0]"}}
     },
     {
       "name": "exact_spans_that_overlap_are_refused",
@@ -664,8 +725,7 @@
       "about": "A span with start equal to end covers no word.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "They counted seven.", "exact": [{"start": 13, "end": 13}]}]}},
       "expect": {"outcome": "refused", "error": {"code": "INVALID_ARGUMENT"}},
-      "unsure": ["expect.outcome"],
-      "note": "The schema allows start 0 and end 1 at minimum; start < end is assumed."
+      "note": "A span needs start < end."
     },
     {
       "name": "markup_square_brackets_are_refused",
@@ -675,9 +735,27 @@
       "expect": {
         "outcome": "refused",
         "error": {"code": "TEXT_REFUSED"},
-        "offenders": [{"text": "[", "offset": 0}, {"text": "]", "offset": 7}]
-      },
-      "unsure": ["expect.offenders"]
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "[",
+            "offset": 0,
+            "reason": "markup",
+            "codepoints": "U+005B"
+          },
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "]",
+            "offset": 7,
+            "reason": "markup",
+            "codepoints": "U+005D"
+          }
+        ]
+      }
     },
     {
       "name": "markup_special_token_delimiters_are_refused",
@@ -687,56 +765,225 @@
       "expect": {
         "outcome": "refused",
         "error": {"code": "TEXT_REFUSED"},
-        "offenders": [{"text": "<|", "offset": 4}, {"text": "|>", "offset": 15}]
-      },
-      "unsure": ["expect.offenders"]
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "<|",
+            "offset": 4,
+            "reason": "markup",
+            "codepoints": "U+003C U+007C"
+          },
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "|>",
+            "offset": 15,
+            "reason": "markup",
+            "codepoints": "U+007C U+003E"
+          }
+        ]
+      }
     },
     {
       "name": "control_character_nul_is_refused",
       "design": "9.1 step 1, 17",
       "about": "A control character (NUL) is refused.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\u0000 bell."}]}},
-      "expect": {"outcome": "refused", "error": {"code": "TEXT_REFUSED"}, "offenders": [{"text": "\u0000", "offset": 8}]},
-      "unsure": ["expect.offenders"]
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\u0000",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+0000"
+          }
+        ]
+      }
     },
     {
       "name": "control_character_bell_is_refused",
       "design": "9.1 step 1, 17",
       "about": "A control character (BEL) is refused.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\u0007 bell."}]}},
-      "expect": {"outcome": "refused", "error": {"code": "TEXT_REFUSED"}, "offenders": [{"text": "\u0007", "offset": 8}]},
-      "unsure": ["expect.offenders"]
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\u0007",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+0007"
+          }
+        ]
+      }
     },
     {
       "name": "control_character_escape_is_refused",
       "design": "9.1 step 1, 17",
       "about": "A control character (ESC) is refused.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\u001b bell."}]}},
-      "expect": {"outcome": "refused", "error": {"code": "TEXT_REFUSED"}, "offenders": [{"text": "\u001b", "offset": 8}]},
-      "unsure": ["expect.offenders"]
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\u001b",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+001B"
+          }
+        ]
+      }
     },
     {
       "name": "control_character_delete_is_refused",
       "design": "9.1 step 1, 17",
       "about": "A control character (DEL) is refused.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\u007f bell."}]}},
-      "expect": {"outcome": "refused", "error": {"code": "TEXT_REFUSED"}, "offenders": [{"text": "\u007f", "offset": 8}]},
-      "unsure": ["expect.offenders"]
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\u007f",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+007F"
+          }
+        ]
+      }
     },
     {
       "name": "control_character_c1_csi_is_refused",
       "design": "9.1 step 1, 17",
       "about": "A control character (the C1 control CSI) is refused.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\u009b bell."}]}},
-      "expect": {"outcome": "refused", "error": {"code": "TEXT_REFUSED"}, "offenders": [{"text": "\u009b", "offset": 8}]},
-      "unsure": ["expect.offenders"]
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\u009b",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+009B"
+          }
+        ]
+      }
+    },
+    {
+      "name": "control_character_vertical_tab_is_refused",
+      "design": "9.1 step 1, 17",
+      "about": "A vertical tab (VT) is a control character and not whitespace for canonical form, so it is refused.",
+      "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\u000b bell."}]}},
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\u000b",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+000B"
+          }
+        ]
+      }
+    },
+    {
+      "name": "control_character_form_feed_is_refused",
+      "design": "9.1 step 1, 17",
+      "about": "A form feed (FF) is a control character and not whitespace for canonical form, so it is refused.",
+      "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\f bell."}]}},
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\f",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+000C"
+          }
+        ]
+      }
+    },
+    {
+      "name": "control_character_next_line_is_refused",
+      "design": "9.1 step 1, 17",
+      "about": "NEXT LINE (NEL) is a control character and not whitespace for canonical form, so it is refused.",
+      "input": {"segment": {"segment_id": "t", "cues": [{"text": "Ring the\u0085 bell."}]}},
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[0].text",
+            "segment_id": "t",
+            "cue": 0,
+            "text": "\u0085",
+            "offset": 8,
+            "reason": "control",
+            "codepoints": "U+0085"
+          }
+        ]
+      }
     },
     {
       "name": "markup_in_a_later_cue_is_refused",
       "design": "9.1 step 1",
       "about": "Every cue is sanitised, not only the first.",
       "input": {"segment": {"segment_id": "t", "cues": [{"text": "A clean cue."}, {"text": "Then [pause] more."}]}},
-      "expect": {"outcome": "refused", "error": {"code": "TEXT_REFUSED"}}
+      "expect": {
+        "outcome": "refused",
+        "error": {"code": "TEXT_REFUSED", "field": "segments[0].cues[1].text"},
+        "offenders": [
+          {
+            "field": "segments[0].cues[1].text",
+            "segment_id": "t",
+            "cue": 1,
+            "text": "[",
+            "offset": 5,
+            "reason": "markup",
+            "codepoints": "U+005B"
+          },
+          {
+            "field": "segments[0].cues[1].text",
+            "segment_id": "t",
+            "cue": 1,
+            "text": "]",
+            "offset": 11,
+            "reason": "markup",
+            "codepoints": "U+005D"
+          }
+        ]
+      }
     }
   ]
 }

@@ -441,6 +441,7 @@ def test_canary_gate_text_and_seeds_are_fixed_s10_1() -> None:
 REQUIRED_TEXT_CASES = {
     "canonical_form_collapses_whitespace_runs",
     "canonical_form_applies_nfc",
+    "canonical_form_tab_and_newline",
     "join_is_cues_joined_by_one_space",
     "text_differing_from_join_is_refused",
     "hint_matches_whole_words_only",
@@ -448,10 +449,15 @@ REQUIRED_TEXT_CASES = {
     "hint_longest_term_first",
     "hint_possessive_replaces_the_term_only",
     "hint_never_applied_across_a_cue_boundary",
+    "hint_split_across_three_cues_is_flagged_once",
+    "hint_repeated_term_is_refused",
+    "hint_empty_respelling_is_refused",
+    "hint_respelled_term_with_digits_raises_no_warning",
     "warn_digit",
     "warn_symbols",
     "warn_unit_like",
     "warn_unit_like_lone_lower_case_m_s_g",
+    "format_character_warns_and_is_not_refused",
     "no_warning_for_a_A_I_in_am",
     "lone_capitals_are_letter_info",
     "passing_punctuation_raises_no_warning",
@@ -461,6 +467,9 @@ REQUIRED_TEXT_CASES = {
     "markup_square_brackets_are_refused",
     "markup_special_token_delimiters_are_refused",
     "control_character_nul_is_refused",
+    "control_character_vertical_tab_is_refused",
+    "control_character_form_feed_is_refused",
+    "control_character_next_line_is_refused",
 }
 
 

@@ -36,8 +36,7 @@
         "retake_trigger": true,
         "verdict": "fail"
       },
-      "unsure": ["expect.exact[0].expected", "expect.exact[0].heard"],
-      "note": "expected and heard are shown in normalised form (design 11.3 step 1); whether they are reported raw or normalised is WP14's."
+      "note": "expected and heard are reported in normalised form (design 11.3 step 1), as QA reports them (WP14)."
     },
     {
       "name": "fault_head_insertion_three_words",
