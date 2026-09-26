@@ -12,8 +12,11 @@ hint says what to change.
 
 The validator is Draft 2020-12 with three JSON rules made exact, so that what passes here is what the schema
 says: ``integer`` is an int and never a float such as ``2.0``; ``number`` is finite (no NaN or infinity);
-and a ``pattern``'s final ``$`` is the end of the string, as in ECMA-262, where Python's ``$`` would also
-match before a trailing newline.
+and every ``$`` anchor in a ``pattern`` is the end of the string, as in ECMA-262, where Python's ``$`` would
+also match before a trailing newline.
+
+When a request fails several rules, a failure that is not a size bound is always reported first, so the
+code is ``LIMIT_EXCEEDED`` only when every failure is a size bound.
 """
 
 from __future__ import annotations
@@ -88,14 +91,46 @@ def _is_number(checker: object, instance: object) -> bool:
     return isinstance(instance, int)
 
 
+def ecma_anchors(pattern: str) -> str:
+    """``pattern`` with every ``$`` anchor rewritten to ``\\Z``, so it matches only at the end of the string.
+
+    ECMA-262's ``$`` (no multiline flag) is the end of the input; Python's also matches before a final
+    newline. An anchor is a ``$`` that is neither escaped (``\\$``) nor inside a character class (``[$]``).
+    A ``]`` right after ``[`` or ``[^`` is a literal, as in Python.
+    """
+    out: list[str] = []
+    i = 0
+    in_class = False
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            out.append(pattern[i : i + 2])
+            i += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+            out.append(char)
+            i += 1
+            for literal in ("^", "]"):
+                if pattern.startswith(literal, i):
+                    out.append(literal)
+                    i += 1
+            continue
+        elif char == "$":
+            out.append(r"\Z")
+            i += 1
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
 @functools.cache
 def _ecma_pattern(pattern: str) -> re.Pattern[str]:
-    """``pattern`` compiled so that a final unescaped ``$`` matches only at the end of the string."""
-    if pattern.endswith("$"):
-        backslashes = len(pattern[:-1]) - len(pattern[:-1].rstrip("\\"))
-        if backslashes % 2 == 0:
-            pattern = pattern[:-1] + r"\Z"
-    return re.compile(pattern)
+    """``pattern`` compiled with ECMA-262's ``$`` (see ``ecma_anchors``)."""
+    return re.compile(ecma_anchors(pattern))
 
 
 def _pattern(validator: Validator, pattern: str, instance: object, schema: object) -> Iterator[ValidationError]:
@@ -209,7 +244,7 @@ def _describe(error: ValidationError) -> list[_Failure]:
     }
     describe = messages.get(rule)
     message = describe() if describe is not None else f"{where} does not satisfy the schema rule {rule!r}"
-    if rule in SIZE_RULES and parts and parts[-1] in SIZE_FIELDS:
+    if is_size_bound(rule, parts):
         size_hints = {
             "segments": f"Split the request: send at most {value} segments, and the rest in another request.",
             "cues": f"Split the segment: {where} takes at most {value} cues; put the rest in another segment.",
@@ -234,8 +269,18 @@ def _hint(first: _Failure) -> str:
     return f"Change {first.field or 'the arguments'} to satisfy the tool's inputSchema."
 
 
-def _sort_key(error: ValidationError) -> tuple[int, int, str]:
-    return (len(error.absolute_path), _RANK.get(str(error.validator), 2), field_path(error.absolute_path))
+def is_size_bound(rule: str, parts: Sequence[str | int]) -> bool:
+    """Whether a failure is a request-size bound (``LIMIT_EXCEEDED``): a ``SIZE_RULES`` rule on a field
+    named in ``SIZE_FIELDS``."""
+    return rule in SIZE_RULES and bool(parts) and parts[-1] in SIZE_FIELDS
+
+
+def _sort_key(error: ValidationError) -> tuple[bool, int, int, str]:
+    """Any failure that is not a size bound first, so ``LIMIT_EXCEEDED`` is reported only when every
+    failure is one; then the shallowest, an unknown field before a missing one, then by path."""
+    parts = list(error.absolute_path)
+    rule = str(error.validator)
+    return (is_size_bound(rule, parts), len(parts), _RANK.get(rule, 2), field_path(parts))
 
 
 class ArgumentValidator:
