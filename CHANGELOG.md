@@ -86,7 +86,9 @@ are tracked here but no version is tagged; nothing described below is installabl
     because it could not tidy up afterwards.
   - A `.trash-` name records when it was made (`.trash-<UTC epoch seconds>-<token>-<name>`), and `gc`
     judges its age by that time rather than by the modification time, which a renamed file keeps. So `gc`
-    never collects the old copy a publish has just set aside and may still need to put back.
+    never collects the old copy a publish has just set aside and may still need to put back. For the same
+    reason, a file the store moves in from `scratch/` takes the time of the move as its modification time,
+    so a canary clip that waited there for days is never collected while its publish waits for the lock.
 - `narration.post`: delivery post-processing (design section 13). A raw take becomes a 48 kHz PCM_24 mono
   WAV through the relative trim, a pinned resampler, static gain to -16 LUFS (BS.1770-4) with the
   -1.0 dBTP true-peak ceiling winning, and 10 ms fades. Each delivery reports its trim and loudness

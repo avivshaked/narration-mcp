@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -61,6 +62,18 @@ def test_move_into_makes_the_moved_file_read_only(tmp_path: Path) -> None:
     dst = tmp_path / "raw.wav"
     files.move_into(src, dst, readonly=True)
     assert not src.exists() and dst.read_bytes() == b"audio" and files.is_readonly(dst)
+
+
+def test_move_into_stamps_the_moved_file_with_the_time_of_the_move_s15(tmp_path: Path) -> None:
+    # A rename keeps the file's old mtime, and gc judges a .tmp- name's age by its mtime.
+    src = tmp_path / "scratch.wav"
+    src.write_bytes(b"audio")
+    months_ago = time.time() - 90 * 86_400
+    os.utime(src, (months_ago, months_ago))
+    before = time.time()
+    dst = tmp_path / ".tmp-0123456789abcdef-canary.wav"
+    files.move_into(src, dst, readonly=True)
+    assert os.stat(dst).st_mtime >= before - 2  # a coarse file-system clock may round down a little
 
 
 def test_remove_tree_removes_read_only_files(tmp_path: Path) -> None:

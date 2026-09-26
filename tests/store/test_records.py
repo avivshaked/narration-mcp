@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import sqlite3
 import threading
 from pathlib import Path
@@ -14,7 +15,7 @@ import pytest
 
 from narration.config import Config
 from narration.contracts import names
-from narration.contracts.models import ProvenanceEntry
+from narration.contracts.models import EngineProfile, ProvenanceEntry
 from narration.keys import Keys
 from narration.store import (
     InvalidIdError,
@@ -26,6 +27,7 @@ from narration.store import (
 from narration.store import db as store_db
 from narration.store import files as store_files
 
+from .conftest import FakeClock
 from .factories import (
     CLIP_SHA,
     METHOD_ID,
@@ -338,3 +340,22 @@ def test_a_canary_clip_whose_commit_fails_goes_back_and_the_old_one_stays_dc_3(
     assert Path(clip.path).read_bytes() == b"canary" and store_files.is_readonly(Path(clip.path))
     assert store.verify()["mismatched"] == []
     assert not [p for p in store.root.rglob("*") if p.name.startswith((".tmp-", ".trash-"))]
+
+
+def test_a_canary_clip_that_waited_in_scratch_survives_a_gc_during_its_publish_dc_3(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The clip is moved to a .tmp- name before its publish takes the write lock. A gc in between must not
+    # take it for an old leftover because it waited in scratch/ for months (a rename keeps the mtime).
+    src = scratch_file(store, "canary.wav", b"canary")
+    months_ago = clock.now - 90 * 86_400
+    os.utime(src, (months_ago, months_ago))
+    get_engine_profile = store.get_engine_profile
+
+    def gc_first(engine_profile_id: str) -> EngineProfile | None:  # called between the move and the publish
+        store.gc(dry_run=False)
+        return get_engine_profile(engine_profile_id)
+
+    monkeypatch.setattr(store, "get_engine_profile", gc_first)
+    clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, src)
+    assert Path(clip.path).read_bytes() == b"canary"

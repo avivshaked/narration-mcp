@@ -205,9 +205,15 @@ def write_atomic(path: Path, data: bytes | Iterable[bytes], *, readonly: bool, d
 
 def move_into(src: Path, dst: Path, *, readonly: bool) -> None:
     """Move a finished file (same volume) to ``dst``, flushing its data to disk first, so that a crash can
-    never leave ``dst`` with data that is not on disk."""
+    never leave ``dst`` with data that is not on disk.
+
+    The file's modification time becomes the time of the move. A rename keeps the old one, and a caller's
+    file that waited days in ``scratch/`` would then look, under a ``.tmp-`` name, like an old leftover
+    that ``gc`` may remove before the publish renames it into place.
+    """
     with open(src, "r+b") as f:
         os.fsync(f.fileno())
+    os.utime(src)
     os.replace(src, dst)
     if readonly:
         make_readonly(dst)
