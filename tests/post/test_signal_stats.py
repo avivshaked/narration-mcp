@@ -60,6 +60,21 @@ def test_voiced_span_and_longest_internal_silence_s11_1() -> None:
     assert stats.longest_internal_silence_s == pytest.approx(1.5, abs=0.04)
 
 
+def test_a_dc_offset_does_not_hide_an_internal_silence_s11_1_dc10() -> None:
+    # The reviewer's case: DC 0.001 with a 3 s gap. Without the mean removed every frame was speech.
+    raw = speech_like(24000, head_s=0.5, bursts=(1.0, 1.0), gaps=(3.0,), tail_s=0.7) + 0.001
+    delivery, rate = decode_wav(deliver(raw, 24000, DeliveryConfig()).wav)
+    stats = measure_signal(raw, 24000, delivery, rate)
+    assert stats.longest_internal_silence_s == pytest.approx(3.0, abs=0.04)
+    assert stats.raw_dc_offset == pytest.approx(0.001, abs=1e-5)
+
+
+def test_a_near_silent_delivery_has_no_voiced_span_s11_1_dc10() -> None:
+    # Everything under -70 dBFS is silence, whatever its own p95.
+    stats = measure_signal(np.zeros(2400), 24000, 1e-5 * np.sin(np.arange(48000) / 3.0), 48000)
+    assert (stats.voiced_start_s, stats.voiced_end_s) == (None, None)
+
+
 def test_continuous_speech_has_no_internal_silence_s11_1() -> None:
     raw = speech_like(24000)
     delivery, rate = decode_wav(deliver(raw, 24000, DeliveryConfig()).wav)

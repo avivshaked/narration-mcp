@@ -6,7 +6,7 @@ higher of the two rates, cut off at the lower rate's Nyquist frequency. From 24 
 to within 0.001 dB up to 11 kHz and at least 75 dB down from 13 kHz (KNOW: measured with ``freqz``).
 
 The output has ``ceil(samples * up / down)`` samples, where ``up / down`` is the reduced ratio of the
-rates. It runs on one thread, so it is within any CPU thread cap (section 4.1).
+rates. It does its work on the calling thread (``narration.post.pipeline``, on the thread cap).
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any, Final
 
 import numpy as np
 import numpy.typing as npt
+import scipy
 from scipy.signal import firwin, resample_poly
 
 ZERO_CROSSINGS: Final = 32
@@ -62,9 +63,12 @@ def resample(x: Audio, source_rate: int, target_rate: int) -> Audio:
     return np.asarray(y, dtype=np.float64)
 
 
-def describe(scipy_version: str, numpy_version: str) -> str:
-    """The resampler's name, version and pinned parameters, for the delivery key (section 10.2)."""
+def describe() -> str:
+    """The resampler's name, version and pinned parameters, for the delivery key (section 10.2).
+
+    The versions are those of the modules loaded in this process.
+    """
     return (
-        f"scipy.signal.resample_poly {scipy_version} "
-        f"(firwin kaiser beta={KAISER_BETA}, {ZERO_CROSSINGS} zero crossings, padtype=constant; numpy {numpy_version})"
+        f"scipy.signal.resample_poly {scipy.__version__} "
+        f"(firwin kaiser beta={KAISER_BETA}, {ZERO_CROSSINGS} zero crossings, padtype=constant; numpy {np.__version__})"
     )

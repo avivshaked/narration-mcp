@@ -1,13 +1,17 @@
-"""The relative trim (design section 13, step 1) and the speech-frame rule it rests on.
+"""The relative trim (design section 13, step 1, as revised by DC-9 and DC-10) and its speech-frame rule.
 
-A take's **speech level** is the 95th percentile of its 20 ms frame RMS. A frame is **speech** when its RMS
-is above zero and at least the speech level plus ``rel_db`` (-40 dB by default); every other frame is
-silence. Because the threshold moves with the take's own level, the trim is gain independent.
+Frames are 20 ms, consecutive and non-overlapping from sample 0; the last, partial frame is measured over
+the samples it has. **Frame RMS is measured on the take with its mean removed**, for measurement only: the
+audio is never changed (DC-10: a DC offset of 0.001 made every frame speech).
 
-Frames are consecutive and non-overlapping, starting at sample 0; the last, partial frame is measured over
-the samples it has. ``head`` and ``tail`` are the silence found before the first and after the last speech
-frame. Up to ``pad_s`` of each is kept: when less silence than that was found, all of it is kept and
-nothing is added. A take with no speech frame at all (digital silence) is not trimmed.
+A take's **speech level** is the 95th percentile of its frame RMS. A frame is **speech** when its RMS is at
+least ``max(speech level + rel_db, floor_dbfs)``: -40 dB under the speech level, and never below
+-70 dBFS (DC-10: a take under 5 % speech was never trimmed). Every other frame is silence. The rule is gain
+independent for every take whose speech level is above ``floor_dbfs - rel_db`` (-30 dBFS).
+
+``head`` and ``tail`` are the silence found before the first and after the last speech frame. At most
+``pad_s`` of each is kept: a take with less silence than that at an end keeps what it has, and no silence
+is added (DC-9). A take with no speech frame at all (silence) is not trimmed.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ def frame_length(sample_rate: int) -> int:
 def frame_rms(x: Audio, frame: int) -> Audio:
     """The RMS of each non-overlapping frame of ``frame`` samples, from sample 0.
 
-    The last frame may be partial; it is measured over the samples it has.
+    The last frame may be partial; it is measured over the samples it has. The mean is not removed here.
     """
     n = int(x.shape[0])
     full, rest = divmod(n, frame)
@@ -48,14 +52,18 @@ def frame_rms(x: Audio, frame: int) -> Audio:
     return rms
 
 
-def speech_frames(x: Audio, sample_rate: int, rel_db: float) -> Mask:
-    """Which 20 ms frames of ``x`` are speech under the relative rule (the module docstring)."""
-    rms = frame_rms(x, frame_length(sample_rate))
-    if rms.size == 0:
+def speech_threshold(rms: Audio, rel_db: float, floor_dbfs: float) -> float:
+    """``max(p95(rms) + rel_db, floor_dbfs)`` as a linear RMS."""
+    level = float(np.percentile(rms, SPEECH_PERCENTILE, method="linear")) if rms.size else 0.0
+    return max(level * 10.0 ** (rel_db / 20.0), 10.0 ** (floor_dbfs / 20.0))
+
+
+def speech_frames(x: Audio, sample_rate: int, rel_db: float, floor_dbfs: float) -> Mask:
+    """Which 20 ms frames of ``x`` are speech under the rule of the module docstring."""
+    if x.shape[0] == 0:
         return np.zeros(0, dtype=np.bool_)
-    level = float(np.percentile(rms, SPEECH_PERCENTILE, method="linear"))
-    threshold = level * 10.0 ** (rel_db / 20.0)
-    return (rms > 0.0) & (rms >= threshold)
+    rms = frame_rms(x - np.mean(x), frame_length(sample_rate))
+    return (rms > 0.0) & (rms >= speech_threshold(rms, rel_db, floor_dbfs))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -64,7 +72,7 @@ class TrimPoints:
 
     ``head`` and ``tail`` are the silence found at each end; ``pad`` is ``pad_s`` in samples. The delivery
     keeps ``[start, stop)``, so its length before resampling is
-    ``samples - max(head - pad, 0) - max(tail - pad, 0)``.
+    ``samples - max(head - pad, 0) - max(tail - pad, 0)`` (section 13, DC-9).
     """
 
     sample_rate: int
@@ -99,10 +107,10 @@ class TrimPoints:
         return self.tail / self.sample_rate
 
 
-def find_trim(x: Audio, sample_rate: int, *, rel_db: float, pad_s: float) -> TrimPoints:
+def find_trim(x: Audio, sample_rate: int, *, rel_db: float, floor_dbfs: float, pad_s: float) -> TrimPoints:
     """Find the silence at each end of a raw take (section 13 step 1)."""
     n = int(x.shape[0])
-    speech = np.flatnonzero(speech_frames(x, sample_rate, rel_db))
+    speech = np.flatnonzero(speech_frames(x, sample_rate, rel_db, floor_dbfs))
     if speech.size == 0:
         head = tail = 0
     else:
@@ -112,7 +120,11 @@ def find_trim(x: Audio, sample_rate: int, *, rel_db: float, pad_s: float) -> Tri
     return TrimPoints(sample_rate=sample_rate, samples=n, head=head, tail=tail, pad=round(pad_s * sample_rate))
 
 
-def rule_text(rel_db: float) -> str:
-    """The trim rule in words, as the take record states it (App. B): ``p95_frame_rms - 40 dB; …``."""
+def rule_text(rel_db: float, floor_dbfs: float) -> str:
+    """The trim rule in words, as the take record states it (App. B):
+    ``max(p95_frame_rms - 40 dB, -70 dBFS), mean removed; head_s/tail_s found, up to pad_s kept``."""
     sign = "-" if rel_db < 0 else "+"
-    return f"p95_frame_rms {sign} {abs(rel_db):g} dB; head_s/tail_s found, pad_s kept"
+    return (
+        f"max(p95_frame_rms {sign} {abs(rel_db):g} dB, {floor_dbfs:g} dBFS), mean removed; "
+        "head_s/tail_s found, up to pad_s kept"
+    )

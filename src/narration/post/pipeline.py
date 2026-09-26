@@ -1,35 +1,45 @@
-"""The delivery pipeline (design section 13): raw take → ``delivery.wav``, on the CPU, deterministically.
+"""The delivery pipeline (design section 13): raw take → ``delivery.wav``, on the CPU.
 
 In this order:
 
-1. **Trim** (``narration.post.trim``): the silence at each end below the take's speech level (p95 of 20 ms
-   frame RMS) - 40 dB, keeping up to ``pad_s`` (0.08 s) of it at each end.
+1. **Trim** (``narration.post.trim``): the silence at each end, found with frame RMS measured on the take
+   with its mean removed against max(speech level (p95 of 20 ms frame RMS) - 40 dB, -70 dBFS); at most
+   ``pad_s`` (0.08 s) of it is kept at each end, and none is added (DC-9, DC-10).
 2. **Resample** to ``sample_rate`` (48 kHz) with the pinned resampler (``narration.post.resample``).
-3. **Gain**: one static gain to ``target_lufs`` (-16 LUFS integrated, BS.1770-4, ``narration.post.loudness``)
-   measured on the resampled signal. No limiter. The gain is rounded to 0.0001 dB, so the gain the record
-   states is exactly the gain applied, and float noise in the measurement cannot move a sample.
+3. **Gain**: one static gain to ``target_lufs`` (-23 LUFS integrated by default, BS.1770-4,
+   ``narration.post.loudness``) measured on the resampled signal. No limiter. The gain is rounded to
+   0.0001 dB before it is applied, so the gain the record states is exactly the gain used.
 4. **Fades**: ``fade_s`` (0.01 s) raised-cosine ramps at both edges; the first and last samples are zero.
-5. **Quantise** to ``subtype`` (PCM_24) mono (``narration.post.pcm``).
+   A raised cosine rather than a linear ramp, because many takes start or end with little silence (DC-9).
+5. **Quantise** to ``subtype`` (PCM_24) mono, and write the WAV bytes (``narration.post.pcm``).
 6. **True peak** of this final file, 4x oversampled. Above ``true_peak_dbtp`` (-1.0 dBTP), the gain is
    lowered to what the ceiling allows and the signal re-quantised, then measured again (and lowered by
    0.0001 dB steps while quantisation keeps it above); the take is flagged ``LOUDNESS_UNDER_TARGET`` (info)
    with the shortfall. **The ceiling wins over the loudness target.**
 
 The loudness record's ``measured_lufs`` and ``true_peak_dbtp`` are measured on the final file. A gain above
-+12 dB is flagged ``GAIN_HIGH`` (info). The same raw audio and profile give the same bytes, every time and in
-every process. Everything runs on one thread, so the pipeline is within any CPU thread cap (section 4.1).
++12 dB is flagged ``GAIN_HIGH`` (info).
 
-**Degenerate takes are delivered, not refused**, so that QA can fail them and trigger a retake:
-non-finite raw samples are treated as zero (``SignalStats.raw_nonfinite`` reports them), and a take with no
-measurable loudness (every 400 ms block under the -70 LUFS absolute gate, e.g. digital silence) gets no
-gain; its record then states ``measured_lufs`` = -70.0 ("at or below the absolute gate") and, for an all-zero
-file, ``true_peak_dbtp`` at one least significant bit.
+**CPU thread cap (section 4.1).** No step calls BLAS or starts a thread: the resampler, the meter's filters
+and numpy's element-wise operations do their work on the calling thread (a test measures the CPU time of
+every thread while ``deliver`` runs). The native pools a library starts at import (OpenBLAS's) are capped by
+the environment of the process that runs this (``OMP_NUM_THREADS`` and the like), set when it starts.
+
+**Determinism.** On one machine, with the same pinned versions, the same raw audio and profile give the same
+bytes, in every run and every process (section 10.1 promises no more). Across machines, libm and SIMD
+differences of a few ULPs in the measurements can in principle change a gain's last rounded digit and so
+the bytes; rounding the gain to 0.0001 dB makes that rare, not impossible. Any change to a rule here that
+changes bytes needs a new ``names.POST_RULES``, which is in the delivery key.
+
+**Degenerate takes are delivered, not refused**, so that QA can fail them and trigger a retake: non-finite
+raw samples are treated as zero (``SignalStats.raw_nonfinite`` reports them), and a take with no
+measurable loudness (every 400 ms block under the -70 LUFS absolute gate, e.g. silence) gets no gain; its
+record states ``measured_lufs`` null, and ``true_peak_dbtp`` null when the file is all zero.
 """
 
 from __future__ import annotations
 
 import functools
-import importlib.metadata
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,9 +52,10 @@ from narration.config import DeliveryConfig
 from narration.contracts import codes
 from narration.contracts.interfaces import DeliveryOutput, SignalStats
 from narration.contracts.models import DeliveryTools, Flag, Loudness, Trim
+from narration.contracts.names import POST_RULES
 
 from . import loudness, resample
-from .pcm import bits_of, encode_wav, lsb_dbfs, quantise, read_mono, to_float, write_atomic
+from .pcm import bits_of, encode_wav, quantise, read_mono, to_float, write_atomic
 from .trim import find_trim, frame_length, rule_text, speech_frames
 
 GAIN_HIGH_DB: Final = 12.0
@@ -53,12 +64,11 @@ DECIMALS: Final = 4
 """Gain, loudness and true peak are stated (and the gain applied) to 0.0001 dB."""
 GAIN_STEP_DB: Final = 10.0**-DECIMALS
 MAX_CEILING_STEPS: Final = 1000
-SILENT_LUFS: Final = loudness.ABSOLUTE_GATE_LUFS
-"""``measured_lufs`` of a take with no defined loudness: at or below the absolute gate."""
 FULL_SCALE: Final = 32767 / 32768
 """A raw sample at or beyond this magnitude counts as clipped (the largest positive 16-bit value)."""
 VOICED_REL_DB: Final = -40.0
-"""The speech rule ``SignalStats`` uses on the delivery file: the trim's rule at its default."""
+VOICED_FLOOR_DBFS: Final = -70.0
+"""The speech rule ``SignalStats`` uses on the delivery file: the trim's rule at its defaults (DC-10)."""
 
 Audio = npt.NDArray[np.float64]
 
@@ -73,12 +83,8 @@ class Delivered:
 
 @functools.cache
 def delivery_tools() -> DeliveryTools:
-    """The resampler's and loudness meter's names and versions, as installed (section 10.2)."""
-    version = importlib.metadata.version
-    return DeliveryTools(
-        resampler=resample.describe(version("scipy"), version("numpy")),
-        loudness_meter=loudness.describe(version("pyloudnorm"), version("scipy"), version("numpy")),
-    )
+    """The resampler's and meter's names, versions and pinned parameters, and the rules' version (10.2)."""
+    return DeliveryTools(resampler=resample.describe(), loudness_meter=loudness.describe(), post=POST_RULES)
 
 
 def fade_edges(y: Audio, samples: int) -> Audio:
@@ -97,6 +103,10 @@ def _linear(gain_db: float) -> float:
     return 10.0 ** (gain_db / 20.0)
 
 
+def _rounded(value: float | None) -> float | None:
+    return None if value is None else round(value, DECIMALS)
+
+
 def _flag(code: str, message: str, details: dict[str, Any]) -> Flag:
     severity = codes.flag_code(code).severities[0]
     return Flag(
@@ -105,6 +115,30 @@ def _flag(code: str, message: str, details: dict[str, Any]) -> Flag:
         message=message,
         retake_trigger=codes.is_retake_trigger(code, severity),
         details=details,
+    )
+
+
+def _under_target(record: Loudness, target_gain: float | None, profile: DeliveryConfig) -> Flag:
+    reduction = round((target_gain if target_gain is not None else 0.0) - record.gain_db, DECIMALS)
+    details: dict[str, Any] = {
+        "target_lufs": profile.target_lufs,
+        "measured_lufs": record.measured_lufs,
+        "gain_reduction_db": reduction,
+        "true_peak_dbtp": record.true_peak_dbtp,
+        "ceiling_dbtp": profile.true_peak_dbtp,
+    }
+    message = f"The true-peak ceiling of {profile.true_peak_dbtp:g} dBTP lowered the gain by {reduction:.2f} dB"
+    if record.measured_lufs is not None:
+        shortfall = round(profile.target_lufs - record.measured_lufs, DECIMALS)
+        details["shortfall_db"] = shortfall
+        message += (
+            f", so this take sits at {record.measured_lufs:.2f} LUFS, {shortfall:.2f} dB under the "
+            f"{profile.target_lufs:g} LUFS target"
+        )
+    return _flag(
+        codes.LOUDNESS_UNDER_TARGET,
+        message + ". To level takes of one script, use each take's loudness record.",
+        details,
     )
 
 
@@ -119,10 +153,12 @@ def deliver(raw: Audio, sample_rate: int, profile: DeliveryConfig) -> Delivered:
     x = np.nan_to_num(np.asarray(raw, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
 
     # 1. trim
-    points = find_trim(x, sample_rate, rel_db=profile.trim_rel_db, pad_s=profile.trim_pad_s)
+    points = find_trim(
+        x, sample_rate, rel_db=profile.trim_rel_db, floor_dbfs=profile.trim_floor_dbfs, pad_s=profile.trim_pad_s
+    )
     # 2. resample
     y = resample.resample(x[points.start : points.stop], sample_rate, rate)
-    # 3. gain (measured before the fades, as the design orders the steps)
+    # 3. gain, measured before the fades as the design orders the steps
     measured_in = loudness.integrated_loudness(y, rate)
     target_gain = None if measured_in is None else round(profile.target_lufs - measured_in, DECIMALS)
     gain_db = 0.0 if target_gain is None else target_gain
@@ -146,35 +182,16 @@ def deliver(raw: Audio, sample_rate: int, profile: DeliveryConfig) -> Delivered:
         else:  # pragma: no cover - quantisation moves a peak by far less than the steps allow
             raise RuntimeError(f"the true-peak ceiling of {ceiling} dBTP was not met after {MAX_CEILING_STEPS} steps")
 
-    final = to_float(q, bits)
-    measured = loudness.integrated_loudness(final, rate)
     record = Loudness(
-        measured_lufs=SILENT_LUFS if measured is None else round(measured, DECIMALS),
+        measured_lufs=_rounded(loudness.integrated_loudness(to_float(q, bits), rate)),
         gain_db=gain_db,
-        true_peak_dbtp=lsb_dbfs(bits) if peak is None else round(peak, DECIMALS),
+        true_peak_dbtp=_rounded(peak),
         ceiling_applied=ceiling_applied,
         target_lufs=profile.target_lufs,
     )
     flags: list[Flag] = []
     if ceiling_applied:
-        shortfall = round(profile.target_lufs - record.measured_lufs, DECIMALS)
-        reduction = round((target_gain if target_gain is not None else 0.0) - gain_db, DECIMALS)
-        flags.append(
-            _flag(
-                codes.LOUDNESS_UNDER_TARGET,
-                f"The true-peak ceiling of {ceiling:g} dBTP lowered the gain by {reduction:.2f} dB, so this take "
-                f"sits at {record.measured_lufs:.2f} LUFS, {shortfall:.2f} dB under the {profile.target_lufs:g} LUFS "
-                "target. To level takes of one script, use each take's loudness record.",
-                {
-                    "target_lufs": profile.target_lufs,
-                    "measured_lufs": record.measured_lufs,
-                    "shortfall_db": shortfall,
-                    "gain_reduction_db": reduction,
-                    "true_peak_dbtp": record.true_peak_dbtp,
-                    "ceiling_dbtp": ceiling,
-                },
-            )
-        )
+        flags.append(_under_target(record, target_gain, profile))
     if gain_db > GAIN_HIGH_DB:
         flags.append(
             _flag(
@@ -194,7 +211,7 @@ def deliver(raw: Audio, sample_rate: int, profile: DeliveryConfig) -> Delivered:
             head_s=points.head_s,
             tail_s=points.tail_s,
             pad_s=profile.trim_pad_s,
-            rule=rule_text(profile.trim_rel_db),
+            rule=rule_text(profile.trim_rel_db, profile.trim_floor_dbfs),
         ),
         loudness=record,
         flags=tuple(flags),
@@ -207,9 +224,10 @@ def measure_signal(raw: Audio, raw_rate: int, delivery: Audio, delivery_rate: in
 
     Clipping counts raw samples at or beyond ``FULL_SCALE`` (32767/32768) in magnitude, infinities included.
     The DC offset is the mean of the raw samples, non-finite ones as zero. Voiced bounds and the longest
-    internal silence use the speech-frame rule of the trim (p95 of 20 ms frame RMS - 40 dB) on the delivery:
-    ``voiced_start_s`` / ``voiced_end_s`` are the edges of its first and last speech frames (None when it
-    has none), and the longest silence is the longest run of non-speech frames between them.
+    internal silence use the trim's speech rule (DC-10: frame RMS with the mean removed, against
+    max(p95 - 40 dB, -70 dBFS)) on the delivery: ``voiced_start_s`` / ``voiced_end_s`` are the edges of its
+    first and last speech frames (None when it has none), and the longest silence is the longest run of
+    non-speech frames between them.
     """
     n = int(raw.shape[0])
     finite = np.isfinite(raw)
@@ -217,7 +235,7 @@ def measure_signal(raw: Audio, raw_rate: int, delivery: Audio, delivery_rate: in
     magnitude = np.abs(np.nan_to_num(raw, nan=0.0))
     frame = frame_length(delivery_rate)
     total = int(delivery.shape[0])
-    speech = np.flatnonzero(speech_frames(delivery, delivery_rate, VOICED_REL_DB))
+    speech = np.flatnonzero(speech_frames(delivery, delivery_rate, VOICED_REL_DB, VOICED_FLOOR_DBFS))
     if speech.size == 0:
         start: float | None = None
         end: float | None = None
@@ -248,14 +266,15 @@ class DeliveryPipeline:
 
     @property
     def tools(self) -> DeliveryTools:
-        """The resampler's and loudness meter's names and versions (they enter the delivery key)."""
+        """The resampler's and meter's names and versions, and ``post`` (all enter the delivery key)."""
         return delivery_tools()
 
     def process(self, raw_path: Path, out_path: Path, profile: DeliveryConfig) -> DeliveryOutput:
         """Post-process the raw take at ``raw_path`` into ``out_path`` (temp name, then rename).
 
-        The same input gives the same bytes, every time. Raises ``ValueError`` for audio with more than one
-        channel or an unsupported ``profile.subtype``, and soundfile's errors for a file it cannot read.
+        On one machine with the same pinned versions, the same input gives the same bytes. Raises
+        ``ValueError`` for audio with more than one channel or an unsupported ``profile.subtype``, and
+        soundfile's errors for a file it cannot read.
         """
         raw, sample_rate = read_mono(raw_path)
         made = deliver(raw, sample_rate, profile)

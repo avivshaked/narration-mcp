@@ -1,4 +1,5 @@
-"""Delivery is deterministic (design section 13) and stays on one CPU thread (section 4.1)."""
+"""Delivery is deterministic on one machine with the same pins (design sections 10.1 and 13), and its work
+runs on the calling thread alone (section 4.1)."""
 
 from __future__ import annotations
 
@@ -20,26 +21,24 @@ _PROCESS = (
     "DeliveryPipeline().process(Path(sys.argv[1]), Path(sys.argv[2]), DeliveryConfig())\n"
 )
 
-_THREADS = (
-    "import threading, time\n"
+# numpy's import starts OpenBLAS's threads, so counting threads proves nothing: this measures the CPU time
+# each thread spends while `deliver` runs, and prints the calling thread's and the sum of all others'.
+_THREAD_TIMES = (
+    "import threading\n"
     "import numpy as np, psutil\n"
     "from narration.config import DeliveryConfig\n"
     "from narration.post import deliver\n"
-    "t = np.arange(24000 * 20) / 24000\n"
+    "t = np.arange(24000 * 60) / 24000\n"
     "x = 0.1 * np.sin(2 * np.pi * 150 * t) * (0.3 + np.sin(2 * np.pi * 2 * t) ** 2)\n"
-    "proc, counts, stop = psutil.Process(), [], threading.Event()\n"
-    "def sample():\n"
-    "    while not stop.is_set():\n"
-    "        counts.append(proc.num_threads())\n"
-    "        time.sleep(0.001)\n"
-    "sampler = threading.Thread(target=sample)\n"
-    "sampler.start()\n"
-    "time.sleep(0.1)\n"
-    "before = max(counts)\n"
+    "deliver(x[:48000], 24000, DeliveryConfig())\n"
+    "proc, main = psutil.Process(), threading.get_native_id()\n"
+    "def cpu():\n"
+    "    return {th.id: th.user_time + th.system_time for th in proc.threads()}\n"
+    "before = cpu()\n"
     "deliver(x, 24000, DeliveryConfig())\n"
-    "stop.set()\n"
-    "sampler.join()\n"
-    "print(before, max(counts))\n"
+    "after = cpu()\n"
+    "others = sum(v - before.get(k, 0.0) for k, v in after.items() if k != main)\n"
+    "print(after[main] - before.get(main, 0.0), others)\n"
 )
 
 
@@ -66,7 +65,7 @@ def test_delivery_in_memory_gives_the_same_bytes_as_the_file_s13(tmp_path: Path)
     assert deliver(x.astype("float32").astype("float64"), 24000, DeliveryConfig()).wav == out.read_bytes()
 
 
-def test_delivery_gives_the_same_bytes_across_processes_s13(tmp_path: Path) -> None:
+def test_delivery_gives_the_same_bytes_in_another_process_s10_1(tmp_path: Path) -> None:
     raw = tmp_path / "raw.wav"
     write_raw(str(raw), speech_like(24000, level=0.2, bursts=(1.0, 1.0), gaps=(0.3,)), 24000)
     here, there = tmp_path / "here.wav", tmp_path / "there.wav"
@@ -75,9 +74,16 @@ def test_delivery_gives_the_same_bytes_across_processes_s13(tmp_path: Path) -> N
     assert _sha256(here) == _sha256(there)
 
 
-def test_delivery_runs_on_one_thread_s4_1() -> None:
+def test_delivery_work_stays_on_the_calling_thread_s4_1() -> None:
     done = subprocess.run(
-        [sys.executable, "-c", _THREADS], check=True, timeout=120, capture_output=True, text=True, encoding="utf-8"
+        [sys.executable, "-c", _THREAD_TIMES],
+        check=True,
+        timeout=120,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     )
-    before, during = (int(v) for v in done.stdout.split())
-    assert during == before
+    main, others = (float(v) for v in done.stdout.split())
+    assert main > 0.2  # a minute of audio is real work for the calling thread
+    # Other threads may be credited a scheduler tick (about 16 ms on Windows), never the work itself.
+    assert others <= max(0.05 * main, 0.035)

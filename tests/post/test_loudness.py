@@ -6,9 +6,10 @@ import importlib.metadata
 
 import numpy as np
 import pytest
+import scipy
 
 from narration.post import delivery_tools, fade_edges
-from narration.post.loudness import FILTER_CLASS, integrated_loudness, true_peak_dbtp
+from narration.post.loudness import FILTER_CLASS, integrated_loudness, true_peak_dbtp, whole_blocks_end
 from narration.post.resample import resample
 
 from .signals import reference_loudness, sine, speech_like
@@ -21,11 +22,31 @@ def test_meter_reads_the_bs1770_4_reference_sine_s13() -> None:
     assert level == pytest.approx(-23.01, abs=0.02)
 
 
-def test_meter_agrees_with_the_standard_written_out_s13() -> None:
-    y = resample(speech_like(24000, head_s=0.3, bursts=(2.0, 1.5), gaps=(0.7,), tail_s=0.4), 24000, 48000)
+@pytest.mark.parametrize("tail_s", [0.4, 0.43, 0.47, 0.5])
+def test_meter_agrees_with_the_standard_written_out_s13(tail_s: float) -> None:
+    # Lengths that leave a partial final block: the meter counts whole blocks only, as BS.1770-4 does.
+    y = resample(speech_like(24000, head_s=0.3, bursts=(2.0, 1.5), gaps=(0.7,), tail_s=tail_s), 24000, 48000)
     level = integrated_loudness(y, 48000)
     assert level is not None
-    assert level == pytest.approx(reference_loudness(y), abs=0.01)
+    assert level == pytest.approx(reference_loudness(y), abs=0.001)
+
+
+def test_meter_ignores_a_loud_partial_final_block_s13() -> None:
+    # A burst in the last 50 ms lies in no whole block, so BS.1770-4 does not measure it.
+    y = resample(speech_like(24000, head_s=0.0, bursts=(3.0,), tail_s=0.0, floor=0.0), 24000, 48000)
+    whole = y[:139200]  # 19200 + 25 steps of 4800: ends exactly where a whole block ends
+    ending = np.concatenate([whole, 0.5 * np.ones(2400)])
+    assert whole_blocks_end(ending.shape[0], 48000) == 139200
+    assert integrated_loudness(ending, 48000) == integrated_loudness(whole, 48000)
+
+
+@pytest.mark.parametrize(
+    ("samples", "rate", "end"),
+    [(19200, 48000, 19200), (23999, 48000, 19200), (24000, 48000, 24000), (100000, 48000, 96000),
+     (17640, 44100, 17640), (22049, 44100, 17640), (22050, 44100, 22050), (4411, 11025, 4410)],
+)  # fmt: skip
+def test_meter_whole_blocks_end_where_the_last_whole_block_ends_s13(samples: int, rate: int, end: int) -> None:
+    assert whole_blocks_end(samples, rate) == end
 
 
 def test_meter_gates_out_silence_s13() -> None:
@@ -51,10 +72,12 @@ def test_meter_measures_less_than_a_block_as_one_block_s13() -> None:
 
 def test_meter_name_and_version_enter_the_delivery_key_s10_2() -> None:
     meter = delivery_tools().loudness_meter
-    assert meter.startswith(f"pyloudnorm {importlib.metadata.version('pyloudnorm')} ")
+    assert meter.startswith(f"pyloudnorm {importlib.metadata.version('pyloudnorm')} ")  # it has no __version__
+    assert f"scipy {scipy.__version__}, numpy {np.__version__}" in meter
     assert f"filter_class={FILTER_CLASS}" in meter
     assert "BS.1770-4" in meter
     assert "mono weight 1.0" in meter
+    assert "whole blocks only" in meter
     assert "true peak 4x" in meter
 
 

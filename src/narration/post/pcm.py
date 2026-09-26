@@ -1,10 +1,13 @@
 """Audio file I/O for post-processing: reading raw takes, quantising, and writing WAV atomically.
 
-Quantisation is done here, not by libsndfile, so the delivery's samples do not depend on the library's
-float-to-integer conversion: ``q = clip(rint(y * 2**(bits-1)), -2**(bits-1), 2**(bits-1) - 1)``, rounding
-half to even. soundfile then only packs the integers: they are handed over left-aligned in 32 bits, and
-libsndfile keeps the top ``bits`` exactly (KNOW: a PCM_24 round trip of every 24-bit extreme is exact, and
-the file is a canonical 44-byte-header WAV). Reading a file back as float gives ``q / 2**(bits-1)``.
+**The delivery's bytes are made here**, not by a library, so no library version can change them:
+
+- quantisation: ``q = clip(rint(y * 2**(bits-1)), -2**(bits-1), 2**(bits-1) - 1)``, rounding half to even;
+- the file: the canonical 44-byte WAV header (``RIFF``/``WAVE``, a 16-byte ``fmt `` chunk with format tag 1,
+  integer PCM, one channel; then ``data``), followed by the samples as little-endian two's complement.
+  A data chunk of odd length is followed by one zero pad byte, as RIFF requires.
+
+soundfile is used only to read audio. Reading a delivery back as float gives ``q / 2**(bits-1)``.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import struct
 import tempfile
 from pathlib import Path
 from typing import Final
@@ -22,6 +26,9 @@ import soundfile
 
 BITS: Final[dict[str, int]] = {"PCM_16": 16, "PCM_24": 24, "PCM_32": 32}
 """The delivery subtypes supported, with their bit depths."""
+WAVE_FORMAT_PCM: Final = 1
+HEADER_BYTES: Final = 44
+MAX_DATA_BYTES: Final = 0xFFFFFFFF - HEADER_BYTES
 
 Audio = npt.NDArray[np.float64]
 Pcm = npt.NDArray[np.int64]
@@ -47,18 +54,36 @@ def to_float(q: Pcm, bits: int) -> Audio:
     return q.astype(np.float64) / float(1 << (bits - 1))
 
 
-def lsb_dbfs(bits: int) -> float:
-    """The level of one least significant bit, in dB relative to full scale."""
-    return -20.0 * (bits - 1) * float(np.log10(2.0))
+def wav_header(samples: int, sample_rate: int, bits: int) -> bytes:
+    """The canonical 44-byte header of a mono integer-PCM WAV file with ``samples`` samples."""
+    width = bits // 8
+    data = samples * width
+    if data > MAX_DATA_BYTES:
+        raise ValueError(f"{samples} samples do not fit in a WAV file")
+    riff = 4 + (8 + 16) + (8 + data + (data & 1))
+    return (
+        b"RIFF"
+        + struct.pack("<I", riff)
+        + b"WAVEfmt "
+        + struct.pack("<IHHIIHH", 16, WAVE_FORMAT_PCM, 1, sample_rate, sample_rate * width, width, bits)
+        + b"data"
+        + struct.pack("<I", data)
+    )
 
 
 def encode_wav(q: Pcm, sample_rate: int, subtype: str) -> bytes:
-    """The bytes of a mono WAV file holding ``q`` at ``subtype``."""
+    """The bytes of a mono WAV file holding ``q`` at ``subtype`` (header, samples, pad byte if odd)."""
     bits = bits_of(subtype)
-    data = (q << (32 - bits)).astype(np.int32)
-    buffer = io.BytesIO()
-    soundfile.write(buffer, data, sample_rate, format="WAV", subtype=subtype)
-    return buffer.getvalue()
+    width = bits // 8
+    words = q.astype("<i4")
+    if width == 3:
+        body = words.view(np.uint8).reshape(-1, 4)[:, :3].tobytes()
+    elif width == 2:
+        body = q.astype("<i2").tobytes()
+    else:
+        body = words.tobytes()
+    pad = b"\x00" if len(body) & 1 else b""
+    return wav_header(int(q.shape[0]), sample_rate, bits) + body + pad
 
 
 def read_mono(path: Path) -> tuple[Audio, int]:
@@ -71,7 +96,7 @@ def read_mono(path: Path) -> tuple[Audio, int]:
 
 
 def decode_wav(data: bytes) -> tuple[Audio, int]:
-    """Read mono WAV bytes as float64 (full scale 1.0)."""
+    """Read mono WAV bytes as float64 (full scale 1.0), with soundfile."""
     samples, sample_rate = soundfile.read(io.BytesIO(data), dtype="float64", always_2d=True)
     if int(samples.shape[1]) != 1:
         raise ValueError(f"expected mono audio, found {samples.shape[1]} channels")

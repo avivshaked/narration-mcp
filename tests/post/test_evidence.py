@@ -2,8 +2,12 @@
 
 The takes are the bakeoff's six clone renders of the names probe (plan.md section 1.2), each a
 concatenation of eight paragraph takes whose sample bounds its JSON sidecar lists. The bakeoff is local
-evidence, found through ``NARRATION_BAKEOFF_ROOT``; without it these tests skip. Its files are only read:
-each paragraph is post-processed in memory, and the one test of the file path deletes what it wrote.
+evidence, found through ``NARRATION_BAKEOFF_ROOT``; without it these tests skip. Its files are only read,
+and every paragraph is post-processed in memory: nothing derived from them is written to disk. (The
+file-path contract of ``DeliveryPipeline.process`` is covered by the synthetic tests.)
+
+Revision 5.4 (DC-8) set the default target to -23 LUFS because every one of these 48 paragraphs reaches it
+under the -1 dBTP ceiling; the main test holds the pipeline to that.
 """
 
 from __future__ import annotations
@@ -20,8 +24,7 @@ import pytest
 import soundfile
 
 from narration.config import DeliveryConfig
-from narration.contracts import codes
-from narration.post import DeliveryPipeline, deliver
+from narration.post import deliver
 from narration.post.pcm import decode_wav, read_mono
 from narration.post.resample import resampled_length
 
@@ -88,17 +91,18 @@ def test_evidence_delivery_meets_loudness_and_true_peak_s13(renders: dict[Path, 
             ):
                 problems.append(f"{where}: length {out.samples} breaks the formula")
             loud = out.loudness
+            if loud.measured_lufs is None or loud.true_peak_dbtp is None:
+                problems.append(f"{where}: no loudness measured")
+                continue
             reference = reference_loudness(delivery)
             # pyloudnorm also counts a final partial block, which the whole-block reference leaves out: up to
             # 0.06 LU on these paragraphs, inside EBU Tech 3341's tolerance.
             if abs(reference - loud.measured_lufs) > LOUDNESS_TOLERANCE_LU:
                 problems.append(f"{where}: record {loud.measured_lufs} vs reference {reference:.4f} LUFS")
-            if loud.ceiling_applied != any(f.code == codes.LOUDNESS_UNDER_TARGET for f in out.flags):
-                problems.append(f"{where}: ceiling_applied and LOUDNESS_UNDER_TARGET disagree")
-            if not loud.ceiling_applied and abs(reference - PROFILE.target_lufs) > LOUDNESS_TOLERANCE_LU:
+            if loud.ceiling_applied or out.flags:
+                problems.append(f"{where}: the -23 LUFS default was not reached ({loud}, {out.flags})")
+            if abs(reference - PROFILE.target_lufs) > LOUDNESS_TOLERANCE_LU:
                 problems.append(f"{where}: {reference:.3f} LUFS is off the {PROFILE.target_lufs} target")
-            if loud.ceiling_applied and reference > PROFILE.target_lufs:
-                problems.append(f"{where}: the ceiling applied yet {reference:.3f} LUFS is over the target")
             if loud.true_peak_dbtp > PROFILE.true_peak_dbtp:
                 problems.append(f"{where}: true peak {loud.true_peak_dbtp} dBTP is over the ceiling")
             independent = reference_true_peak(delivery)
@@ -138,15 +142,3 @@ def test_evidence_delivery_is_the_same_in_another_process_s13(renders: dict[Path
         encoding="utf-8",
     )
     assert done.stdout.strip() == here
-
-
-def test_evidence_process_reads_a_render_by_path_s13(renders: dict[Path, list[Paragraph]], tmp_path: Path) -> None:
-    wav = next(iter(renders))
-    out = tmp_path / "delivery.wav"
-    try:
-        result = DeliveryPipeline().process(wav, out, PROFILE)
-        info = soundfile.info(str(out))
-        assert (info.samplerate, info.subtype, info.frames) == (48000, "PCM_24", result.samples)
-        assert result.loudness.true_peak_dbtp <= PROFILE.true_peak_dbtp
-    finally:
-        out.unlink(missing_ok=True)

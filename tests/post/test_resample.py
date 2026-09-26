@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import importlib.metadata
-
 import numpy as np
 import pytest
+import scipy
 
 from narration.post import delivery_tools
 from narration.post.resample import KAISER_BETA, ZERO_CROSSINGS, lowpass, ratio, resample, resampled_length
@@ -63,7 +62,7 @@ def test_resampler_filter_is_pinned_s13() -> None:
 
 def test_resampler_name_and_version_enter_the_delivery_key_s10_2() -> None:
     tools = delivery_tools()
-    assert tools.resampler.startswith(f"scipy.signal.resample_poly {importlib.metadata.version('scipy')} ")
+    assert tools.resampler.startswith(f"scipy.signal.resample_poly {scipy.__version__} ")
     assert f"kaiser beta={KAISER_BETA}" in tools.resampler
     assert f"{ZERO_CROSSINGS} zero crossings" in tools.resampler
-    assert f"numpy {importlib.metadata.version('numpy')}" in tools.resampler
+    assert f"numpy {np.__version__}" in tools.resampler

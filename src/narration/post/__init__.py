@@ -1,4 +1,4 @@
-"""Delivery post-processing (design section 13; WP13): raw take → trimmed, 48 kHz, -16 LUFS, PCM_24 file.
+"""Delivery post-processing (design section 13; WP13): raw take → trimmed, 48 kHz, -23 LUFS, PCM_24 file.
 
 ``DeliveryPipeline`` is the ``DeliveryProcessor`` of ``narration.contracts.interfaces``. ``deliver`` runs the
 same pipeline in memory. The steps, the pinned tools and the rules for degenerate takes are described in
