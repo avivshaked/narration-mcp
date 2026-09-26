@@ -83,6 +83,13 @@ class ConfigError(ValueError):
     """The configuration file is missing, malformed, or has an unknown key or a value out of range."""
 
 
+class MaterialError(ValueError):
+    """The service's own material (``material/``) is missing, malformed, or does not match its manifest.
+
+    This is an installation fault, not a caller's error: ``narration-admin verify`` and ``doctor`` report it.
+    """
+
+
 class WorkerFailure(Exception):
     """A worker replied ``ok: false`` (Appendix A). ``code`` is one of ``worker.WORKER_ERROR_CODES``."""
 

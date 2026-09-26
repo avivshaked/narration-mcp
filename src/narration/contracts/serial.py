@@ -1,9 +1,19 @@
 """JSON conversion for the contract records (``narration.contracts.models``).
 
 ``to_json`` turns a record into plain JSON values: a dataclass becomes an object keyed by its field names
-(which are the design's names), tuples become arrays, and None stays null. ``from_json`` builds a record
-back from such a value, checking types against the record's annotations. It refuses unknown keys and
-missing required keys, so a sidecar that does not match its contract fails loudly.
+(which are the design's names), and tuples become arrays. **An optional field that is unset is left out**:
+a field whose value is None *and whose default is None* is omitted, so a published object carries only
+what applies (``Error.field``, ``Flag.cue``, ``TakeResult.fit`` without ``scene_seconds``, …). A field
+that is nullable but has no default (``CueTiming.start_s`` of an unplaced cue, design section 11.2) is
+always present, as null.
+
+``from_json`` builds a record back from such a value, checking types against the record's annotations. It
+refuses unknown keys, missing required keys, a Literal of the wrong type (``1.0`` for ``1``) and a
+versioned id (``schema``, ``seed_scheme``) other than the record's own, so a sidecar that does not match
+its contract fails loudly. A missing key with a default takes the default, so omitted optionals read back.
+
+Hashed objects (keys, design section 10.2) are built explicitly by ``narration.keys``, never by hashing a
+whole record, so these presentation rules cannot move a key.
 """
 
 from __future__ import annotations
@@ -24,12 +34,22 @@ class ContractError(ValueError):
 def to_json(value: Any) -> Any:
     """Convert a record (or a structure of records) to plain JSON values."""
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {f.name: to_json(getattr(value, f.name)) for f in dataclasses.fields(value)}
+        out: dict[str, Any] = {}
+        for f in dataclasses.fields(value):
+            v = getattr(value, f.name)
+            if v is None and f.default is None:
+                continue
+            out[f.name] = to_json(v)
+        return out
     if isinstance(value, (list, tuple)):
         return [to_json(v) for v in value]
     if isinstance(value, dict):
         return {str(k): to_json(v) for k, v in value.items()}
     return value
+
+
+_VERSIONED_IDS = frozenset({"schema", "seed_scheme"})
+"""Fields that name a record's version: a value other than the record's default is refused."""
 
 
 @cache
@@ -50,6 +70,8 @@ def from_json[T](cls: type[T], data: Any, *, path: str = "$") -> T:
         raise ContractError(f"{path}: unknown key(s) for {cls.__name__}: {', '.join(unknown)}")
     kwargs: dict[str, Any] = {}
     for name, field in fields.items():
+        if name in _VERSIONED_IDS and name in data and isinstance(field.default, str) and data[name] != field.default:
+            raise ContractError(f"{path}.{name}: expected {field.default!r}, got {data[name]!r}")
         if name in data:
             kwargs[name] = _convert(hints[name], data[name], f"{path}.{name}")
         elif field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING:
@@ -77,7 +99,7 @@ def _convert(tp: Any, value: Any, path: str) -> Any:
                 errors.append(str(exc))
         raise ContractError(f"{path}: matches none of {tp}: {'; '.join(errors)}")
     if origin is Literal:
-        if value not in get_args(tp) or isinstance(value, bool) != any(isinstance(a, bool) for a in get_args(tp)):
+        if not any(a == value and type(a) is type(value) for a in get_args(tp)):
             raise ContractError(f"{path}: {value!r} is not one of {get_args(tp)}")
         return value
     if dataclasses.is_dataclass(tp):

@@ -5,6 +5,11 @@ Field names are the design's JSON names, so ``serial.to_json(record)`` is the re
 ``serial.from_json(Record, data)`` reads it back. Records are frozen; collections are tuples. A ``dict``
 field holds free-form data (``details``, generation settings) whose keys the design does not fix.
 
+**Absent versus null.** A field typed ``X | None = None`` is *optional*: when unset it is left out of the
+JSON (``serial.to_json``). A field typed ``X | None`` with no default is *nullable*: it is always present,
+and null says "not known" or "not there" (an unplaced cue's times, a take with no analysis yet). The
+published output schemas follow the same rule (``tests/contracts`` validates records against them).
+
 Where the design shows a field only in an example, its type here is the contract. Additions the design
 does not show are marked "(added)" with the reason.
 """
@@ -26,17 +31,22 @@ from .names import (
     SEED_SCHEME,
     TAKE_SCHEMA,
     CanaryStatus,
+    DaemonCommandKind,
+    DaemonState,
     DeterminismTier,
     ExactMatch,
+    GpuHolder,
     JobKind,
     JobOutcome,
     JobPhase,
     JobStatus,
+    MaterialStatus,
     Priority,
     SegmentState,
     Severity,
     SuggestionTier,
     Verdict,
+    WorkerRole,
 )
 
 Details = dict[str, Any]
@@ -502,7 +512,11 @@ class AnalysisVersions:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisRecord:
-    """``takes/<ab>/tk_<16hex>/analyses/an_<16hex>.json`` (App. B). One per analysis key."""
+    """``takes/<ab>/tk_<16hex>/analyses/an_<16hex>.json`` (App. B). One per analysis key.
+
+    ``embedding`` (added): the take's speaker embedding (``versions.sv``), a raw output kept so the per-job
+    consistency report and ``SPK_OUTLIER`` work for cached takes without loading a model (section 11.1).
+    """
 
     schema: str = ANALYSIS_SCHEMA
     analysis_id: str
@@ -513,6 +527,7 @@ class AnalysisRecord:
     alignment: Alignment
     qa: QaResult
     licence: Licence
+    embedding: tuple[float, ...] | None = None
 
 
 # ======================================================================== measurement (section 3.2, App. B)
@@ -730,9 +745,14 @@ class CanaryPin:
     """The service's canary under one engine profile on this machine (section 10.1, DC-3).
 
     Created by ``narration-admin engine pin`` on the installing machine; not part of the profile's hash.
+    ``clip`` is the designed canary clip (kept under ``engines/``, immutable, never collected) and
+    ``transcript`` its text; ``seed`` is the gate render's seed; ``raw_sha256`` and ``embedding`` are the
+    pinned gate render's.
     """
 
     material: str
+    clip: AudioRef
+    transcript: str
     seed: int
     raw_sha256: str
     embedding: tuple[float, ...]
@@ -809,8 +829,52 @@ class Progress:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class JobAttempt:
+    """One attempt of one segment slot in a job (section 8): what was produced and whether this job made it.
+
+    ``fresh`` is true when this job rendered it, false when it came from the cache (section 7.5, R11); it
+    cannot be recomputed later, so the job keeps it. ``round`` is the round that produced it (0 first).
+    """
+
+    attempt: int
+    seed: int
+    round: int
+    render_key: str
+    render_id: str | None
+    take_id: str | None
+    analysis_id: str | None
+    fresh: bool
+    verdict: Verdict | None
+    flags: tuple[Flag, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class JobSegment:
+    """A job's work on one segment (section 6 ``items[]``; section 7.4 ``segments[]``).
+
+    ``flags`` are the segment's execution and text flags (``RENDER_FAILED``, ``GPU_OOM``, ``CANCELLED``,
+    ``SEGMENT_TOO_LONG``, text warnings). A take's own flags are in its analysis and its ``JobAttempt``.
+    """
+
+    segment_id: str
+    state: SegmentState
+    attempts: tuple[JobAttempt, ...] = ()
+    takes_ok: int = 0
+    retakes_used: int = 0
+    flags: tuple[Flag, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class JobRecord:
-    """``jobs/<job_id>/job.json`` and the job row (section 6). The request is kept by value."""
+    """``jobs/<job_id>/job.json`` and the job row (section 6). The request is kept by value.
+
+    ``request`` is the tool's validated arguments as JSON; read it with ``serial.from_json`` into the
+    kind's record (``SubmitJobArgs`` for ``generate`` and ``analyse``, ``DesignVoiceArgs``,
+    ``MeasureVoiceArgs``, ``ProfileVoiceArgs``, ``AuditionPronunciationArgs``). ``items`` is the per-segment
+    state the job engine writes and ``get_job``/``get_results`` read. ``result`` is the handle of a
+    non-generate job's result (e.g. ``design_id``; the measurement key; the audition's take ids), and
+    ``message`` the human-readable progress line of section 7.4.
+    """
 
     schema: str = JOB_SCHEMA
     job_id: str
@@ -828,6 +892,9 @@ class JobRecord:
     idempotency_key: str | None
     created_at: str
     updated_at: str
+    items: tuple[JobSegment, ...] = ()
+    result: Details | None = None
+    message: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -875,8 +942,35 @@ class TakeQa:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class TakeAlignment:
+    """A take's alignment as ``get_results`` shows it (section 7.5 ``alignment``).
+
+    Built from the analysis's ``Alignment`` (App. B): ``cross_check`` names the cross-check in words (for
+    example "whisper-large-v3 word timestamps"), ``max_disagreement_s`` is lifted beside it, and the cue
+    times appear once, at the take's level (``TakeResult.cues``). ``measured_error`` is null until an
+    alignment benchmark exists.
+    """
+
+    method: str
+    model: str
+    revision: str
+    cross_check: str
+    max_disagreement_s: float | None
+    measured_error: MeasuredError | None
+    flags: tuple[Flag, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TakeResult:
-    """One take in ``get_results`` (section 7.5)."""
+    """One take in ``get_results`` (section 7.5).
+
+    ``alignment`` and ``qa`` are null for a take with no analysis (a failed or cancelled job's unfinished
+    work). ``fit`` is left out unless the segment gave ``scene_seconds`` (section 12).
+
+    ``flags`` (added): this take's flags outside its cached verdict, never part of ``qa.verdict``: the
+    delivery flags of its ``TakeRecord`` (``LOUDNESS_UNDER_TARGET``, ``GAIN_HIGH``) and the per-job flags
+    (``SPK_OUTLIER`` from the consistency report, ``CANARY_MISMATCH`` from the canary gate, ``RETAKEN``).
+    """
 
     take_id: str
     render_id: str
@@ -888,9 +982,10 @@ class TakeResult:
     loudness: Loudness
     analysis_id: str | None
     cues: tuple[CueTiming, ...]
-    alignment: Alignment | None
+    alignment: TakeAlignment | None
     qa: TakeQa | None
     fit: FitReport | None = None
+    flags: tuple[Flag, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -931,3 +1026,154 @@ class ListenFirstItem:
     reason: str
     from_s: float | None
     to_s: float | None
+
+
+# ======================================================================== audition (section 7.6)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuditionVariantResult:
+    """One respelling variant of ``audition_pronunciation``: its takes and what the ASR heard in each.
+
+    Whoever owns the text decides by ear; the service records no choice (section 7.6).
+    """
+
+    label: str
+    respell: str
+    engine_text: str
+    takes: tuple[TakeResult, ...]
+    heard: tuple[str | None, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AuditionResult:
+    """An ``audition_pronunciation`` job's result (``get_results`` ``audition``)."""
+
+    term: str
+    carrier: str | None
+    variants: tuple[AuditionVariantResult, ...]
+
+
+# ======================================================================== the daemon (sections 4, 4.1, 7.6)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WorkerInfo:
+    role: WorkerRole
+    pid: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CurrentJob:
+    job_id: str
+    kind: JobKind
+    label: str | None
+    phase: JobPhase | None
+    started_at: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GpuStatus:
+    """The GPU as the daemon sees it (sections 4, 7.6; DC-2 ``admission.gpu``). ``need_mb`` is by model
+    group (``qwen``, ``qa``); ``waiting_since`` is set while a job waits for free VRAM."""
+
+    name: str | None
+    total_mb: int | None
+    free_mb: int | None
+    in_use: bool
+    holder: GpuHolder | None
+    unload_in_s: float | None
+    need_mb: dict[str, int] = field(default_factory=dict)
+    waiting_since: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DaemonStatus:
+    """``run/daemon.json`` (section 15): written by the daemon on start and on every phase change, read by
+    the front-end for ``get_server_status`` and DC-2's ``admission`` and ``poll_after_s``.
+
+    ``est_drain_s`` is the daemon's estimate of how long the queue will take (null when unknown).
+    """
+
+    state: DaemonState
+    pid: int | None
+    started_at: str | None
+    workers: tuple[WorkerInfo, ...]
+    current_job: CurrentJob | None
+    gpu: GpuStatus
+    est_drain_s: float | None
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DaemonCommand:
+    """A request to the daemon through the store (there are no sockets, section 4).
+
+    ``release_gpu``: unload an idle model now (section 7.6); ``stop``: finish the in-flight segment, then
+    exit; ``stop_now``: re-queue it and exit (section 4.1). The daemon completes each with a ``result``
+    (for ``release_gpu``: ``{released, holder_before, busy_job}``).
+    """
+
+    command_id: str
+    kind: DaemonCommandKind
+    requested_at: str
+    done_at: str | None
+    result: Details | None
+
+
+# ======================================================================== the service's own material (WP18)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MaterialBoundary:
+    """A cue boundary in the alignment benchmark: whether a pause is expected after cue ``after_cue``."""
+
+    after_cue: int
+    pause: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MaterialParagraph:
+    """One paragraph of the service's own material, as a Segment a request can carry (section 7.2)."""
+
+    segment_id: str
+    cues: tuple[CueIn, ...]
+    spoken_chars: int
+    target_spoken_chars: int | None = None
+    boundaries: tuple[MaterialBoundary, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MaterialSet:
+    """A material set (``material/<kind>/<set-id>/``) checked against its manifest.
+
+    ``sha256`` is the sha256 of the set's ``manifest.json`` bytes, which list every file's sha256, so it
+    names the set's exact content (the benchmark's ``sha256`` in section 11.2; the corpus version in the
+    measurement key). For the calibration corpus, ``paragraphs`` are the calibration paragraphs and
+    ``ladder`` the length-ladder paragraphs, one per rung.
+    """
+
+    set_id: str
+    kind: str
+    version: int
+    status: MaterialStatus
+    sha256: str
+    paragraphs: tuple[MaterialParagraph, ...]
+    ladder: tuple[MaterialParagraph, ...] = ()
+    hints: tuple[Hint, ...] = ()
+    invented_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CanaryMaterial:
+    """The canary's text (DC-3): the description, design text and seed its clip is designed from, and the
+    gate's fixed text and seed."""
+
+    set_id: str
+    status: MaterialStatus
+    sha256: str
+    description: str
+    design_text: str
+    design_seed: int
+    gate_text: str
+    gate_seed: int

@@ -33,9 +33,6 @@ RENDER_JSON = {
     "licence": {
         "generation_model": "Apache-2.0",
         "voice_clip": "synthetic (Qwen3-TTS VoiceDesign, Apache-2.0)",
-        "aligner": None,
-        "asr": None,
-        "sv": None,
     },
 }
 

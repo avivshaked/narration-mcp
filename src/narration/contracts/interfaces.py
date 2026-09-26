@@ -16,21 +16,32 @@ from typing import Any, Literal, Protocol, runtime_checkable
 import numpy as np
 import numpy.typing as npt
 
+from narration.config import DeliveryConfig, MeasurementConfig
+
 from .models import (
     Alignment,
+    AlignmentBenchmark,
     AnalysisRecord,
+    Anchor,
+    AudioRef,
+    CanaryMaterial,
     Candidate,
     Consistency,
     CueTiming,
+    DaemonCommand,
+    DaemonStatus,
     DeliveryTools,
+    EngineProfile,
     Flag,
     Hint,
     JobRecord,
     LintResult,
     ListenFirstItem,
     Loudness,
+    MaterialSet,
     MeasuredError,
     MeasurementRecord,
+    Pace,
     ProfileRecord,
     ProvenanceEntry,
     QaResult,
@@ -38,13 +49,14 @@ from .models import (
     SegmentIn,
     SegmentResult,
     SegmentText,
+    SimilarityBaseline,
     Suggestion,
     TakeRecord,
     TextChecksInfo,
     Trim,
     Verdict,
 )
-from .names import WorkerRole
+from .names import DaemonCommandKind, EngineKind, JobStatus, WorkerRole
 from .worker import AlignReply, AsrWord, HelloReply
 
 # ======================================================================== WP10: text (sections 3.5, 7.2, 9)
@@ -143,17 +155,24 @@ class KeyBuilder(Protocol):
         ...
 
     def measurement_key(
-        self, *, voice_hash: str, engine_profile_hash: str, corpus_version: str, ladder_settings: Mapping[str, Any]
+        self, *, voice_hash: str, engine_profile_hash: str, corpus_version: str, settings: MeasurementConfig
     ) -> str:
-        """H({schema, voice_hash, engine_profile_hash, corpus version, ladder settings})."""
+        """H({schema, voice_hash, engine_profile_hash, corpus version, ladder settings}).
+
+        ``corpus_version`` names the corpus set and its content: ``"<set id>@sha256:<hex>"`` from the
+        ``MaterialSet``. The ladder settings are every field of ``settings`` except ``corpus``: ``seeds``,
+        ``length_ladder_spoken_chars``, ``trend_band_max_chars``, ``pace_tol_min``, ``sim_warn_margin``,
+        ``sim_fail_floor``.
+        """
         ...
 
     def render_key(self, *, engine_profile_hash: str, voice_hash: str, engine_text: str, seed: int) -> str:
         """H({schema: "narration.render/v1", engine_profile_hash, voice_hash, engine_text, seed})."""
         ...
 
-    def delivery_key(self, *, raw_sha256: str, delivery_profile: Mapping[str, Any], tools: DeliveryTools) -> str:
-        """H({schema, raw_sha256, delivery profile, the resampler's and meter's names and versions, stretch: null})."""
+    def delivery_key(self, *, raw_sha256: str, profile: DeliveryProfile, tools: DeliveryTools) -> str:
+        """H({schema, raw_sha256, delivery profile (every field of ``profile``), the resampler's and meter's
+        names and versions, stretch: null})."""
         ...
 
     def analysis_key(self, inputs: AnalysisKeyInputs) -> str:
@@ -198,8 +217,13 @@ class Store(Protocol):
     """SQLite (WAL) rows plus content-addressed files under ``store_root`` (sections 15, 17.2; WP12).
 
     Every path is built by the store from validated ids and confined under the root (``realpath`` stays
-    under it; Windows reserved names and reparse points are refused). Every file is written to a temp name
-    and renamed; immutable files are made read-only.
+    under it; Windows reserved names and reparse points are refused, through ``Platform.check_store_path``).
+    Every file is written to a temp name and renamed; immutable files are made read-only.
+
+    The store is the only channel between processes (the front-ends, the daemon, the operator CLI): there
+    are no sockets (section 4). Its methods are synchronous; async callers run them in a thread
+    (``asyncio.to_thread``). Stateless (sections 0.2, 2): it holds caches of work done and the service's
+    own records, never a caller's script, choice, approval, pronunciation list or voice.
     """
 
     @property
@@ -227,15 +251,25 @@ class Store(Protocol):
     # ---- the three cache layers and the service's own records
     def get_render(self, render_key: str) -> RenderRecord | None: ...
 
+    def get_render_by_id(self, render_id: str) -> RenderRecord | None: ...
+
     def put_render(self, record: RenderRecord, raw_audio: Path) -> RenderRecord:
         """Publish ``raw_audio`` (moved into place) and ``render.json``; returns the record with its path."""
         ...
 
     def get_take(self, delivery_key: str) -> TakeRecord | None: ...
 
+    def get_take_by_id(self, take_id: str) -> TakeRecord | None: ...
+
     def put_take(self, record: TakeRecord, delivery_audio: Path) -> TakeRecord: ...
 
     def get_analysis(self, analysis_key: str) -> AnalysisRecord | None: ...
+
+    def get_analysis_by_id(self, analysis_id: str) -> AnalysisRecord | None: ...
+
+    def analyses_of(self, take_id: str) -> tuple[AnalysisRecord, ...]:
+        """Every analysis of a take (``narration://takes/{take_id}``)."""
+        ...
 
     def put_analysis(self, record: AnalysisRecord) -> AnalysisRecord: ...
 
@@ -243,11 +277,21 @@ class Store(Protocol):
 
     def put_measurement(self, record: MeasurementRecord) -> MeasurementRecord: ...
 
+    def measurements_of(self, voice_hash: str) -> tuple[MeasurementRecord, ...]:
+        """A voice's measurements, one per engine profile (``narration://measurements/{voice_hash}``)."""
+        ...
+
     def get_profile(self, audio_sha256: str, profile_version: str) -> ProfileRecord | None: ...
 
-    def put_profile(self, record: ProfileRecord) -> ProfileRecord: ...
+    def put_profile(self, record: ProfileRecord, pictures_dir: Path | None) -> ProfileRecord:
+        """Publish ``profile.json`` and move the pictures in ``pictures_dir`` into place; the returned
+        record has the pictures' final paths."""
+        ...
 
-    def put_candidate(self, candidate: Candidate) -> Candidate: ...
+    def put_candidate(self, candidate: Candidate, clip_audio: Path) -> Candidate:
+        """Move the designed clip into ``designs/<design_id>/<cand>/`` and publish ``candidate.json``; the
+        returned record has ``clip.path`` and ``clip.sha256`` filled in."""
+        ...
 
     def get_design(self, design_id: str) -> tuple[Candidate, ...]: ...
 
@@ -256,6 +300,36 @@ class Store(Protocol):
         ...
 
     def is_provenance(self, clip_sha256: str) -> bool: ...
+
+    # ---- engine profiles and the canary (sections 6, 10.1, 15; DC-3): never collected
+    def get_engine_profile(self, engine_profile_id: str) -> EngineProfile | None: ...
+
+    def put_engine_profile(self, profile: EngineProfile) -> EngineProfile:
+        """Write ``engines/<engine_profile_id>.json``. A pinned profile's hashed fields never change; a new
+        pin is a new id (section 10.1)."""
+        ...
+
+    def list_engine_profiles(self) -> tuple[EngineProfile, ...]: ...
+
+    def current_engine_profile(self, kind: EngineKind) -> EngineProfile | None:
+        """The profile in use for ``base`` or ``design`` work, or None before ``engine pin``."""
+        ...
+
+    def set_current_engine_profile(self, kind: EngineKind, engine_profile_id: str) -> None: ...
+
+    def put_canary_clip(self, engine_profile_id: str, audio: Path) -> AudioRef:
+        """Move the designed canary clip to ``engines/<engine_profile_id>/canary.wav`` (immutable, never
+        collected, re-hashed by ``verify``) and return its location and sha256."""
+        ...
+
+    # ---- the alignment benchmark (sections 6, 11.2): never collected
+    def get_alignment_benchmark(self, method_id: str) -> AlignmentBenchmark | None: ...
+
+    def put_alignment_benchmark(self, record: AlignmentBenchmark) -> AlignmentBenchmark: ...
+
+    def current_alignment_benchmark(self) -> AlignmentBenchmark | None:
+        """The benchmark of the aligner method in use, whose measured error every take reports."""
+        ...
 
     # ---- claim-time re-check and in-flight waiting (section 4 item 6)
     def claim(self, key: str, holder: str, *, ttl_s: float) -> tuple[ClaimResult, Lease | None]:
@@ -275,14 +349,45 @@ class Store(Protocol):
 
     def get_job(self, job_id: str) -> JobRecord | None: ...
 
-    def update_job(self, job_id: str, **changes: Any) -> JobRecord: ...
+    def update_job(self, job_id: str, *, expect_status: JobStatus | None = None, **changes: Any) -> JobRecord | None:
+        """Change ``JobRecord`` fields (``changes`` are field names) and bump ``updated_at``. With
+        ``expect_status``, the change is made only if the job is still in that status (compare-and-set);
+        otherwise nothing changes and the result is None, so a blind write never reverts a cancel."""
+        ...
 
     def queued_jobs(self) -> tuple[JobRecord, ...]:
         """Queued and running jobs, by priority (``interactive`` first) then FIFO."""
         ...
 
+    def claim_job(self, job_id: str, holder: str) -> JobRecord | None:
+        """Atomically move this job from ``queued`` to ``running`` for ``holder``; None if it is no longer
+        queued. The scheduler chooses which (grouping by engine profile, affinity to the resident model)."""
+        ...
+
     def claim_next_job(self, holder: str) -> JobRecord | None:
-        """Atomically move the next queued job to ``running`` for the daemon."""
+        """Atomically move the next queued job (priority, then FIFO) to ``running`` for the daemon."""
+        ...
+
+    def jobs_created_since(self, iso_time: str) -> int:
+        """How many jobs were created at or after ``iso_time``, whatever their status now: the submit rate
+        cap across every front-end process (``RATE_LIMITED``, DC-2's ``admission.rate``)."""
+        ...
+
+    # ---- the daemon's status and commands (sections 4, 4.1, 7.6): the store is the channel
+    def get_daemon_status(self) -> DaemonStatus | None:
+        """``run/daemon.json``, or None when no daemon has written one."""
+        ...
+
+    def put_daemon_status(self, status: DaemonStatus) -> None: ...
+
+    def post_command(self, kind: DaemonCommandKind) -> DaemonCommand: ...
+
+    def pending_commands(self) -> tuple[DaemonCommand, ...]: ...
+
+    def complete_command(self, command_id: str, result: Mapping[str, Any] | None) -> DaemonCommand: ...
+
+    def wait_for_command(self, command_id: str, *, timeout_s: float) -> DaemonCommand | None:
+        """The command once the daemon has completed it, or None at the timeout."""
         ...
 
     # ---- retention (section 15)
@@ -300,17 +405,8 @@ class Store(Protocol):
 # ======================================================================== WP13: delivery (section 13)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class DeliveryProfile:
-    """The delivery settings ([delivery], section 16), all of which enter the delivery key."""
-
-    sample_rate: int = 48_000
-    subtype: str = "PCM_24"
-    target_lufs: float = -16.0
-    true_peak_dbtp: float = -1.0
-    trim_rel_db: float = -40.0
-    trim_pad_s: float = 0.08
-    fade_s: float = 0.01
+DeliveryProfile = DeliveryConfig
+"""The delivery settings (``[delivery]``, section 16): one class, so every field enters the delivery key."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -368,8 +464,11 @@ class DeliveryProcessor(Protocol):
 class QaInputs:
     """Everything one take's verdict may depend on (section 11.1): the take and the request's inputs for it.
 
-    ``measurement`` is None only for work that runs without one (``audition_pronunciation``, the
-    measurement's own ladder takes, which pass ``pace_reference`` instead).
+    The scorer computes the take's similarity to the anchor from ``embedding``. When ``measurement`` is
+    given, it supplies the anchor, the similarity baseline and the pace curve, and ``anchor``,
+    ``similarity`` and ``pace`` stay None. Work without a finished measurement passes what exists instead:
+    the measurement's own ladder takes pass the calibration set's ``anchor`` and ``similarity`` (and no
+    ``pace``); ``audition_pronunciation`` passes none, so no speaker or pace check applies.
     """
 
     segment: SegmentText
@@ -382,8 +481,9 @@ class QaInputs:
     signal: SignalStats
     hit_token_cap: bool
     measurement: MeasurementRecord | None
-    sv_similarity_to_anchor: float | None = None
-    pace_reference: Mapping[str, float] | None = None
+    anchor: Anchor | None = None
+    similarity: SimilarityBaseline | None = None
+    pace: Pace | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -424,11 +524,13 @@ class QaScorer(Protocol):
 
     def listen_first(self, segments: Sequence[SegmentResult]) -> tuple[ListenFirstItem, ...]:
         """Section 11.1's order: fails; exact-span and term flags; cue alignment; insertion, similarity, pace
-        and consistency; text warnings and over-long segments."""
+        and consistency; text warnings and over-long segments. It reads each take's ``qa.flags``,
+        ``alignment.flags`` and ``flags`` (the delivery and per-job flags) and each segment's ``flags``."""
         ...
 
     def report_md(self, results: Mapping[str, Any]) -> str:
-        """``report.md``: every flag, including replaced attempts, and each cue's received → engine text."""
+        """``report.md`` from the assembled ``get_results`` object (its output schema fixes the layout):
+        every flag, including replaced attempts, and each cue's received → engine text."""
         ...
 
 
@@ -455,6 +557,17 @@ class AlignerCore(Protocol):
 
     @property
     def method_id(self) -> str: ...
+
+    @property
+    def model(self) -> str:
+        """The pinned aligner model's repo id, set at construction (needed even when the worker failed)."""
+        ...
+
+    @property
+    def revision(self) -> str: ...
+
+    @property
+    def device(self) -> str: ...
 
     def build_transcript(self, segment: SegmentText, hints: Sequence[Hint]) -> AlignTranscript: ...
 
@@ -512,8 +625,8 @@ class WorkerClient(Protocol):
 
 @runtime_checkable
 class Platform(Protocol):
-    """Every OS-specific mechanism (WP19). Windows only in v1; on another OS each call raises a clear
-    "unsupported platform" error, and ``doctor`` says so."""
+    """Every OS-specific mechanism (WP19). Windows only in v1; on another OS each call raises
+    ``errors.UnsupportedPlatform`` (``DAEMON_UNAVAILABLE``, not retryable), and ``doctor`` says so."""
 
     def singleton(self, store_root: Path) -> AbstractContextManager[bool]:
         """Hold the daemon's singleton lock keyed on the store path; the value says whether it was acquired."""
@@ -564,7 +677,8 @@ class Backend(Protocol):
     Each tool method takes the arguments **already validated** against the tool's input schema and returns
     the tool's structured result (a JSON object matching its output schema). A tool error is raised as
     ``NarrationError``; the front-end turns it into ``isError: true``. Cancelling the MCP request cancels
-    only the awaiting call (``get_job``'s wait), never the job.
+    only the awaiting call (``get_job``'s wait), never the job. Store calls run in a thread
+    (``asyncio.to_thread``); ``get_job``'s long-poll re-reads the job until it changes or ``wait_s`` ends.
     """
 
     async def get_server_status(self, args: Mapping[str, Any]) -> dict[str, Any]: ...
@@ -593,3 +707,29 @@ class Backend(Protocol):
         """A ``narration://`` resource (section 7.7); raises ``NarrationError(NOT_FOUND)`` for a missing one,
         which the front-end reports as JSON-RPC -32602."""
         ...
+
+
+# ======================================================================== WP18: the service's own material
+
+
+@runtime_checkable
+class MaterialLoader(Protocol):
+    """Reads the service's own material (``material/``, WP18) and checks every file against its manifest.
+
+    Raises ``errors.MaterialError`` when a set is missing, malformed, or its bytes do not match the manifest.
+    The sets are the service's own text, never a caller's (sections 3.2, 10.1, 11.2).
+    """
+
+    def corpus(self, set_id: str) -> MaterialSet:
+        """The calibration corpus (``narration-en.v1``): calibration paragraphs and the length ladder."""
+        ...
+
+    def benchmark(self, set_id: str) -> MaterialSet:
+        """The alignment benchmark (``alignment-en.v1``), each paragraph with its expected boundaries."""
+        ...
+
+    def demo(self, set_id: str) -> MaterialSet:
+        """The Phase 4 demo script, with its hints."""
+        ...
+
+    def canary(self, set_id: str) -> CanaryMaterial: ...

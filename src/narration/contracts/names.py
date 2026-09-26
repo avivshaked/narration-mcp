@@ -155,6 +155,12 @@ CanaryStatus = Literal["hash_match", "similarity_pass", "not_run"]
 """A batch's canary outcome (section 10.1). A failed canary fails the job (``ENGINE_DRIFT``)."""
 SuggestionTier = Literal[1, 2, 3, 4]
 """Section 8: 1 pass; 2 warn, every cue placed; 3 warn, a cue unplaced; 4 fail."""
+EngineKind = Literal["base", "design"]
+"""Which engine profile is meant: the Base clone path or VoiceDesign (section 6)."""
+DaemonCommandKind = Literal["release_gpu", "stop", "stop_now"]
+"""Requests the front-end and the operator CLI send the daemon through the store (sections 4.1, 7.6)."""
+MaterialStatus = Literal["draft", "frozen"]
+"""A material set is ``draft`` until gate H1 freezes it; a frozen set never changes (plan.md WP18)."""
 
 SEVERITIES: Final = get_args(Severity)
 JOB_STATUSES: Final = get_args(JobStatus)
