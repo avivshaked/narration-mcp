@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 import errno
 import hashlib
+import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -21,6 +22,7 @@ from narration.contracts.worker import WORKER_ERROR_CODES
 from narration.jobs import admission
 from narration.jobs.core import LOST_STATE, worker_code
 from narration.jobs.gpu import GroupNeed, NoProbe, NvmlProbe, Residency
+from narration.jobs.leases import kept
 from narration.jobs.pins import ModelPin, ProfileError, QaPins, call_cap, ceiling, qwen_load_payload
 from narration.jobs.plan import (
     GenerateRequest,
@@ -32,7 +34,7 @@ from narration.jobs.plan import (
     requested_attempts,
 )
 from narration.jobs.voice import MAX_CLIP_BYTES, clip_path, require_synthetic, stage_clip
-from narration.store import NarrationStore
+from narration.store import LeaseLostError, NarrationStore
 from narration.text import TextPipeline
 from tests.store.standin import StandInPlatform
 
@@ -558,3 +560,36 @@ def test_the_worker_codes_the_engine_reacts_to_are_the_protocols_app_a() -> None
     assert reacted <= set(WORKER_ERROR_CODES)
     assert worker_code(WorkerFailure("NOT_LOADED", "no model")) == "NOT_LOADED"
     assert worker_code(WorkerFailure("SOMETHING_NEW", "a newer worker")) == "INTERNAL"
+
+
+# ======================================================================== a lease kept alive (section 4 item 6)
+
+
+class _Lease:
+    def __init__(self, lost_after: int) -> None:
+        self.key = "sha256:" + "e" * 64
+        self.renewals = 0
+        self._lost_after = lost_after
+
+    def renew(self, ttl_s: float) -> None:
+        self.renewals += 1
+        if self.renewals >= self._lost_after:
+            raise LeaseLostError("another holder has it")
+
+    def release(self) -> None:
+        return None
+
+
+def test_a_kept_lease_is_renewed_until_its_work_ends_or_it_is_lost_s4() -> None:
+    lease = _Lease(lost_after=1000)
+    with kept(lease, ttl_s=5.0, every_s=0.02):
+        time.sleep(0.3)
+    renewed = lease.renewals
+    assert renewed >= 3
+    time.sleep(0.1)
+    assert lease.renewals == renewed  # not after the work ended
+
+    lost = _Lease(lost_after=2)
+    with kept(lost, ttl_s=5.0, every_s=0.02):
+        time.sleep(0.3)  # the work goes on; the keeper stops at the lost lease
+    assert lost.renewals == 2

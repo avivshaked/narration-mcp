@@ -7,6 +7,7 @@ Every worker is the fake role; every text is invented for these tests.
 from __future__ import annotations
 
 import threading
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -15,6 +16,7 @@ import pytest
 from narration import keys
 from narration.contracts import codes
 from narration.contracts.models import JobRecord
+from narration.jobs import stages
 
 from .conftest import World, make_world
 from .support import ENGINE_HASH, KETTLE, LAMPS, ORCHARD, voice_hash
@@ -153,6 +155,37 @@ def test_work_in_flight_elsewhere_costs_no_model_load_s4(world: World) -> None:
     world.run()
     assert world.job(job.job_id).status == "completed"
     assert world.pool.loads == ["qwen", "qa"]
+
+
+def test_a_render_keeps_its_lease_for_as_long_as_it_runs_s4(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(stages, "RENDER_LEASE_S", 0.6)  # a lease that would lapse halfway through the render
+    monkeypatch.setattr(stages, "LEASE_RENEW_S", 0.1, raising=False)
+    world.faults({"kind": "delay", "op": "synthesize", "seconds": 3.0})
+    key = keys.render_key(
+        engine_profile_hash=ENGINE_HASH,
+        voice_hash=voice_hash(world.clip_sha256),
+        engine_text=LAMPS,
+        seed=_seed(world, LAMPS, 0),
+    )
+    seen: list[str] = []
+
+    def another_holder() -> None:
+        deadline = time.monotonic() + 60
+        while world.pool.calls[("qwen", "synthesize")] == 0 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        time.sleep(1.0)  # past the lease's TTL, still inside the render
+        status, lease = world.store.claim(key, "another-process", ttl_s=5)
+        seen.append(status)
+        if lease is not None:
+            lease.release()
+
+    job = world.submit(LAMPS)
+    probe = threading.Thread(target=another_holder)
+    probe.start()
+    world.run()
+    probe.join(timeout=60)
+    assert seen == ["in_flight"]  # the render still held its key
+    assert world.job(job.job_id).status == "completed"
 
 
 # ======================================================================== retakes, and never again on resubmission

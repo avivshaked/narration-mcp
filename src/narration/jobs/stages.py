@@ -48,16 +48,19 @@ from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 from .core import LOST_STATE, EngineCore, worker_code
 from .gpu import GroupNeed, Readiness
 from .host import GROUP_ROLES, ResidencyError, RunnerHost
+from .leases import kept
 from .pins import call_cap, generation, qwen_load_payload
 from .state import Attempt, JobRun, Outcome, SegmentWork, label
 
 log = logging.getLogger(__name__)
 
-RENDER_LEASE_S: Final = 3600.0
-POST_LEASE_S: Final = 600.0
-SCORE_LEASE_S: Final = 3600.0
-"""Leases outlive the work they cover. A daemon that dies leaves them to lapse; its successor, under the same
-holder name, may claim them again at once."""
+RENDER_LEASE_S: Final = 300.0
+POST_LEASE_S: Final = 300.0
+SCORE_LEASE_S: Final = 300.0
+"""A lease's TTL. It is renewed every ``LEASE_RENEW_S`` while its work runs (``leases.kept``), so the TTL only
+bounds how long a lease outlives a daemon that died; its successor, under the same holder name, may claim
+the key again at once."""
+LEASE_RENEW_S: Final = 60.0
 PREPARE_TIMEOUT_S: Final = 300.0
 QA_TIMEOUT_S: Final = 900.0
 FRAMES_PER_SECOND: Final = 12.5
@@ -248,10 +251,11 @@ class Stages:
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
-                    need = self.qwen_need(run)
-                    if not self.ready(host, run, need):
-                        return "waited" if not host.should_stop() else "stopped"
-                    found = self._synthesize(host, run, seg, attempt, need)
+                    with kept(lease, ttl_s=RENDER_LEASE_S, every_s=LEASE_RENEW_S):
+                        need = self.qwen_need(run)
+                        if not self.ready(host, run, need):
+                            return "waited" if not host.should_stop() else "stopped"
+                        found = self._synthesize(host, run, seg, attempt, need)
                 finally:
                     lease.release()
             else:
@@ -370,7 +374,8 @@ class Stages:
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
-                    found = self._deliver(host, run, seg, attempt, render, delivery_key)
+                    with kept(lease, ttl_s=POST_LEASE_S, every_s=LEASE_RENEW_S):
+                        found = self._deliver(host, run, seg, attempt, render, delivery_key)
                 finally:
                     lease.release()
             else:
@@ -422,13 +427,14 @@ class Stages:
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
-                    if not self.ready(host, run, self.qa_need()):
-                        return "waited" if not host.should_stop() else "stopped"
-                    core.phase(host, run, "scoring")
-                    run.message = f"round {attempt.round}: scoring {label(run, attempt)}"
-                    started = core.parts.clock()
-                    found = store.put_analysis(self._analyse(host, run, seg, take, render, key))
-                    core.throughput.record(core.parts.clock() - started, seg.est_s / 3)
+                    with kept(lease, ttl_s=SCORE_LEASE_S, every_s=LEASE_RENEW_S):
+                        if not self.ready(host, run, self.qa_need()):
+                            return "waited" if not host.should_stop() else "stopped"
+                        core.phase(host, run, "scoring")
+                        run.message = f"round {attempt.round}: scoring {label(run, attempt)}"
+                        started = core.parts.clock()
+                        found = store.put_analysis(self._analyse(host, run, seg, take, render, key))
+                        core.throughput.record(core.parts.clock() - started, seg.est_s / 3)
                 finally:
                     lease.release()
             else:
@@ -534,6 +540,7 @@ def _observed(hello: HelloReply | None) -> dict[str, Any]:
 
 __all__ = [
     "FRAMES_PER_SECOND",
+    "LEASE_RENEW_S",
     "POST_LEASE_S",
     "PREPARE_TIMEOUT_S",
     "QA_TIMEOUT_S",
