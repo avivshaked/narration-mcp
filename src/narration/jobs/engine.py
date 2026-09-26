@@ -449,8 +449,10 @@ class JobEngine:
         return "finished"
 
     def _wait_deferred(self, host: RunnerHost, run: JobRun, pending: list[Attempt]) -> Outcome:
-        """Everything left is being produced by another holder: wait a little for the first of it."""
-        first = min(pending, key=lambda a: (a.deferred_until, _STAGE_ORDER[a.stage]))
+        """Everything left is being produced by another holder, or waits for what is: wait a little for the
+        first piece in flight elsewhere (never for work that merely waits its turn, which nobody is making)."""
+        deferred = [a for a in pending if a.deferred_until > 0.0] or pending
+        first = min(deferred, key=lambda a: (a.deferred_until, _STAGE_ORDER[a.stage]))
         key = self._key_of(first)
         run.message = f"waiting for {self._label(run, first)}, which another job is making"
         if key is not None:
