@@ -6,6 +6,7 @@ exercised with the real entry point in ``test_process.py``.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -355,6 +356,26 @@ def test_a_stop_the_exiting_daemon_answered_stops_the_one_waiting_to_take_over_s
     assert b_started is not None, "B took over"
     assert ("idle", b_started) not in written, "B never said it serves"
     assert ("stopping", b_started) in written and written[-1][0] == "stopped", "B stopped as a stop does"
+
+
+def test_an_answered_stop_from_the_future_does_not_stop_new_daemons_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The wall clock stepped back an hour after a stop was posted and answered: its stamp is in the future,
+    # so it is not trusted. Before the fix, every new daemon stopped at once until the clock caught up.
+    posted = store.post_command("stop")
+    store.complete_command(posted.command_id, {"stopped": True, "requeued": []})
+
+    def an_hour_back() -> float:
+        return time.time() - 3600.0
+
+    with caplog.at_level(logging.INFO, logger="narration.daemon.service"):
+        for _ in range(2):
+            daemon = run_daemon(NullRunner(), wall=an_hour_back)
+            assert daemon.wait_serving().state == "idle", "it serves"
+            daemon.command("stop")  # posted after its launch, as the store's clock sees it; pending: honoured
+            assert daemon.join() == EXIT_OK
+    assert any("later than now" in record.getMessage() for record in caplog.records)
 
 
 def test_an_answered_stop_posted_before_the_launch_does_not_stop_the_daemon_s4_1(

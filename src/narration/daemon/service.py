@@ -43,6 +43,11 @@ from the wall clock (``time.time``), as ``started_at`` is; a command's ``request
 millisecond, so a stop posted in the millisecond of the launch counts as posted after it
 (``posted_after_launch``).
 
+**A stamp from the future.** After the wall clock steps back, a stop can carry a ``requested_at`` later
+than now. An answered one is not trusted, and is logged and skipped: it is never consumed, so honouring it
+would stop every new daemon at once until the clock caught up. A pending one is honoured, as any stop posted
+after the launch is: the daemon answers it, so it stops one daemon at most.
+
 So ``narration-admin daemon stop`` (WP37) posts a stop only when ``start.running_daemon`` says a daemon
 runs: a stop posted with none running stops nothing, and is answered ``stopped: false`` by the next daemon.
 """
@@ -355,12 +360,25 @@ class Daemon:
         except Exception:
             log.exception("could not list the commands posted since this daemon was launched")
             return
+        now = self._wall()
+        skipped_future = False
         for command in since:
             if (
                 command.kind in ("stop", "stop_now")
                 and command.done_at is not None
                 and posted_after_launch(command.requested_at, self.launched_at)
             ):
+                if parse_iso(command.requested_at) > now + STAMP_PRECISION_S:
+                    if not skipped_future:
+                        skipped_future = True
+                        log.info(
+                            "%s %s says it was posted at %s, later than now (the clock stepped back?); not "
+                            "trusted, so it does not stop this daemon",
+                            command.kind,
+                            command.command_id,
+                            command.requested_at,
+                        )
+                    continue
                 log.info(
                     "%s %s was posted after this daemon was launched and answered by the daemon before it; "
                     "stopping before any work",

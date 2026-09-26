@@ -230,6 +230,7 @@ def run_daemon(
         start: bool = True,
         broken_workers: bool = False,
         launched_at: float | None = None,
+        wall: Callable[[], float] | None = None,
         **overrides: Any,
     ) -> DaemonHarness:
         env = fake_env(tmp_path, spec)
@@ -266,6 +267,7 @@ def run_daemon(
             runner=runner,
             supervisor_factory=supervisor,
             launched_at=launched_at,
+            wall=time.time if wall is None else wall,
         )
         harness = DaemonHarness(daemon, store)
         harnesses.append(harness)
