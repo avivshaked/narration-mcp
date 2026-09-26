@@ -1,9 +1,9 @@
 # narration-mcp: example configuration
 #
-# Copy this file to `narration.toml` (tracked-in-place edits are fine for a single-machine setup) or to
-# `narration.local.toml` (gitignored, if you would rather keep your own values out of version control
-# entirely), then fill in the paths for your machine. Nothing in this file is a personal value: every
-# path below is a placeholder, and `allow_sha256` ships empty.
+# Copy this file to `narration.toml` in the service's folder (`<service_root>`) and fill in the paths for
+# your machine. `narration.toml` and `narration.local.toml` are both gitignored, so your own paths never
+# end up in version control. Nothing in this file is a personal value: every path below is a placeholder,
+# and `allow_sha256` ships empty.
 #
 # `<service_root>` is wherever you set this project up — it is not assumed to be any particular folder.
 # The store and the models may live anywhere else you choose; there is no requirement that they sit

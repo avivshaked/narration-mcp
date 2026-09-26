@@ -55,8 +55,8 @@ is worth being precise about what it will and will not do.
 - **A network-facing deployment.** This service is not designed, tested or supported as anything other
   than a local, stdio-only process. Running it as a network-reachable service is unsupported and its own
   risk.
-- **Denial of service against a shared GPU.** The service takes reasonable steps to behave on a shared
-  GPU (a lock, bounded runs, backing off when VRAM is short), but it does not defend against another
+- **Denial of service against a shared GPU.** Before it loads a model, the service checks that enough
+  GPU memory is free and waits rather than competing for it, but it does not defend against another
   process on the machine behaving badly.
 
 ## Reporting a vulnerability
@@ -67,7 +67,3 @@ appearing in a public issue.
 
 Please do not open a public issue for a vulnerability report until the maintainer has had a chance to
 assess and, where appropriate, fix it.
-
-> **Note to the maintainer:** the reporting route above has not yet been confirmed as set up for this
-> repository. Please enable GitHub's private vulnerability reporting for it, or say what route to use
-> instead — see the question logged in `status/WP02.md`.
