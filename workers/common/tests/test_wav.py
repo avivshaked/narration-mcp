@@ -9,6 +9,7 @@ import struct
 import sys
 from array import array
 from pathlib import Path
+from typing import Any
 
 import pytest
 from narration_worker.wav import float32_mono_wav_bytes, write_float32_mono
@@ -96,10 +97,17 @@ def test_the_write_leaves_no_temp_file(tmp_path: Path) -> None:
     [
         (array("d", [0.0] * 10), 24000),  # float64: a worker converts it itself
         (memoryview(bytes(40)).cast("f", shape=[2, 5]), 24000),  # two channels
+        ([0.0] * 10, 24000),  # a list is not a buffer
         (array("f", [0.0] * 10), 0),
         (array("f", [0.0] * 10), -24000),
+        (array("f", [0.0] * 10), 24000.0),
+        (array("f", [0.0] * 10), True),
+        (array("f", [0.0] * 10), "24000"),
+        (array("f", [0.0] * 10), 2**30),  # four times it does not fit the header's byte rate
     ],
 )
-def test_bad_input_is_refused(samples: array[float] | memoryview, rate: int) -> None:
+def test_bad_input_is_refused(samples: Any, rate: Any) -> None:
+    """Every bad input is a ``ValueError``, as the writer's docstring says, never a ``TypeError`` or a
+    ``struct.error``."""
     with pytest.raises(ValueError):
         float32_mono_wav_bytes(samples, rate)

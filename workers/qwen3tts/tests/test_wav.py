@@ -8,6 +8,7 @@ is the conversion: whatever the engine returns is written as float32 samples.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import narration_qwen3tts.worker as worker_module
 import narration_worker.wav as shared
@@ -39,6 +40,13 @@ def test_float64_audio_is_written_as_float32(tmp_path: Path) -> None:
     out = tmp_path / "raw.wav"
     worker_module._write(out, _rendered(_signal().astype(np.float64)))
     assert out.read_bytes() == shared.float32_mono_wav_bytes(_signal(), 24000)
+
+
+def test_a_numpy_integer_rate_is_a_rate_and_a_numpy_float_is_not() -> None:
+    """The library returns its rate as it likes; the writer takes any integer, never a float."""
+    assert shared.float32_mono_wav_bytes(_signal(), np.int64(24000)) == shared.float32_mono_wav_bytes(_signal(), 24000)
+    with pytest.raises(ValueError):
+        shared.float32_mono_wav_bytes(_signal(), cast(Any, np.float64(24000.0)))
 
 
 def test_audio_that_is_not_mono_is_refused(tmp_path: Path) -> None:
