@@ -232,19 +232,16 @@ class JobEngine:
         return "finished"
 
     def _wait_deferred(self, host: RunnerHost, run: JobRun, pending: list[Attempt]) -> Outcome:
-        """Everything left is being produced by another holder, or waits for what is: wait a little for the
-        first piece in flight elsewhere (never for work that merely waits its turn, which nobody is making)."""
+        """Everything left is being produced by another holder, or waits for what is: wait a little
+        (``defer_s``) before looking again. The wait goes through ``host.sleep``, so a stop ends it at once."""
         deferred = [a for a in pending if a.deferred_until > 0.0] or pending
         first = min(deferred, key=lambda a: (a.deferred_until, STAGE_ORDER[a.stage]))
-        key = self.stages.key_of(first)
         run.message = f"waiting for {label(run, first)}, which another job is making"
-        if key is not None:
-            host.store.wait_for(key, timeout_s=self.parts.defer_s)
-        elif not host.sleep(self.parts.defer_s):
+        if not host.sleep(self.parts.defer_s):
             return "stopped"
         for attempt in pending:
             attempt.deferred_until = 0.0
-        return "stopped" if host.should_stop() else "waited"
+        return "waited"
 
     def _start_retakes(self, host: RunnerHost, run: JobRun, *, announce: bool = True) -> bool:
         """At the end of a settled round: one retake for every slot whose take is a retake trigger, on the next

@@ -67,6 +67,7 @@ def test_two_holders_share_a_paragraph_through_its_lease_s4(
     try:
         # The shared paragraph takes a second to render, so the other holder finds its lease in flight.
         world.faults({"kind": "delay", "op": "synthesize", "seconds": 1.0, "when": {"text_contains": "kettle"}})
+        world.host.real_sleep_s = other.host.real_sleep_s = 0.02  # a wait takes some real time here
         first = world.submit(KETTLE, LAMPS)
         second = world.submit(KETTLE, ORCHARD, ids=["intro", "p09"])
         mine = world.store.claim_job(first.job_id, world.host.holder)
@@ -110,11 +111,10 @@ def test_work_another_holder_is_making_is_waited_for_never_made_twice_s4(
     status, lease = world.store.claim(key, "another-process", ttl_s=600)
     assert status == "claimed" and lease is not None
     waited: list[str] = []
-    wait_for = world.store.wait_for
 
     def recording_wait_for(key: str, *, timeout_s: float) -> bool:
         waited.append(key)
-        return wait_for(key, timeout_s=timeout_s)
+        return False
 
     monkeypatch.setattr(world.store, "wait_for", recording_wait_for)
     job = world.submit(LAMPS, KETTLE)
@@ -123,14 +123,36 @@ def test_work_another_holder_is_making_is_waited_for_never_made_twice_s4(
         world.runner.step(world.host)
     assert world.pool.texts() == [KETTLE]  # the paragraph in flight elsewhere is not rendered here
     assert world.job(job.job_id).status == "running"
-    # Regression: it waits on the key in flight, not on work that merely waits its turn behind it (which
-    # nobody is making, so the wait returned at once and the engine spun).
-    assert waited and set(waited) == {key}
+    # Every wait inside a step goes through host.sleep, which a stop ends at once; the store's own wait
+    # (real time, deaf to a stop) is never used.
+    assert waited == []
+    assert world.host.sleeps.count(world.engine.parts.defer_s) >= 5
 
     lease.release()  # the other holder gave up without a result: now it is this job's to make
     world.run()
     assert world.pool.texts() == [KETTLE, LAMPS]
     assert world.job(job.job_id).status == "completed"
+
+
+def test_work_in_flight_elsewhere_costs_no_model_load_s4(world: World) -> None:
+    key = keys.render_key(
+        engine_profile_hash=ENGINE_HASH,
+        voice_hash=voice_hash(world.clip_sha256),
+        engine_text=LAMPS,
+        seed=_seed(world, LAMPS, 0),
+    )
+    status, lease = world.store.claim(key, "another-process", ttl_s=600)
+    assert status == "claimed" and lease is not None
+    job = world.submit(LAMPS)
+    for _ in range(10):
+        world.runner.step(world.host)
+    assert world.pool.loads == []  # the key is claimed before its model group is loaded
+    assert world.job(job.job_id).status == "running"
+
+    lease.release()
+    world.run()
+    assert world.job(job.job_id).status == "completed"
+    assert world.pool.loads == ["qwen", "qa"]
 
 
 # ======================================================================== retakes, and never again on resubmission

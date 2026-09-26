@@ -134,16 +134,6 @@ class Stages:
             measurement_key=run.measurement.measurement_key,
         )
 
-    def key_of(self, attempt: Attempt) -> str | None:
-        """The key of the layer the attempt needs next, or None when it is settled."""
-        if attempt.stage == "render":
-            return attempt.render_key
-        if attempt.stage == "post" and attempt.render is not None:
-            return self.delivery_key(attempt.render)
-        if attempt.stage == "score":
-            return attempt.analysis_key
-        return None
-
     # ------------------------------------------------------------------ making a model group ready
     def qwen_need(self, run: JobRun) -> GroupNeed:
         """What rendering needs loaded: the job's Base engine profile on the Qwen group."""
@@ -251,15 +241,16 @@ class Stages:
         core, store, seg = self.core, host.store, run.segments[attempt.segment]
         found = store.get_render(attempt.render_key)
         if found is None:
-            need = self.qwen_need(run)
-            if not self.ready(host, run, need):
-                return "waited" if not host.should_stop() else "stopped"
+            # The key is claimed before the model group is loaded: work in flight elsewhere never costs a swap.
             status, lease = store.claim(attempt.render_key, host.holder, ttl_s=RENDER_LEASE_S)
             if status == "in_flight":
                 attempt.deferred_until = core.parts.clock() + core.parts.defer_s
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
+                    need = self.qwen_need(run)
+                    if not self.ready(host, run, need):
+                        return "waited" if not host.should_stop() else "stopped"
                     found = self._synthesize(host, run, seg, attempt, need)
                 finally:
                     lease.release()
@@ -425,14 +416,14 @@ class Stages:
         assert take is not None and render is not None and key is not None
         found = store.get_analysis(key)
         if found is None:
-            if not self.ready(host, run, self.qa_need()):
-                return "waited" if not host.should_stop() else "stopped"
-            status, lease = store.claim(key, host.holder, ttl_s=SCORE_LEASE_S)
+            status, lease = store.claim(key, host.holder, ttl_s=SCORE_LEASE_S)  # claimed before QA is loaded
             if status == "in_flight":
                 attempt.deferred_until = core.parts.clock() + core.parts.defer_s
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
+                    if not self.ready(host, run, self.qa_need()):
+                        return "waited" if not host.should_stop() else "stopped"
                     core.phase(host, run, "scoring")
                     run.message = f"round {attempt.round}: scoring {label(run, attempt)}"
                     started = core.parts.clock()

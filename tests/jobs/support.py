@@ -243,6 +243,8 @@ class Host:
     gpu_facts: list[GpuFacts] = field(default_factory=list)
     drains: list[float | None] = field(default_factory=list)
     sleeps: list[float] = field(default_factory=list)
+    real_sleep_s: float = 0.0
+    """Real seconds each ``sleep`` also waits, at most (for tests where another thread does the work)."""
 
     def should_stop(self) -> bool:
         return self.stop_mode is not None
@@ -250,6 +252,8 @@ class Host:
     def sleep(self, seconds: float) -> bool:
         self.sleeps.append(seconds)
         self.clock.advance(seconds)
+        if self.real_sleep_s > 0:
+            time.sleep(min(seconds, self.real_sleep_s))
         return self.stop_mode is None
 
     def job_started(self, job: JobRecord) -> None:
