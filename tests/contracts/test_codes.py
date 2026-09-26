@@ -119,3 +119,9 @@ def test_unsupported_platform_is_daemon_unavailable_not_retryable_q2() -> None:
     assert exc.retryable is False
     assert "Windows" in (exc.error.hint or "")
     assert exc.error.details == {"operation": "singleton", "platform": "linux"}
+
+
+def test_qa_unavailable_names_its_code_s14() -> None:
+    from narration.contracts.errors import QaUnavailable
+
+    assert QaUnavailable.code == codes.QA_UNAVAILABLE
