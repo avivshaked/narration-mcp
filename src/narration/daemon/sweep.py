@@ -35,7 +35,6 @@ import psutil
 
 from narration.contracts.interfaces import Store
 from narration.contracts.models import DaemonStatus
-from narration.store.layout import StorePathError
 from narration.store.store import parse_iso
 
 from .seam import return_job
@@ -48,41 +47,24 @@ START_TOLERANCE_S: Final = 2.0
 EXIT_WAIT_S: Final = 10.0
 """How long the sweep waits for a previous daemon that is still exiting."""
 
-READ_ATTEMPTS: Final = 10
-READ_PAUSE_S: Final = 0.02
-
 
 class StatusUnreadable(Exception):
     """``run/daemon.json`` exists but is not a status: empty, cut short, not JSON, or not a status's shape."""
 
 
-def read_status(
-    store: Store,
-    *,
-    attempts: int = READ_ATTEMPTS,
-    pause_s: float = READ_PAUSE_S,
-    sleep: Callable[[float], None] = time.sleep,
-) -> DaemonStatus | None:
-    """``run/daemon.json`` as ``Store.get_daemon_status`` reads it, read again after a short pause when the
-    read fails the way it can while the daemon renames a new file over it.
+def read_status(store: Store) -> DaemonStatus | None:
+    """``run/daemon.json`` as ``Store.get_daemon_status`` reads it; ``StatusUnreadable`` for a torn file.
 
-    KNOW (WP30, Windows): a reader that opens the file during that rename gets ``PermissionError`` (about
-    one read in 25 in a tight loop, spike g), and ``os.path.realpath``, which the store's path check uses, can
-    return a ``\\\\?\\``-prefixed path for a file replaced during the call, which the check takes for a path
-    outside the store (``StorePathError``). Both pass within milliseconds. Either one ``attempts`` times
-    running is raised. A file that is there but is not a status raises ``StatusUnreadable`` (see the module
-    docstring); any other error is raised as it is.
+    The store copes with the daemon renaming a new file over it (WP12's follow-ups, from spike g): it reads
+    again while Windows refuses to open the file during the rename (``files.read_retrying``), and its path
+    check strips the ``\\\\?\\`` prefix ``realpath`` can leave on such a file (``platform.real_path``). What is
+    left here is a file that is there but is not a status: empty, cut short, not JSON, not UTF-8, or not a
+    status's shape (see the module docstring). Any other error is raised as it is.
     """
-    for attempt in range(1, attempts + 1):
-        try:
-            return store.get_daemon_status()
-        except (PermissionError, StorePathError):
-            if attempt >= attempts:
-                raise
-            sleep(pause_s)
-        except (ValueError, TypeError) as exc:  # JSON, UTF-8 and contract errors are ValueErrors
-            raise StatusUnreadable(f"run/daemon.json cannot be read as a status: {exc}") from exc
-    raise ValueError(f"attempts must be at least 1, not {attempts}")
+    try:
+        return store.get_daemon_status()
+    except (ValueError, TypeError) as exc:  # JSON, UTF-8 and contract errors are ValueErrors
+        raise StatusUnreadable(f"run/daemon.json cannot be read as a status: {exc}") from exc
 
 
 PreviousDaemon = Literal["none", "clean", "died", "exiting"]

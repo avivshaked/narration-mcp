@@ -17,17 +17,9 @@ from narration.daemon.seam import JobRunner, NullRunner, RunnerHost, WorkerPool,
 from narration.daemon.service import Daemon, _Host, posted_after_launch  # pyright: ignore[reportPrivateUsage]
 from narration.daemon.settings import DaemonSettings
 from narration.daemon.supervisor import WorkerSupervisor
-from narration.daemon.sweep import (
-    READ_ATTEMPTS,
-    READ_PAUSE_S,
-    StatusUnreadable,
-    daemon_alive,
-    read_status,
-    sweep,
-)
+from narration.daemon.sweep import StatusUnreadable, daemon_alive, read_status, sweep
 from narration.daemon.testing import SCRATCH_DIR, VOICE_SEED, FakeWorkerRunner
 from narration.store import NarrationStore
-from narration.store.layout import StorePathError
 from narration.store.store import utc_iso
 
 from .conftest import UNREADABLE_STATUSES, make_job, plant_status
@@ -219,7 +211,7 @@ def test_the_sweep_requeues_what_a_dead_daemon_left_running_s4_1(store: Narratio
 def test_an_unreadable_status_file_is_reported_as_unreadable_s4_1(store: NarrationStore, content: bytes) -> None:
     plant_status(store, content)
     with pytest.raises(StatusUnreadable):
-        read_status(store, sleep=lambda _s: None)
+        read_status(store)
 
 
 def test_the_sweep_takes_an_unreadable_status_for_a_daemon_that_died_s4_1(store: NarrationStore) -> None:
@@ -303,31 +295,18 @@ class FlakyStatusStore:
         return status("idle", os.getpid(), utc_iso(time.time()))
 
 
-def test_a_status_read_during_a_rename_is_tried_again_s4_1() -> None:
-    flaky = FlakyStatusStore(PermissionError(13, "Permission denied"), StorePathError("a prefixed realpath"))
-    pauses: list[float] = []
-    got = read_status(flaky, sleep=pauses.append)  # pyright: ignore[reportArgumentType]
-    assert got is not None and got.state == "idle"
-    assert flaky.calls == 3
-    assert pauses == [READ_PAUSE_S, READ_PAUSE_S]
-
-
-def test_a_status_read_that_keeps_failing_is_raised_s4_1() -> None:
-    flaky = FlakyStatusStore(*(PermissionError(13, "Permission denied") for _ in range(READ_ATTEMPTS)))
-    with pytest.raises(PermissionError):
-        read_status(flaky, sleep=lambda _s: None)  # pyright: ignore[reportArgumentType]
-    assert flaky.calls == READ_ATTEMPTS
-
-
-def test_other_status_read_errors_are_raised_at_once_s4_1() -> None:
-    flaky = FlakyStatusStore(IsADirectoryError(21, "a folder where the file should be"))
-    with pytest.raises(IsADirectoryError):
-        read_status(flaky, sleep=lambda _s: None)  # pyright: ignore[reportArgumentType]
-    assert flaky.calls == 1
+def test_a_read_error_the_store_gives_up_on_is_raised_at_once_s4_1() -> None:
+    # The store retries a read that Windows refuses during a rename (files.read_retrying); read_status adds
+    # no retries of its own, and raises what the store raises.
+    for error in (PermissionError(13, "Permission denied"), IsADirectoryError(21, "a folder where the file is")):
+        flaky = FlakyStatusStore(error)
+        with pytest.raises(type(error)):
+            read_status(flaky)  # pyright: ignore[reportArgumentType]
+        assert flaky.calls == 1
 
 
 def test_a_status_that_is_not_one_is_unreadable_at_once_s4_1() -> None:
     flaky = FlakyStatusStore(ValueError("Expecting value: line 1 column 1 (char 0)"))
     with pytest.raises(StatusUnreadable, match="Expecting value"):
-        read_status(flaky, sleep=lambda _s: None)  # pyright: ignore[reportArgumentType]
+        read_status(flaky)  # pyright: ignore[reportArgumentType]
     assert flaky.calls == 1

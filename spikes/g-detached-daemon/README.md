@@ -116,6 +116,10 @@ renaming a new one over it. `status_read_race.py` measures that for 8 s at a tim
   before WP30 read the status through `read_status`.
 - **KNOW** Through `narration.daemon.sweep.read_status`, which reads again after 20 ms, ten reads at most,
   5,440 reads under the same writer raised nothing.
+- Since WP12's follow-ups, the store itself reads again while Windows refuses the file
+  (`files.read_retrying`), and its path check strips the `\\?\` prefix (`platform.real_path`).
+  `read_status` now only turns a torn file into `StatusUnreadable`. The numbers above were measured
+  before that change, with the retry that `read_status` had then.
 
 ### What was not tested
 
