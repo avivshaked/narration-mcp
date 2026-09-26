@@ -201,8 +201,8 @@ def build_front_end(
     ``INTERNAL`` error points to. ``check_results`` checks every result against its tool's
     ``outputSchema`` and turns a mismatch into ``INTERNAL``, so that a client never rejects one.
     """
-    retention = retention or RetentionConfig()
-    bus = bus or InMemorySubscriptionBus()
+    retention = retention if retention is not None else RetentionConfig()
+    bus = bus if bus is not None else InMemorySubscriptionBus()
     tools = build_tools(retention)
     validators: dict[str, ArgumentValidator] = build_validators()
     output_validators = {name: Draft202012Validator(TOOLS_BY_NAME[name].output_schema) for name in TOOL_NAMES}
