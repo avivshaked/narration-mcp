@@ -107,6 +107,7 @@ class JobEngine:
                 f"this build of the service does not run {job.kind} jobs",
                 retryable=False,
                 hint=f"The {job.kind} job engine is not in this build; nothing was made. Update the service.",
+                details={"kind": job.kind},
             )
         store, config, parts = host.store, self.config, self.parts
         try:

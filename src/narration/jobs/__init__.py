@@ -20,6 +20,7 @@ from __future__ import annotations
 from .core import EngineParts
 from .engine import JobEngine
 from .gpu import NoProbe, NvmlProbe, VramProbe, VramReading
+from .handlers import JobHandler, Registry
 from .hooks import EngineGuard, NoGuard
 from .pins import ModelPin, QaPins
 from .runner import EngineRunner, build_runner, default_runner
@@ -30,12 +31,14 @@ __all__ = [
     "EngineParts",
     "EngineRunner",
     "JobEngine",
+    "JobHandler",
     "JobRun",
     "ModelPin",
     "NoGuard",
     "NoProbe",
     "NvmlProbe",
     "QaPins",
+    "Registry",
     "VramProbe",
     "VramReading",
     "build_runner",

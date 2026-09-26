@@ -319,6 +319,7 @@ def test_a_kind_this_engine_does_not_run_fails_with_a_hint_s8(world: World) -> N
     failed = world.job(job.job_id)
     assert failed.status == "failed" and failed.error is not None
     assert failed.error.code == codes.INTERNAL and not failed.error.retryable and failed.error.hint
+    assert failed.error.details is not None and failed.error.details["kind"] == "design"
     assert world.host.finished == 1
 
 

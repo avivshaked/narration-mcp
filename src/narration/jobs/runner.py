@@ -10,9 +10,12 @@
   everything it had done. Otherwise the engine does one piece of the job's work (``JobEngine.advance``) and
   writes the job's progress, items and phase.
 
-Which model group stays loaded between jobs is the engine's (``gpu.Residency``): a job whose first work
-needs the resident group starts without a load. Every generation job uses the current Base engine profile,
-so jobs need no grouping by profile until design jobs run here too.
+A claimed job goes to the handler of its kind (``handlers.Registry``: the job engine runs ``generate`` and
+``analyse``; WP33 to WP35 add theirs). A kind with no handler fails with ``INTERNAL`` and ``details.kind``.
+
+Which model group stays loaded between jobs is the residency's (``gpu.Residency``, shared by every handler):
+a job whose first work needs the resident group starts without a load. Every generation job uses the
+current Base engine profile, so jobs need no grouping by profile until design jobs run here too.
 
 A job-level failure (``NarrationError``) fails the job with its error. An exception the engine does not
 expect is a bug: the job fails with ``INTERNAL`` rather than being tried again at every step.
@@ -33,7 +36,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Final
+from typing import Any, Final
 
 from narration.config import Config
 from narration.contracts import codes
@@ -48,10 +51,10 @@ from .admission import WALL_PER_AUDIO_S, est_drain_s
 from .core import EngineParts
 from .engine import JobEngine
 from .gpu import NoProbe, NvmlProbe, VramProbe
+from .handlers import JobHandler, Registry
 from .hooks import EngineGuard, NoGuard
 from .host import RunnerHost, ShutdownReason, return_job
 from .pins import QaPins
-from .state import JobRun
 from .voice import PathCheck
 
 log = logging.getLogger(__name__)
@@ -60,30 +63,36 @@ PREEMPTING: Final = "interactive"
 """The priority that makes a held ``batch`` job give way between two pieces of its work."""
 
 
-EngineFactory = Callable[[RunnerHost], JobEngine]
-"""Builds the engine from what the daemon hands the runner (its config and store), at the first job."""
+EngineFactory = Callable[[RunnerHost], "JobEngine | Registry"]
+"""Builds the engine (or the registry of handlers) from what the daemon hands the runner, at the first job."""
 
 
 class EngineRunner:
     """The ``JobRunner`` the daemon drives (see the module docstring). One instance serves one daemon.
 
-    It takes the engine, or a factory that builds it at the first job claimed (the daemon constructs its
-    runner before it has a host). A factory that raises ``NarrationError`` fails that job with the error, and
-    is asked again at the next job, so an installation completed meanwhile is picked up.
+    It takes the job engine, a ``Registry`` of handlers by kind, or a factory that builds either at the first
+    job claimed (the daemon constructs its runner before it has a host). A factory that raises
+    ``NarrationError`` fails that job with the error, and is asked again at the next job, so an installation
+    completed meanwhile is picked up.
     """
 
-    def __init__(self, engine: JobEngine | EngineFactory) -> None:
-        self._engine: JobEngine | None = engine if isinstance(engine, JobEngine) else None
-        self._build: EngineFactory | None = None if isinstance(engine, JobEngine) else engine
+    def __init__(self, source: JobEngine | Registry | EngineFactory) -> None:
+        self._registry: Registry | None = None
+        self._build: EngineFactory | None = None
+        if isinstance(source, JobEngine | Registry):
+            self._registry = _registry(source)
+        else:
+            self._build = source
         self._job: JobRecord | None = None
-        self._run: JobRun | None = None
+        self._handler: JobHandler[Any] | None = None
+        self._run: Any = None
 
     @property
-    def engine(self) -> JobEngine:
-        """The engine; a runner built from a factory has one once it has claimed a job."""
-        if self._engine is None:
+    def registry(self) -> Registry:
+        """The handlers by kind; a runner built from a factory has them once it has claimed a job."""
+        if self._registry is None:
             raise RuntimeError("the job engine is built when the first job is claimed")
-        return self._engine
+        return self._registry
 
     @property
     def job_id(self) -> str | None:
@@ -121,10 +130,20 @@ class EngineRunner:
         host.job_started(job)
         log.info("took job %s (%s, %s)", job.job_id, job.kind, job.priority)
         try:
-            if self._engine is None:
+            if self._registry is None:
                 assert self._build is not None
-                self._engine = self._build(host)
-            self._run = self._engine.open(host, job)
+                self._registry = _registry(self._build(host))
+            handler = self._registry.handler(job.kind)
+            if handler is None:
+                raise NarrationError(
+                    codes.INTERNAL,
+                    f"this build of the service does not run {job.kind} jobs",
+                    retryable=False,
+                    hint=f"The {job.kind} job engine is not in this build; nothing was made. Update the service.",
+                    details={"kind": job.kind},
+                )
+            self._handler = handler
+            self._run = handler.open(host, job)
         except NarrationError as exc:
             self._failed(host, exc)
             return True
@@ -132,14 +151,14 @@ class EngineRunner:
             log.exception("job %s could not be planned", job.job_id)
             self._failed(host, _internal(exc))
             return True
-        if not self.engine.save(host, self._run):
+        if not handler.save(host, self._run):
             self._changed(host)
         return True
 
     # ------------------------------------------------------------------ one piece of work
     def _advance(self, host: RunnerHost) -> bool:
-        job, run = self._job, self._run
-        assert job is not None and run is not None
+        job, handler, run = self._job, self._handler, self._run
+        assert job is not None and handler is not None and run is not None
         current = host.store.get_job(job.job_id)
         if current is None or current.status != "running":
             self._changed(host, current)
@@ -149,7 +168,7 @@ class EngineRunner:
             self._let_go(host, "an interactive job came first")
             return True
         try:
-            outcome = self.engine.advance(host, run)
+            outcome = handler.advance(host, run)
         except NarrationError as exc:
             self._failed(host, exc)
             return True
@@ -162,7 +181,7 @@ class EngineRunner:
             return True
         if outcome == "stopped":
             return True  # the daemon is stopping; shutdown gives the job back
-        if not self.engine.save(host, run):
+        if not handler.save(host, run):
             self._changed(host)
         return True
 
@@ -172,27 +191,27 @@ class EngineRunner:
     # ------------------------------------------------------------------ endings
     def _changed(self, host: RunnerHost, current: JobRecord | None = None) -> None:
         """The job is no longer ``running`` under us: finish a cancel, or let go of it as it is."""
-        job = self._job
+        job, handler = self._job, self._handler
         assert job is not None
         current = current if current is not None else host.store.get_job(job.job_id)
         if current is not None and current.status == "cancelling":
-            if self._run is not None:
-                self.engine.cancel(host, self._run)
+            if handler is not None and self._run is not None:
+                handler.cancel(host, self._run)
             else:
                 host.store.update_job(job.job_id, expect_status="cancelling", status="cancelled", phase=None)
             log.info("job %s cancelled", job.job_id)
         else:
             log.info("job %s is %s; letting go of it", job.job_id, current.status if current else "gone")
-            if self._run is not None:
-                self.engine.release(self._run)
+            if handler is not None and self._run is not None:
+                handler.release(self._run)
         self._done(host)
 
     def _failed(self, host: RunnerHost, error: NarrationError) -> None:
         job = self._job
         assert job is not None
-        if self._engine is not None:
-            self._engine.fail(host, job, error, self._run)
-        else:  # the engine could not be built: record the failure without it
+        if self._handler is not None:
+            self._handler.fail(host, job, error, self._run)
+        else:  # no handler for the job (none built, or none for its kind): record the failure without one
             failed = host.store.update_job(
                 job.job_id,
                 expect_status="running",
@@ -209,23 +228,18 @@ class EngineRunner:
     def _let_go(self, host: RunnerHost, reason: str) -> None:
         """Give the job back to the queue as it is (its finished work is in the cache)."""
         assert self._job is not None
-        if self._run is not None:
-            host.store.update_job(
-                self._job.job_id,
-                expect_status="running",
-                round=self._run.round,
-                progress=self.engine.progress(self._run),
-                items=self.engine.items(self._run),
-            )
-            self.engine.release(self._run)
+        if self._handler is not None and self._run is not None:
+            self._handler.save(host, self._run)
+            self._handler.release(self._run)
         return_job(host.store, self._job.job_id, reason=reason)
         self._done(host)
 
     def _done(self, host: RunnerHost) -> None:
         self._job = None
+        self._handler = None
         self._run = None
-        if self._engine is not None:
-            self._engine.residency.reset_wait(host)
+        if self._registry is not None:
+            self._registry.residency.reset_wait(host)
         host.job_finished()
 
     # ------------------------------------------------------------------ the drain estimate (DC-2)
@@ -235,10 +249,14 @@ class EngineRunner:
         except Exception:  # the estimate is advice: a store hiccup must not fail a step
             log.debug("the queue could not be read for the drain estimate", exc_info=True)
             return
-        engine = self._engine
-        held = {self._run.job_id: engine.remaining_audio_s(self._run)} if engine and self._run else None
-        rate = engine.throughput.wall_per_audio_s if engine is not None else WALL_PER_AUDIO_S
+        registry, handler, run = self._registry, self._handler, self._run
+        held = {run.job_id: handler.remaining_audio_s(run)} if handler is not None and run is not None else None
+        rate = registry.throughput.wall_per_audio_s if registry is not None else WALL_PER_AUDIO_S
         host.set_est_drain(est_drain_s(queued, wall_per_audio_s=rate, running_remaining_s=held) if queued else 0.0)
+
+
+def _registry(source: JobEngine | Registry) -> Registry:
+    return Registry.of(source) if isinstance(source, JobEngine) else source
 
 
 def _internal(exc: BaseException) -> NarrationError:
