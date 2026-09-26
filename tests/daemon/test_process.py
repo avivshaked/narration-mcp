@@ -71,10 +71,14 @@ def daemon_argv(service: Path, *extra: str) -> list[str]:
 
 
 @contextlib.contextmanager
-def daemon_child(service: Path, *extra: str, env: dict[str, str] | None = None) -> Iterator[subprocess.Popen[bytes]]:
-    """A daemon started as this test's child; on the way out, stopped (``stop_now``), else killed."""
+def daemon_child(
+    service: Path, *extra: str, env: dict[str, str] | None = None, safe_path: bool = True
+) -> Iterator[subprocess.Popen[bytes]]:
+    """A daemon started as this test's child (by hand, without ``-P``, when ``safe_path`` is False); on the
+    way out, stopped (``stop_now``), else killed."""
+    argv = daemon_argv(service, *extra)
     process = subprocess.Popen(
-        daemon_argv(service, *extra),
+        argv if safe_path else [a for a in argv if a != "-P"],
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -168,6 +172,18 @@ def test_a_second_daemon_for_the_same_store_does_not_start_s4(service: Path, rea
         assert first.wait(timeout=30) == 0
         done = real_store.wait_for_command(posted.command_id, timeout_s=0)
         assert done is not None and done.result == {"stopped": True, "requeued": []}
+
+
+@pytest.mark.parametrize("safe_path", [True, False])
+def test_a_daemon_started_without_safe_path_warns_in_its_log_s17(
+    service: Path, real_store: NarrationStore, safe_path: bool
+) -> None:
+    with daemon_child(service, safe_path=safe_path) as daemon:
+        wait_status(real_store, lambda s: s.state == "idle" and s.pid is not None, "the daemon")
+        real_store.post_command("stop")
+        assert daemon.wait(timeout=30) == 0
+    text = (real_store.layout.logs_dir() / "daemon.log").read_text(encoding="utf-8")
+    assert ("started without -P" in text) is not safe_path
 
 
 # ---------------------------------------------------------------- kill-on-close and stop_now (sections 4, 4.1)

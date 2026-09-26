@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from narration_worker.threads import THREAD_ENV_VARS
 
-from narration.daemon.__main__ import DEFAULT_RUNNER, launch_time
+from narration.daemon.__main__ import DEFAULT_RUNNER, launch_time, warn_without_safe_path
 from narration.daemon.seam import NullRunner
 from narration.daemon.start import daemon_argv
 
@@ -148,6 +148,17 @@ def test_a_launch_time_that_is_not_finite_is_ignored_and_logged_s4_1(
     with caplog.at_level(logging.WARNING, logger="narration.daemon"):
         assert launch_time(given, 100.0) == 100.0, "when this process began, as with no --launched-at"
     assert any("not a finite time" in record.getMessage() for record in caplog.records)
+
+
+def test_a_daemon_started_without_safe_path_says_so_once_s17(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="narration.daemon"):
+        assert warn_without_safe_path(True) is False
+        assert caplog.records == [], "started with -P: nothing to say"
+        assert warn_without_safe_path(False) is True
+    (record,) = caplog.records
+    message = record.getMessage()
+    assert "without -P" in message and "sys.path" in message
+    assert "narration-admin daemon start" in message and "start_detached" in message
 
 
 def test_the_default_runner_is_the_null_runner_until_the_job_engine() -> None:

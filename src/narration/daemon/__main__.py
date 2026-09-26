@@ -77,6 +77,20 @@ def launch_time(given: float | None, began: float) -> float:
     return began if given is None else min(given, began)
 
 
+def warn_without_safe_path(safe_path: bool) -> bool:
+    """Log one warning when this interpreter was started without ``-P`` (``sys.flags.safe_path`` off): then
+    the working folder, the store root, is on ``sys.path``, and a module there could be imported in place of
+    the service's own (section 17). True if it warned."""
+    if safe_path:
+        return False
+    log.warning(
+        "the daemon was started without -P, so its working folder is on sys.path and a module there could be "
+        "imported in place of the service's own; start it with narration-admin daemon start, or through "
+        "narration.daemon.start.start_detached, which pass -P"
+    )
+    return True
+
+
 def _same_folder(a: Path, b: Path) -> bool:
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
@@ -133,6 +147,7 @@ def _serve(args: argparse.Namespace, config: Config) -> int:
         return _EXIT_ERROR
     try:
         _log_to_file(store.layout.logs_dir(), args.log_level)
+        warn_without_safe_path(bool(sys.flags.safe_path))
         try:
             module_name, _, attr = args.runner.partition(":")
             runner = getattr(importlib.import_module(module_name), attr)()
