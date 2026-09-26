@@ -53,10 +53,10 @@ TAKE_JSON = {
     },
     "trim": {"head_s": 0.27, "tail_s": 0.39, "pad_s": 0.08, "rule": "p95_frame_rms - 40 dB"},
     "loudness": {
-        "target_lufs": -20.0,
-        "measured_lufs": -20.0,
-        "gain_db": 1.4,
-        "true_peak_dbtp": -6.3,
+        "target_lufs": -23.0,
+        "measured_lufs": -23.0,
+        "gain_db": -1.6,
+        "true_peak_dbtp": -9.3,
         "ceiling_applied": False,
     },
     "tools": {

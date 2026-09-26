@@ -444,7 +444,12 @@ class SignalStats:
     """Signal facts QA needs (section 11.1 step 1), measured by the server from the audio files.
 
     ``voiced_start_s`` / ``voiced_end_s`` bound the speech in the delivery file (for pace, section 11.1
-    step 9); ``longest_internal_silence_s`` is the longest pause strictly inside them.
+    step 9); ``longest_internal_silence_s`` is the longest pause strictly inside them. Speech here uses the
+    trim's rule (section 13, DC-10: frame RMS with the mean removed, against max(p95 - 40 dB, -70 dBFS)).
+
+    These rules feed QA verdicts, and the analysis key covers them only through ``names.QA_PROFILE``. A
+    change to any of them (the frame, the percentile, the thresholds, what counts as clipping) needs a new
+    QA profile version, or cached verdicts go stale (WP13's review).
     """
 
     raw_samples: int
@@ -461,7 +466,7 @@ class SignalStats:
 @runtime_checkable
 class DeliveryProcessor(Protocol):
     """Deterministic post-processing on the CPU, thread-capped (section 13; WP13): relative trim, pinned
-    48 kHz resampler, static gain to the target loudness (``DeliveryConfig.target_lufs``, default -20 LUFS;
+    48 kHz resampler, static gain to the target loudness (``DeliveryConfig.target_lufs``, default -23 LUFS;
     plan.md DC-8), fades, PCM_24, true peak on the final file."""
 
     @property

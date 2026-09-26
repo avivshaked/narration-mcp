@@ -68,9 +68,10 @@ refuse = ["[", "]", "<|", "|>"]
 [delivery]
 sample_rate = 48000
 subtype = "PCM_24"
-target_lufs = -20.0           # per take; the story flow's -16 was never reached under the ceiling (DC-8)
+target_lufs = -23.0           # per take (EBU R128's pair with -1 dBTP); -16 was never reached under the ceiling
 true_peak_dbtp = -1.0          # this ceiling wins over target_lufs if the two would conflict
-trim_rel_db = -40.0            # relative to the take's own p95 frame RMS
+trim_rel_db = -40.0            # relative to the take's own p95 frame RMS, measured with its mean removed
+trim_floor_dbfs = -70.0        # the speech threshold never goes below this, so a near-silent take is trimmed
 trim_pad_s = 0.08
 fade_s = 0.01
 
