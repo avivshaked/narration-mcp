@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from narration.contracts import models
@@ -91,6 +93,23 @@ def test_unplaced_cue_keeps_null_times_s11_2() -> None:
     cue = models.CueTiming(index=1, start_s=None, end_s=None, confidence=None)
     assert to_json(cue) == {"index": 1, "start_s": None, "end_s": None, "confidence": None, "words": []}
     assert from_json(models.CueTiming, to_json(cue)) == cue
+
+
+def test_analysis_alignment_block_of_app_b_loads() -> None:
+    # App. B's analysis sidecar names the aligner in versions.aligner_method, not in the alignment block.
+    block = {
+        "method": "ctc-forced-align+silence-snap",
+        "device": "cpu",
+        "cross_check": {"model": "openai/whisper-large-v3", "max_disagreement_s": 0.06},
+        "measured_error": {"p50_s": 0.02, "p95_s": 0.05, "n": 30, "benchmark": "alignment-en.v1"},
+        "cues": [{"index": 0, "start_s": 0.08, "end_s": 3.02, "confidence": 0.93, "words": []}],
+        "flags": [],
+    }
+    alignment = from_json(models.Alignment, block)
+    assert alignment.model is None and alignment.revision is None
+    assert to_json(alignment) == block
+    named = to_json(dataclasses.replace(alignment, model="m", revision="r"))
+    assert (named["model"], named["revision"]) == ("m", "r")
 
 
 def test_exact_words_are_a_half_open_range_app_b() -> None:

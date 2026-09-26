@@ -151,7 +151,13 @@ class KeyBuilder(Protocol):
     def voice_hash(
         self, *, model: str, clip_sha256: str, transcript: str, language: str, x_vector_only_mode: bool
     ) -> str:
-        """H({schema: "narration.voice/v2", model, clip_sha256, transcript (NFC), language, x_vector_only_mode})."""
+        """H({schema: "narration.voice/v2", model, clip_sha256, transcript (NFC), language, x_vector_only_mode}).
+
+        ``model`` is always ``names.MODEL_QWEN_BASE``, the cloning model's repo id: never a revision, an
+        engine profile id or a profile hash. A voice's hash must survive a re-pin, because measurements are
+        kept per voice and then per engine profile (sections 10.1, 15). ``language`` is ``names.LANGUAGE``.
+        This method applies NFC to ``transcript`` itself, so callers pass the transcript as received.
+        """
         ...
 
     def measurement_key(
@@ -473,6 +479,9 @@ class QaInputs:
 
     segment: SegmentText
     hints: tuple[Hint, ...]
+    """The hints used in this segment: the terms in ``segment``'s ``hints_applied``, the same set that
+    ``AnalysisText.hints_used`` records and ``AnalysisKeyInputs.hints_qa`` covers. Never the request's whole
+    hint list: a hint the key does not cover must not change a cached verdict (section 11.1)."""
     voice_transcript: str
     asr_text: str
     asr_words: tuple[AsrWord, ...]

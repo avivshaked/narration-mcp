@@ -418,11 +418,16 @@ class CrossCheck:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Alignment:
-    """A take's cue alignment (section 11.2 step 8; App. B ``alignment``)."""
+    """A take's cue alignment (section 11.2 step 8; App. B ``alignment``).
+
+    ``model`` and ``revision`` name the aligner. The service sets them on every analysis it writes, and
+    ``get_results`` shows them (``TakeAlignment``). They are optional only because App. B's example keeps the
+    aligner in ``versions.aligner_method`` instead, and a sidecar in that shape must still load.
+    """
 
     method: str
-    model: str
-    revision: str
+    model: str | None = None
+    revision: str | None = None
     device: str
     cross_check: CrossCheck
     measured_error: MeasuredError | None
@@ -765,7 +770,9 @@ class EngineProfile:
     """``engines/<engine_profile_id>.json`` (sections 6, 15).
 
     ``hash`` covers every field except ``hash``, ``snapshot_dir`` (a local path), ``observed`` (GPU,
-    driver, CUDA, cuDNN: recorded, not hashed) and ``canary`` (made on the installing machine, DC-3).
+    driver, CUDA, cuDNN: recorded, not hashed), ``tier`` (the outcome of the repeat test on this machine,
+    section 10.1: an observation, set after the pin) and ``canary`` (made on the installing machine, DC-3).
+    Setting ``tier`` or ``canary`` after the pin therefore changes no render key.
     """
 
     schema: str = ENGINE_PROFILE_SCHEMA
@@ -868,9 +875,10 @@ class JobSegment:
 class JobRecord:
     """``jobs/<job_id>/job.json`` and the job row (section 6). The request is kept by value.
 
-    ``request`` is the tool's validated arguments as JSON; read it with ``serial.from_json`` into the
-    kind's record (``SubmitJobArgs`` for ``generate`` and ``analyse``, ``DesignVoiceArgs``,
-    ``MeasureVoiceArgs``, ``ProfileVoiceArgs``, ``AuditionPronunciationArgs``). ``items`` is the per-segment
+    ``request`` is the tool's arguments as a JSON object, stored after they passed the tool's input
+    schema (``schemas.TOOLS_BY_NAME[tool].input_schema``: ``submit_job`` for ``generate`` and ``analyse``,
+    ``design_voice``, ``measure_voice``, ``profile_voice``, ``audition_pronunciation``). There is no typed
+    record for it: the input schema fixes its layout, and it is read as a dict. ``items`` is the per-segment
     state the job engine writes and ``get_job``/``get_results`` read. ``result`` is the handle of a
     non-generate job's result (e.g. ``design_id``; the measurement key; the audition's take ids), and
     ``message`` the human-readable progress line of section 7.4.
