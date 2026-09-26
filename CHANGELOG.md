@@ -52,3 +52,21 @@ are tracked here but no version is tagged; nothing described below is installabl
 - A `fake` worker role with deterministic synthetic audio and QA outputs, and faults it can plant on
   request of a test (`NARRATION_FAKE_SPEC`), so the service can be developed and tested without a model
   or a GPU; and the worker contract tests every worker runs (`narration_worker.testing`).
+- `narration.keys`: the cache keys of design section 10.2 (`voice_hash`, measurement, render, delivery and
+  analysis keys) over RFC 8785 canonical JSON, the seed of section 10.3, the `rn_`/`tk_`/`an_` ids, and
+  ULID job and design ids. Key values are pinned by golden tests: they name every take and never change.
+  The delivery key names the post-processing rules' version (`narration.post/1`). Every id and key is
+  checked as a whole string, so one with a trailing newline is refused.
+- `narration.store`: the local store of design section 15. SQLite in WAL mode with a recorded schema
+  version, content-addressed folders published whole (staged, then renamed), read-only immutable files,
+  leases so one process produces each key, idempotent job creation and a job queue, `gc` (a dry run unless
+  asked) and `verify`. Every path is confined to the store root, refusing `..`, absolute paths, links and
+  junctions that lead out, and reserved names.
+  - A job with a reused `idempotency_key` and a different request is refused (`INVALID_ARGUMENT` on
+    `idempotency_key`).
+  - `gc` never removes a key published again while it runs. It lists what it cannot remove and carries
+    on. It keeps the takes a live measurement names, for `measurement_retention_days`, and the voice
+    profiles of a live design.
+  - A failed publish puts the caller's audio back in `scratch/` and keeps the folder it would have
+    replaced. The store moves in files only from `scratch/`.
+  - The current alignment benchmark is the configured aligner's.
