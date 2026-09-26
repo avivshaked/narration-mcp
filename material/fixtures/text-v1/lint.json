@@ -1,6 +1,6 @@
 {
   "set": "text-v1",
-  "design_revision": "5.1",
+  "design_revision": "5.2",
   "conventions": [
     "The positive-only lint of voice descriptions (design section 3.5): a plain word list, whole-word and case-insensitive, that warns and never refuses.",
     "Each finding gives the trigger word, its offset (code points into the description) and the phrase; suggestion is the table's rephrasing, or the default line when the table has no entry.",

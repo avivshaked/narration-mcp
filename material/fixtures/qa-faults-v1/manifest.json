@@ -5,8 +5,8 @@
   "status": "draft",
   "language": "en",
   "description": "Planted-fault QA fixture specs (WP40, design section 20 Phase 3 exit criteria): a different number in an exact span, a head insertion, a render cut by the token cap and an unplaceable cue, which must be caught; and per cent heard as percent, nought heard as zero and one slip in a three-word title, which must pass. Specs only, no audio.",
-  "design": "docs/design.md revision 5.1, sections 11.1, 11.2, 11.3 and 20",
+  "design": "docs/design.md revision 5.2, sections 11.1, 11.2, 11.3 and 20",
   "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
   "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
-  "files": [{"path": "specs.json", "bytes": 12142, "sha256": "0533428da404d45b0ca6226a16c5be57860c8315681c0b12e03471fea1cad35d"}]
+  "files": [{"path": "specs.json", "bytes": 12142, "sha256": "db290b5caf00339ef444d3eefcd4f1003e0553ed09c82f55eb42000b0df10293"}]
 }

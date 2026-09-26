@@ -1,6 +1,6 @@
 {
   "set": "text-v1",
-  "design_revision": "5.1",
+  "design_revision": "5.2",
   "conventions": [
     "Each case gives an input (a Segment as in design section 7.2, plus optional request-level hints and strict_text) and what the design fixes about the outcome.",
     "Only the fields present under expect are asserted. A cue's warnings list, when present, is the complete list of text-check findings for that cue (empty = none).",
