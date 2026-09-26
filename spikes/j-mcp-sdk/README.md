@@ -170,6 +170,8 @@ in `results/`. **KNOW (source)** means read in the installed package's source, n
 
 ### Note on the recorded probes (2026-09-26)
 
-The probes' voice transcript was changed after the runs to the first sentence of the service's new default
-design text (design section 16), in the scripts and in the recorded `results/*.jsonl` alike. It is an
-argument the probes pass through unread, so nothing the spike measured depends on it.
+After the runs, the probes' voice transcript was changed in the scripts and in the recorded
+`results/*.jsonl` alike. It is now the first clause of the service's new default design text (design
+section 16), ending in a full stop. The spike's servers check the transcript against the schema (a string
+of 1 to 600 characters) and never read it. The new value meets the same limits, so no recorded outcome
+changes.
