@@ -246,7 +246,7 @@ class Stages:
         core = self.core
         config = core.config
         client = host.workers.client("qwen", cublas_workspace_config=need.cublas_workspace_config)
-        if run.prepared is None or run.prepared != client.pid:
+        if run.prepared is not client:  # a new worker holds no prepared voice, whatever its pid
             client.request(
                 "prepare_voice",
                 {
@@ -257,7 +257,7 @@ class Stages:
                 },
                 timeout_s=PREPARE_TIMEOUT_S,
             )
-            run.prepared = client.pid
+            run.prepared = client
         core.phase(host, run, "rendering" if attempt.round == 0 else "retaking")
         run.message = f"round {attempt.round}: rendering {label(run, attempt)}"
         engine_text = seg.text.engine_text

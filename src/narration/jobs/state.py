@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Final, Literal
 
 from narration.contracts import codes
+from narration.contracts.interfaces import WorkerClient
 from narration.contracts.models import (
     AnalysisRecord,
     Consistency,
@@ -140,8 +141,9 @@ class JobRun:
     round: int = 0
     phase: JobPhase | None = None
     message: str | None = None
-    prepared: int | None = None
-    """The pid of the Qwen worker the voice was prepared in since its last load, or None."""
+    prepared: WorkerClient | None = None
+    """The Qwen worker the voice was prepared in since its last load, or None. Compared by identity: a new
+    worker process is a new client object, even if its pid is reused."""
     consistency: Consistency | None = None
     outliers: dict[str, Flag] = field(default_factory=dict)
     """``SPK_OUTLIER`` flags by take id, from the consistency report."""

@@ -19,8 +19,9 @@ The contract, as the engine keeps it:
 - ``shutdown(host, reason)`` gives back the job held (``return_job``), removes the scratch files of the
   work it abandoned, and releases its leases.
 - Between steps in which no job is held, the daemon may stop every worker (``release_gpu``, the idle
-  unload). Whatever a worker holds (models, a prepared voice) is keyed to that worker process and
-  established again in a new one.
+  unload). Whatever a worker holds (models, a prepared voice) is keyed to that worker instance, the client
+  object ``workers.client(group)`` returns for as long as its process lives (compared by identity: a pid
+  may be reused), and established again in a new one.
 """
 
 from __future__ import annotations

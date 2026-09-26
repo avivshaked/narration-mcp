@@ -199,14 +199,21 @@ class _Pool:
 
     gpu_holder: GpuHolder | None = None
     groups: set[GpuHolder] = dataclasses.field(default_factory=set)
-    pids: dict[GpuHolder, int] = dataclasses.field(default_factory=lambda: {"qwen": 101, "qa": 202})
+    clients: dict[GpuHolder, _Client] = dataclasses.field(
+        default_factory=lambda: {"qwen": _Client(101), "qa": _Client(202)}
+    )
     log: list[str] = dataclasses.field(default_factory=list)
 
     def loaded(self) -> frozenset[GpuHolder]:
         return frozenset(self.groups)
 
     def client(self, group: GpuHolder, *, cublas_workspace_config: str | None = None) -> Any:
-        return _Client(self.pids[group])
+        return self.clients[group]  # the same object for as long as the worker process lives
+
+    def restart(self, group: GpuHolder, pid: int) -> None:
+        """The worker died and was started again, a new process (whose pid may be the old one's); it loaded
+        the same models behind the residency's back, so only the process tells the two apart."""
+        self.clients[group] = _Client(pid)
 
     def load(
         self,
@@ -268,8 +275,17 @@ def test_a_restarted_worker_is_loaded_again_s4(gpu_host: Host) -> None:
     residency = _residency(gpu_host, NoProbe())
     residency.ensure(gpu_host, _need("qwen"), phase=lambda p: None)
     pool = cast(_Pool, gpu_host.workers)
-    pool.pids["qwen"] = 999  # the daemon started the worker again
+    pool.restart("qwen", pid=999)  # the daemon started the worker again
     assert residency.ensure(gpu_host, _need("qwen"), phase=lambda p: None) == "loaded"
+
+
+def test_a_restarted_worker_with_the_old_pid_is_still_a_new_worker_s4(gpu_host: Host) -> None:
+    residency = _residency(gpu_host, NoProbe())
+    residency.ensure(gpu_host, _need("qwen"), phase=lambda p: None)
+    pool = cast(_Pool, gpu_host.workers)
+    pool.restart("qwen", pid=101)  # a pid may be reused: the worker is compared as an object
+    assert residency.ensure(gpu_host, _need("qwen"), phase=lambda p: None) == "loaded"
+    assert pool.log == ["load qwen", "unload qwen", "load qwen"]
 
 
 def test_too_little_free_vram_waits_in_steps_then_is_gpu_unavailable_s4(gpu_host: Host) -> None:

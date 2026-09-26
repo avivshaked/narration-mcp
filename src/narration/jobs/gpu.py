@@ -3,7 +3,8 @@
 **One resident group** (section 4 item 1): Qwen (Base, or VoiceDesign for design jobs) or the QA group
 (Whisper and WavLM). Before a group is loaded, whatever other group is on the GPU is unloaded; a group already
 loaded with the same engine profile on the same worker process is used as it is, across jobs too, so work
-that needs the resident group starts without a load (affinity).
+that needs the resident group starts without a load (affinity). The worker is compared as an object (the
+pool returns the same client for as long as its process lives), never by pid, which may be reused.
 
 **The free-VRAM check** (section 4 item 2): before loading, NVML must show free VRAM of at least the group's
 need plus ``[gpu] min_free_margin_mb`` (1 GB). Otherwise the job's phase is ``waiting_for_gpu``, the check
@@ -29,6 +30,7 @@ from typing import Any, Final, Literal, Protocol
 from narration.config import GpuConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
+from narration.contracts.interfaces import WorkerClient
 from narration.contracts.names import GpuHolder, JobPhase
 from narration.store.store import utc_iso
 
@@ -141,18 +143,19 @@ class Residency:
     clock: Callable[[], float] = time.monotonic
     wall: Callable[[], str] = field(default=lambda: utc_iso(time.time()))
     need_mb: dict[str, int] = field(default_factory=dict)
-    _loaded: dict[GpuHolder, tuple[str, int | None]] = field(default_factory=dict)
+    _loaded: dict[GpuHolder, tuple[str, WorkerClient]] = field(default_factory=dict)
     _wait: _Wait | None = None
     _reading: VramReading | None = None
 
     # ------------------------------------------------------------------ what is loaded
     def is_ready(self, host: RunnerHost, need: GroupNeed) -> bool:
-        """Whether ``need``'s models are loaded on the group's current worker (no call is sent)."""
+        """Whether ``need``'s models are loaded on the group's current worker (no call is sent): the worker
+        they were loaded on, the same client object, not a new process that may have the old one's pid."""
         mine = self._loaded.get(need.group)
         if mine is None or mine[0] != need.key or need.group not in host.workers.loaded():
             return False
         client = host.workers.client(need.group, cublas_workspace_config=need.cublas_workspace_config)
-        return client.pid == mine[1]
+        return client is mine[1]
 
     def forget(self, group: GpuHolder) -> None:
         """The group's models are gone (unloaded, or its worker died)."""
@@ -214,7 +217,6 @@ class Residency:
             return "waiting"
         self.reset_wait(host)
         phase("loading_model")
-        client = pool.client(need.group, cublas_workspace_config=need.cublas_workspace_config)
         pool.load(
             need.group,
             need.payload,
@@ -222,7 +224,8 @@ class Residency:
             timeout_s=LOAD_TIMEOUT_S,
             cublas_workspace_config=need.cublas_workspace_config,
         )
-        self._loaded[need.group] = (need.key, client.pid)
+        client = pool.client(need.group, cublas_workspace_config=need.cublas_workspace_config)  # the one loaded
+        self._loaded[need.group] = (need.key, client)
         self._reading = self.probe.read()
         self.publish(host)
         log.info("loaded %s on the %s worker (pid %s)", need.label, need.group, client.pid)
