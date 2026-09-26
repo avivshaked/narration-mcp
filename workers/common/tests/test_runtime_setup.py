@@ -137,7 +137,8 @@ def test_a_file_another_process_holds_is_transient_not_backend_not_installed_s4(
     monkeypatch.syspath_prepend(str(tmp_path))
     with pytest.raises(OpError) as caught:
         determinism.import_optional("narration_test_dll_in_use")
-    assert caught.value.code == "INTERNAL" and caught.value.details["transient"] is True
+    assert caught.value.code == "INTERNAL"
+    assert caught.value.details is not None and caught.value.details["transient"] is True
     assert is_transient_load_error(ImportError(f"DLL load failed while importing _C: {in_use}."))
     assert is_transient_load_error(OSError(f"[WinError 32] {in_use}: 'c10.dll'"))
     assert not is_transient_load_error(ImportError("DLL load failed while importing _C: not found"))
