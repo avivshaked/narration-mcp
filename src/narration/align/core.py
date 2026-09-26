@@ -6,8 +6,9 @@ The worker (``narration_worker_qa.align``) returns one span of frames per token,
 1. **Words.** A word's time runs from its first letter's first frame to its last letter's end frame. A
    word outside the alphabet has null times. The wildcard that stands for a run of such words (plan.md
    DC-11) has a span of its own: the frames of the speech it absorbed.
-2. **Confidence** (step 5): the mean posterior of a cue's letter tokens. A wildcard's score measures only
-   that there was speech (1 − P(blank)), not which words, so it never counts.
+2. **Confidence** (step 5): the mean posterior of a cue's letters and apostrophes (not ``|``, not ``*``).
+   A wildcard's score measures only that there was speech (1 − P(blank)), not which words, so it never
+   counts.
 3. **Unplaceable cues** (step 7): a cue with no letter in the transcript, or with confidence under
    ``unplaced_below``. Its times, and its words' times, are null, and it gets ``CUE_UNALIGNED`` with a
    ``details.reason``: ``no_alignable_words`` (``codes.CUE_NO_ALIGNABLE_WORDS``, not a retake trigger:
@@ -29,6 +30,18 @@ The worker (``narration_worker_qa.align``) returns one span of frames per token,
    *k* ends on its last word, its end is the first pause after that word, and the unaligned speech belongs
    to the cues after it. If cue *k+1* starts on its first word, its start is the last pause before that
    word. When both sides own unaligned speech, it is the longest pause again.
+
+   **Nothing takes speech it does not own.** An edge next to unaligned speech it does not own (an
+   unplaceable cue's, including the cues before the first placed cue and after the last) snaps only when
+   its pause lies within reach of its span: at most ``snap_reach_start_s`` of speech between the pause and
+   the cue's first aligned letter, or ``snap_reach_end_s`` between its last and the pause. That much is the
+   aligner's own imprecision at a word's edge. With more, the unplaceable cue's speech runs on into the
+   cue's without a pause, and the pause belongs to the far side of that speech: the edge keeps the
+   aligner's time, and the boundary gets ``CUE_BOUNDARY_NO_PAUSE`` with ``details.edge`` (``end`` or
+   ``start``: which placed edge kept its time) and ``details.speech_s`` (the speech between the span and
+   the nearest pause; null with no pause at all). The file's own edges are not limited this way: speech
+   before cue 0 or after the last cue is not in the text, and head and end insertions (section 11.1) look
+   for it.
 5. **Cross-check** (step 6, ``crosscheck``): ``CUE_ALIGNMENT_DISAGREE`` above ``disagree_above_s``;
    ``max_disagreement_s`` is reported.
 6. **Failure** (step 3). No reply (the worker reported ``ALIGNMENT_ERROR``), or a reply that does not fit
@@ -94,6 +107,13 @@ class AlignerParams:
     snap_tolerance_s: float = 0.02
     """How far outside the gap between two aligned spans a pause may start or end and still count: one
     energy frame, for the frames' quantisation."""
+    snap_reach_start_s: float = 0.12
+    """Next to speech a cue does not own (an unplaced cue's), how much speech may lie between the pause and
+    the cue's first aligned letter for the cue's start to snap to that pause. ASSUME: on the bake-off's takes
+    the pause before a cue ended at most 0.10 s before its first letter (``spikes/b-forced-align-cpu``,
+    ``reach.json``), plus one energy frame."""
+    snap_reach_end_s: float = 0.28
+    """The same after the cue's last aligned letter: at most 0.26 s there, plus one energy frame."""
     unplaced_below: float = 0.50
     low_confidence_below: float = 0.75
     disagree_above_s: float = 0.25
@@ -101,8 +121,8 @@ class AlignerParams:
     def __post_init__(self) -> None:
         if not 0.0 <= self.unplaced_below <= self.low_confidence_below <= 1.0:
             raise ValueError("the thresholds need 0 <= unplaced_below <= low_confidence_below <= 1")
-        if self.disagree_above_s < 0 or self.snap_tolerance_s < 0:
-            raise ValueError("disagree_above_s and snap_tolerance_s must not be negative")
+        if min(self.disagree_above_s, self.snap_tolerance_s, self.snap_reach_start_s, self.snap_reach_end_s) < 0:
+            raise ValueError("disagree_above_s and the snap tolerance and reaches must not be negative")
 
 
 @dataclass(slots=True)
@@ -401,11 +421,18 @@ class CtcAligner:
         flags: list[Flag] = []
 
         ctc = {cue.index: (cue.start_s, cue.end_s) for cue in placed}
+        reach_start, reach_end = self._params.snap_reach_start_s, self._params.snap_reach_end_s
 
         first = placed[0]
         head = first.spans[0]
-        rule = _start_rule(before_owns=first.index > 0, owns=first.owns_head(), edge=True)
-        pause = _choose([p for p in pauses if p.start_s < head.start_s + tol], rule)
+        before_owns = first.index > 0
+        guarded = before_owns and not first.owns_head()
+        before = [p for p in pauses if p.start_s < head.start_s + tol]
+        pause = _choose(before, _start_rule(before_owns=before_owns, owns=first.owns_head(), edge=True))
+        if guarded:
+            pause, speech = _within_reach(pause, head.start_s, reach_start, start=True)
+            if pause is None:
+                flags.append(_kept_flag(first.index - 1, "start", speech))
         if pause is not None:
             first.start_s = _s(min(pause.end_s, head.end_s))
 
@@ -415,10 +442,6 @@ class CtcAligner:
             window = [x for x in pauses if x.start_s < b.start_s + tol and x.end_s > a.end_s - tol]
             end_pause = _choose(window, _end_rule(owns=tail_p, after_owns=head_q or between, edge=False))
             start_pause = _choose(window, _start_rule(before_owns=tail_p or between, owns=head_q, edge=False))
-            if end_pause is not None:
-                p.end_s = _s(max(end_pause.start_s, a.start_s))
-            if start_pause is not None:
-                q.start_s = _s(min(start_pause.end_s, b.end_s))
             if not window and q.index == p.index + 1:
                 flags.append(
                     _flag(
@@ -429,11 +452,31 @@ class CtcAligner:
                         details={"next_cue": q.index},
                     )
                 )
+            else:
+                # Speech p or q does not own lies between them: an edge snaps only to the pause next to it.
+                if not tail_p and (head_q or between):
+                    end_pause, speech = _within_reach(end_pause, a.end_s, reach_end, start=False)
+                    if end_pause is None:
+                        flags.append(_kept_flag(p.index, "end", speech))
+                if not head_q and (tail_p or between):
+                    start_pause, speech = _within_reach(start_pause, b.start_s, reach_start, start=True)
+                    if start_pause is None:
+                        flags.append(_kept_flag(q.index - 1, "start", speech))
+            if end_pause is not None:
+                p.end_s = _s(max(end_pause.start_s, a.start_s))
+            if start_pause is not None:
+                q.start_s = _s(min(start_pause.end_s, b.end_s))
 
         last = placed[-1]
         tail = last.spans[-1]
-        rule = _end_rule(owns=last.owns_tail(), after_owns=last.index < len(cues) - 1, edge=True)
-        pause = _choose([p for p in pauses if p.end_s > tail.end_s - tol], rule)
+        after_owns = last.index < len(cues) - 1
+        guarded = after_owns and not last.owns_tail()
+        after = [p for p in pauses if p.end_s > tail.end_s - tol]
+        pause = _choose(after, _end_rule(owns=last.owns_tail(), after_owns=after_owns, edge=True))
+        if guarded:
+            pause, speech = _within_reach(pause, tail.end_s, reach_end, start=False)
+            if pause is None:
+                flags.append(_kept_flag(last.index, "end", speech))
         if pause is not None:
             last.end_s = _s(max(pause.start_s, tail.start_s))
         if math.isfinite(duration) and last.end_s is not None:
@@ -569,6 +612,33 @@ def _start_rule(*, before_owns: bool, owns: bool, edge: bool) -> str:
     if not owns:
         return "latest" if (edge or before_owns) else "longest"
     return "earliest" if not before_owns else "longest"
+
+
+def _within_reach(
+    pause: Pause | None, edge_s: float, reach_s: float, *, start: bool
+) -> tuple[Pause | None, float | None]:
+    """``pause`` if at most ``reach_s`` of speech lies between it and a span's edge, else None; and that
+    speech in seconds (None with no pause). ``start``: the span starts at ``edge_s`` and the pause is before
+    it; otherwise the span ends there and the pause is after it."""
+    if pause is None:
+        return None, None
+    speech = _s(max(0.0, edge_s - pause.end_s if start else pause.start_s - edge_s))
+    return (pause if speech <= reach_s else None), speech
+
+
+def _kept_flag(cue: int, edge: str, speech_s: float | None) -> Flag:
+    """``CUE_BOUNDARY_NO_PAUSE`` at the boundary after ``cue``, whose placed side kept its aligner time at
+    ``edge`` (``end``: cue's end; ``start``: the next cue's start) because no pause lies next to it on the
+    side of speech it does not own. ``speech_s``: the speech between its span and the nearest pause."""
+    owner = cue if edge == "end" else cue + 1
+    return _flag(
+        codes.CUE_BOUNDARY_NO_PAUSE,
+        "info",
+        f"No pause separates cue {owner}'s aligned words from the unaligned speech "
+        f"{'after' if edge == 'end' else 'before'} them; its {edge} keeps the aligner's time.",
+        cue=cue,
+        details={"next_cue": cue + 1, "edge": edge, "speech_s": speech_s},
+    )
 
 
 def _choose(pauses: Sequence[Pause], rule: str) -> Pause | None:

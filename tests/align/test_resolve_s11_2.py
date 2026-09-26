@@ -128,6 +128,74 @@ def test_unplaced_cue_is_null_never_interpolated_s11_2() -> None:
     assert not any(f.code == codes.CUE_LOW_CONFIDENCE for f in a.flags)
 
 
+# Speech 0.20-1.00, a pause, then 1.40-2.60 with no pause inside: the middle cue is spoken 1.42-1.78 and runs
+# straight on into "Then", whose letters start at 1.84.
+RUN_ON_AUDIO = audio(3.0, [(0.20, 1.00), (1.40, 2.60)])
+RUN_ON_WORDS = {
+    (0, 0): (0.24, 0.50),
+    (0, 1): (0.56, 0.96),
+    (2, 0): (1.84, 2.10),
+    (2, 1): (2.16, 2.56),
+}
+
+
+@pytest.mark.parametrize(
+    ("cues", "middle", "scores"),
+    [
+        (("Rain came.", "12.", "Then sun."), {(1, 0): (1.42, 1.78)}, None),  # a wildcard alone
+        (("Rain came.", "Nobody knew.", "Then sun."), {(1, 0): (1.42, 1.60), (1, 1): (1.64, 1.78)}, {1: 0.2}),
+    ],
+    ids=["no_alignable_words", "low_confidence"],
+)
+def test_cue_after_an_unplaced_cue_does_not_take_its_speech_s11_2(cues, middle, scores) -> None:
+    # Regression (review F1): the pause before the unplaced cue's speech is not "Then"'s pause. Snapping to it
+    # gave cue 2 and "Then" 1.40, 0.44 s of another cue's speech before its letters.
+    a = _resolve(cues, RUN_ON_AUDIO, RUN_ON_WORDS | middle, scores=scores)
+    assert cue_times(a) == [(0.2, 1.0), (None, None), (1.84, 2.6)]
+    assert a.cues[2].words[0].start_s == 1.84
+    [flag] = [f for f in a.flags if f.code == codes.CUE_BOUNDARY_NO_PAUSE]
+    assert (flag.severity, flag.cue, flag.retake_trigger) == ("info", 1, False)
+    assert flag.details == {"next_cue": 2, "edge": "start", "speech_s": 0.44}
+
+
+def test_first_placed_cue_after_an_unplaced_head_keeps_its_own_start_s11_2() -> None:
+    # Regression (review F1): "12" is spoken 0.20-0.60 and runs on into "Then" (letters from 0.64); the
+    # file's leading silence is not "Then"'s pause, so cue 1 starts at its letters, not at 0.20.
+    speech = audio(2.0, [(0.20, 1.60)])
+    words = {(0, 0): (0.22, 0.58), (1, 0): (0.64, 0.90), (1, 1): (0.96, 1.20), (1, 2): (1.26, 1.56)}
+    a = _resolve(("12.", "Then sun came."), speech, words)
+    assert cue_times(a) == [(None, None), (0.64, 1.6)]
+    assert a.cues[1].words[0].start_s == 0.64
+    [flag] = [f for f in a.flags if f.code == codes.CUE_BOUNDARY_NO_PAUSE]
+    assert (flag.cue, flag.details) == (0, {"next_cue": 1, "edge": "start", "speech_s": 0.44})
+
+
+def test_last_placed_cue_before_an_unplaced_tail_keeps_its_own_end_s11_2() -> None:
+    # Regression (review F1): "came" ends at 0.96 and "12" runs on from it to 1.40; the pause after "12" is
+    # not "came"'s, so cue 0 ends at its letters, not at 1.40.
+    speech = audio(2.0, [(0.20, 1.40)])
+    words = {(0, 0): (0.24, 0.44), (0, 1): (0.50, 0.70), (0, 2): (0.76, 0.96), (1, 0): (1.02, 1.36)}
+    a = _resolve(("Then sun came.", "12."), speech, words)
+    assert cue_times(a) == [(0.2, 0.96), (None, None)]
+    assert a.cues[0].words[-1].end_s == 0.96
+    [flag] = [f for f in a.flags if f.code == codes.CUE_BOUNDARY_NO_PAUSE]
+    assert (flag.cue, flag.details) == (0, {"next_cue": 1, "edge": "end", "speech_s": 0.44})
+
+
+@pytest.mark.parametrize(("then_start", "expected"), [(1.52, 1.4), (1.54, 1.54)])
+def test_pause_next_to_an_unplaced_cue_counts_only_within_reach_s11_2(then_start: float, expected: float) -> None:
+    # snap_reach_start_s (0.12): at most that much speech between the pause and the cue's first letter.
+    speech = audio(3.0, [(0.20, 1.00), (1.40, 2.60)])
+    words = {(0, 0): (0.24, 0.50), (0, 1): (0.56, 0.96), (2, 0): (then_start, 2.10), (2, 1): (2.16, 2.56)}
+    a = _resolve(
+        ("Rain came.", "Nobody knew.", "Then sun."),
+        speech,
+        words | {(1, 0): (1.02, 1.20), (1, 1): (1.24, 1.36)},
+        scores={1: 0.2},
+    )
+    assert a.cues[2].start_s == expected
+
+
 def test_cue_with_no_word_in_the_alphabet_is_unplaced_and_no_retake_trigger_s11_2_dc12() -> None:
     # "12, 13." is one wildcard: its span shows speech at 1.40-2.20, but no letter says which words.
     words = {k: v for k, v in THREE_WORDS.items() if k[0] != 1} | {(1, 0): (1.40, 2.20)}
@@ -309,6 +377,8 @@ def test_method_id_names_the_model_revision_and_every_setting_s11_2() -> None:
         AlignerParams(low_confidence_below=0.7),
         AlignerParams(disagree_above_s=0.2),
         AlignerParams(snap_tolerance_s=0.04),
+        AlignerParams(snap_reach_start_s=0.2),
+        AlignerParams(snap_reach_end_s=0.4),
         AlignerParams(pauses=dataclasses.replace(AlignerParams().pauses, silence_below_db=40.0)),
     ]
     ids = {CtcAligner(revision=REVISION, params=p).method_id for p in changed}
@@ -332,6 +402,8 @@ def test_from_config_takes_every_threshold_s11_2() -> None:
         {"unplaced_below": -0.1},
         {"low_confidence_below": 1.5},
         {"disagree_above_s": -1.0},
+        {"snap_reach_start_s": -0.02},
+        {"snap_reach_end_s": -0.02},
     ],
 )
 def test_thresholds_out_of_order_are_refused_s11_2(bad: dict[str, float]) -> None:

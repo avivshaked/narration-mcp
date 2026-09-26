@@ -2,10 +2,10 @@
 
 *Plan.md WP15. Run 2026-09-26 on the development machine (Windows 11, 32 logical CPUs, capped at 4
 threads, no GPU used). Scripts: [`spike_b.py`](spike_b.py), [`calibrate.py`](calibrate.py),
-[`wildcard.py`](wildcard.py) with [`wildcard_emit.py`](wildcard_emit.py). Outputs:
-[`results.json`](results.json), [`calibration.json`](calibration.json), [`wildcard.json`](wildcard.json),
-[`wildcard_boundaries.csv`](wildcard_boundaries.csv). No audio is saved; the bake-off's takes are read in
-place.*
+[`wildcard.py`](wildcard.py) with [`wildcard_emit.py`](wildcard_emit.py), [`reach.py`](reach.py).
+Outputs: [`results.json`](results.json), [`calibration.json`](calibration.json),
+[`wildcard.json`](wildcard.json), [`wildcard_boundaries.csv`](wildcard_boundaries.csv),
+[`reach.json`](reach.json). No audio is saved; the bake-off's takes are read in place.*
 
 *The bake-off's text is private. The scripts read it at run time and write numbers only: timings, frame
 counts, errors and scores, keyed by the bake-off's ids (take, paragraph `n01`–`n08`, cue and word
@@ -30,10 +30,12 @@ With the QA worker's interpreter, from the repository root, and `NARRATION_MODEL
 workers/qa/.venv/Scripts/python.exe spikes/b-forced-align-cpu/spike_b.py --out spikes/b-forced-align-cpu/results.json
 workers/qa/.venv/Scripts/python.exe spikes/b-forced-align-cpu/calibrate.py --out spikes/b-forced-align-cpu/calibration.json
 uv run python spikes/b-forced-align-cpu/wildcard.py --scratch .dev/<folder>
+uv run python spikes/b-forced-align-cpu/reach.py --scratch .dev/<folder>
 ```
 
-The first two need the worker's `src` on `PYTHONPATH`. `wildcard.py` runs with the server's venv (it uses
-`narration.align`) and starts `wildcard_emit.py` with the worker's. They take about 30 s, 85 s and 75 s.
+The first two need the worker's `src` on `PYTHONPATH`. `wildcard.py` and `reach.py` run with the server's
+venv (they use `narration.align`) and start the worker's venv for the emissions. They take about 30 s, 85 s,
+75 s and 80 s.
 `spike_b.py` aligns four paragraphs (n08, n01, n05, n06) of the bake-off take
 `outputs/qwen3-tts-1.7b-clone-d2-late-night_take1-seed1/r48_names_probe.wav`, through the worker's own code
 (`workers/qa/src/narration_worker_qa/align.py`).
@@ -200,3 +202,30 @@ gets.
 the cue's speech starts and ends within the aligner's error, nor that the cue was spoken at all. A
 wildcard's span still bounds the snapping of the cue it belongs to: the boundary goes into a pause next
 to the span, which is how condition 1 is met. A wildcard's score never counts in a cue's confidence.
+
+## 4. How far a cue's edge lies from its pause (the review's F1)
+
+The first review found that a cue next to an unplaceable cue took that cue's speech when no pause separated
+them: its edge snapped to the pause on the far side of the other cue's speech. The fix lets such an edge
+snap only to a pause within reach of its own span (`snap_reach_start_s`, `snap_reach_end_s` in
+`narration.align.AlignerParams`). [`reach.py`](reach.py) measured how far the pause next to a cue's own
+edge lies from it, before snapping, on the same 24 paragraph pairs, where every cue is placed. Its output
+is [`reach.json`](reach.json). The distance is the speech between the span and the pause (negative: the
+pause starts inside the span, within the one-frame tolerance). KNOW:
+
+| Edge | Span | n | p50 | p95 | max |
+|---|---|---|---|---|---|
+| start: the pause's end to the first letter | letters | 114 | 0.04 s | 0.08 s | 0.10 s |
+| end: the last letter to the pause's start | letters | 95 | 0.08 s | 0.16 s | 0.26 s |
+| end: a wildcard's end to the pause's start | wildcard | 18 | 0.32 s | 0.44 s | 0.44 s |
+
+No cue starts on a wildcard in these pairs. A wildcard's end lies further from its pause because its span
+misses part of the number's speech (part 3).
+
+**Starting values (ASSUME):** `snap_reach_start_s` **0.12 s** and `snap_reach_end_s` **0.28 s**, the
+largest distance measured for letters plus one energy frame. An edge next to an unplaceable cue whose
+nearest pause lies further away keeps the aligner's time and gets `CUE_BOUNDARY_NO_PAUSE` with
+`details.edge`. A cue that ends on a wildcard next to an unplaceable cue will often keep its wildcard end,
+which may stop short of the number's speech. The reach applies only next to an unplaceable cue's speech, so
+on these 24 pairs, where every cue is placed, the fix changes nothing: every cue time, word time,
+confidence and flag is identical before and after it.
