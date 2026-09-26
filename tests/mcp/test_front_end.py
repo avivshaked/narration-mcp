@@ -29,7 +29,7 @@ from narration.mcp.descriptions import (
     RESPELLING_IS_A_HINT,
     retention_clause,
 )
-from tests.mcp.fake_backend import DESIGN_ID, JOB_ID, TAKE_ID, VALID_ARGUMENTS, VOICE, FakeBackend
+from tests.mcp.fake_backend import DESIGN_ID, JOB_ID, TAKE_ID, VALID_ARGUMENTS, VOICE, VOICE_HASH, FakeBackend
 from tests.mcp.wire import ERAS, Era, Wire, open_wire
 
 INVALID_PARAMS = -32602
@@ -489,6 +489,7 @@ def test_resources_and_templates_are_the_section_7_7_set_s7_7(backend: FakeBacke
         (f"narration://jobs/{JOB_ID}/report", "text/markdown", 86_400_000),
         (f"narration://designs/{DESIGN_ID}", "application/json", 60_000),
         (f"narration://takes/{TAKE_ID}", "application/json", 86_400_000),
+        (f"narration://measurements/{VOICE_HASH}", "application/json", 60_000),
     ],
 )
 def test_a_resource_read_carries_its_ttl_and_private_scope_s7_7(
