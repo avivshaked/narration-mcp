@@ -1,0 +1,234 @@
+{
+  "set": "text-v1",
+  "design_revision": "5.1",
+  "conventions": [
+    "The positive-only lint of voice descriptions (design section 3.5): a plain word list, whole-word and case-insensitive, that warns and never refuses.",
+    "Each finding gives the trigger word, its offset (code points into the description) and the phrase; suggestion is the table's rephrasing, or the default line when the table has no entry.",
+    "The phrase's extent is fixed by the design only through its examples (a trigger and the quality after it), so every phrase is listed in unsure."
+  ],
+  "cases": [
+    {
+      "name": "lint_not_theatrical",
+      "design": "3.5",
+      "description": "A warm voice, not theatrical.",
+      "expect": {
+        "findings": [{"trigger": "not", "offset": 14, "phrase": "not theatrical", "suggestion": "natural, understated delivery"}]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_never_theatrical",
+      "design": "3.5",
+      "description": "Never theatrical, always clear.",
+      "expect": {
+        "findings": [{"trigger": "Never", "offset": 0, "phrase": "Never theatrical", "suggestion": "natural, understated delivery"}]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_is_case_insensitive",
+      "design": "3.5",
+      "description": "Clear and NOT gravelly.",
+      "expect": {"findings": [{"trigger": "NOT", "offset": 10, "phrase": "NOT gravelly", "suggestion": "smooth, clean tone"}]},
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_not_rough",
+      "design": "3.5",
+      "description": "A bright tone, not rough.",
+      "expect": {"findings": [{"trigger": "not", "offset": 15, "phrase": "not rough", "suggestion": "smooth, clean tone"}]},
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_not_whispery",
+      "design": "3.5",
+      "description": "Close to the microphone but not whispery.",
+      "expect": {"findings": [{"trigger": "not", "offset": 28, "phrase": "not whispery", "suggestion": "full, clearly voiced"}]},
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_no_movie_trailer_delivery",
+      "design": "3.5",
+      "description": "Deep and slow, with no movie-trailer delivery.",
+      "expect": {
+        "findings": [
+          {
+            "trigger": "no",
+            "offset": 20,
+            "phrase": "no movie-trailer delivery",
+            "suggestion": "even, conversational documentary delivery"
+          }
+        ]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_not_dramatic",
+      "design": "3.5",
+      "description": "A storyteller, not dramatic.",
+      "expect": {
+        "findings": [
+          {
+            "trigger": "not",
+            "offset": 15,
+            "phrase": "not dramatic",
+            "suggestion": "even, conversational documentary delivery"
+          }
+        ]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_without_hurry",
+      "design": "3.5",
+      "description": "Warm and slow, without hurry.",
+      "expect": {
+        "findings": [{"trigger": "without", "offset": 15, "phrase": "without hurry", "suggestion": "unhurried, measured pace"}]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_not_rushed",
+      "design": "3.5",
+      "description": "Measured and not rushed.",
+      "expect": {"findings": [{"trigger": "not", "offset": 13, "phrase": "not rushed", "suggestion": "unhurried, measured pace"}]},
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_not_monotone",
+      "design": "3.5",
+      "description": "Low and not monotone.",
+      "expect": {
+        "findings": [{"trigger": "not", "offset": 8, "phrase": "not monotone", "suggestion": "gently varied intonation"}]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_nt_forms_and_dont",
+      "design": "3.5",
+      "description": "It isn't harsh and dont shout.",
+      "expect": {
+        "findings": [
+          {
+            "trigger": "isn't",
+            "offset": 3,
+            "phrase": "isn't harsh",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          },
+          {
+            "trigger": "dont",
+            "offset": 19,
+            "phrase": "dont shout",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          }
+        ]
+      },
+      "unsure": ["expect.findings[0].phrase", "expect.findings[1].phrase"]
+    },
+    {
+      "name": "lint_neither_nor_none",
+      "design": "3.5",
+      "description": "Neither shrill nor thin, with none of the rasp.",
+      "expect": {
+        "findings": [
+          {
+            "trigger": "Neither",
+            "offset": 0,
+            "phrase": "Neither shrill",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          },
+          {
+            "trigger": "nor",
+            "offset": 15,
+            "phrase": "nor thin",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          },
+          {
+            "trigger": "none",
+            "offset": 30,
+            "phrase": "none of",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          }
+        ]
+      },
+      "unsure": ["expect.findings[0].phrase", "expect.findings[1].phrase", "expect.findings[2].phrase"]
+    },
+    {
+      "name": "lint_avoid",
+      "design": "3.5",
+      "description": "Avoid sibilance.",
+      "expect": {
+        "findings": [
+          {
+            "trigger": "Avoid",
+            "offset": 0,
+            "phrase": "Avoid sibilance",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          }
+        ]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_non_prefix",
+      "design": "3.5",
+      "description": "A non-breathy tone.",
+      "expect": {
+        "findings": [
+          {
+            "trigger": "non-",
+            "offset": 2,
+            "phrase": "non-breathy",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          }
+        ]
+      },
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_false_alarm_no_nonsense",
+      "design": "3.5",
+      "description": "A no-nonsense tone.",
+      "expect": {
+        "findings": [
+          {
+            "trigger": "no",
+            "offset": 2,
+            "phrase": "no-nonsense",
+            "suggestion": "Describe the quality you want instead (e.g. 'smooth' rather than 'not rough')."
+          }
+        ]
+      },
+      "note": "The design names this false alarm: no is a whole word here, bounded by the hyphen. It warns, never refuses.",
+      "unsure": ["expect.findings[0].phrase"]
+    },
+    {
+      "name": "lint_allowed_morphological_negatives",
+      "design": "3.5",
+      "description": "An unhurried, understated and effortless read.",
+      "expect": {"findings": []}
+    },
+    {
+      "name": "lint_whole_words_only",
+      "design": "3.5",
+      "description": "Notable warmth, a knowing smile, and nimble phrasing.",
+      "expect": {"findings": []},
+      "note": "not, no and non do not match inside Notable, knowing or nimble."
+    },
+    {
+      "name": "lint_non_without_hyphen",
+      "design": "3.5",
+      "description": "A nonchalant, easy tone.",
+      "expect": {"findings": []},
+      "unsure": ["expect.findings"],
+      "note": "The design names the prefix non- with its hyphen; nonchalant is assumed not to match."
+    },
+    {
+      "name": "lint_what_it_misses",
+      "design": "3.5",
+      "description": "Less theatrical, anything but shrill, and free of rasp.",
+      "expect": {"findings": []},
+      "note": "The design says the word list misses these negations; the lint reports nothing."
+    }
+  ]
+}
