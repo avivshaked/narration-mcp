@@ -1,5 +1,6 @@
 """The daemon holds no OS-specific code (AGENTS.md section 6; WP30 review, finding 6): what differs by OS
-is asked of ``narration.platform`` (``ProcessPlatform``), which the tests' stand-in also implements."""
+is asked of ``narration.platform`` (``ProcessPlatform``), which the test platform
+(``narration.platform.testing``) also implements."""
 
 from __future__ import annotations
 

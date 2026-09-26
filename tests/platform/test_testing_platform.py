@@ -1,5 +1,5 @@
-"""The platform stand-in's path checks and free-disk answer (``standin.py``), which WP31's tests reach through
-``host.platform``. They run on every OS, and give the same answer on each."""
+"""``narration.platform.testing.StandInPlatform``: the test platform the daemon's, the job engine's and the
+front-end's tests use. These run on every OS, and give the same answer on each."""
 
 from __future__ import annotations
 
@@ -11,8 +11,7 @@ import pytest
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Platform
-
-from .standin import DEFAULT_FREE_BYTES, StandInPlatform, check_as_text
+from narration.platform.testing import DEFAULT_FREE_BYTES, StandInPlatform, check_as_text
 
 
 def refused(check: object) -> str:
@@ -94,6 +93,22 @@ def test_the_text_rules_on_linux_ci_match_windows_s17_3(path: str, rule: str | N
         check_as_text(path, windows=False)
     else:
         assert refused(lambda: check_as_text(path, windows=False)) == rule
+
+
+def test_a_detached_spawn_is_recorded_and_starts_nothing(tmp_path: Path) -> None:
+    platform = StandInPlatform()
+    assert platform.spawn_detached(["python", "-m", "x"], cwd=tmp_path, env={"A": "1"}) == platform.spawn_pid
+    assert platform.spawned == [(["python", "-m", "x"], tmp_path, {"A": "1"})]
+
+
+def test_the_singleton_is_shared_by_every_stand_in_in_the_process(tmp_path: Path) -> None:
+    first, second = StandInPlatform(), StandInPlatform()
+    with first.singleton(tmp_path) as held, second.singleton(tmp_path) as again:
+        assert (held, again) == (True, False)
+    with second.hold(tmp_path), first.singleton(tmp_path) as held:
+        assert not held
+    with first.singleton(tmp_path) as held:
+        assert held, "released on the way out"
 
 
 def test_free_disk_bytes_is_the_number_a_test_sets() -> None:

@@ -28,11 +28,10 @@ from narration.daemon.supervisor import FAKE_ROLES, WorkerSupervisor
 from narration.daemon.sweep import StatusUnreadable, read_status
 from narration.daemon.testing import job_request
 from narration.keys import Keys
+from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 from narration.workers import WorkerCommand, worker_command
-
-from .standin import StandInPlatform
 
 WAIT_S = 30.0
 """The longest any test waits for a daemon to reach a state."""

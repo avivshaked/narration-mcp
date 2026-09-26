@@ -14,11 +14,11 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import DaemonStatus, GpuStatus
 from narration.daemon.start import daemon_argv, ensure_daemon, running_daemon, start_detached
+from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 
 from .conftest import UNREADABLE_STATUSES, plant_status
-from .standin import StandInPlatform
 
 
 def live_status(state: str = "idle") -> DaemonStatus:

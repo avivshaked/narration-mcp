@@ -19,11 +19,11 @@ from narration.daemon.settings import DaemonSettings
 from narration.daemon.supervisor import WorkerSupervisor
 from narration.daemon.sweep import StatusUnreadable, daemon_alive, read_status, sweep
 from narration.daemon.testing import SCRATCH_DIR, VOICE_SEED, FakeWorkerRunner
+from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 
 from .conftest import UNREADABLE_STATUSES, make_job, plant_status
-from .standin import StandInPlatform
 
 NO_SUCH_PID = 0xFFFFFFFC
 """A pid no process has (Windows pids are multiples of 4; Linux pids stay far below this)."""

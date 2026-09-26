@@ -24,11 +24,11 @@ from narration.daemon.supervisor import (
     WorkerSupervisor,
     worker_cwd,
 )
+from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command
 
 from .conftest import fake_env, our_children, running, unstartable
-from .standin import StandInPlatform
 
 pytestmark = pytest.mark.timeout(120)
 

@@ -43,9 +43,9 @@ runner needs from the daemon comes through the ``RunnerHost`` it is handed.
   again for the rest of the daemon's life; every call for its group raises the same error, and the runner
   fails the job with it. ``narration-admin install`` (WP37) stops the daemon after it repairs a worker, and
   the next use starts a fresh daemon.
-- ``host.platform`` is the ``narration.platform`` ``Platform`` the daemon uses (in tests, the stand-in
-  platform). The runner checks paths with it, such as a caller's clip (``check_readable_path``, section
-  17.3) and the files it writes (``check_store_path``, section 17.2).
+- ``host.platform`` is the ``narration.platform`` ``Platform`` the daemon uses (in tests, usually
+  ``narration.platform.testing.StandInPlatform``). The runner checks paths with it, such as a caller's clip
+  (``check_readable_path``, section 17.3) and the files it writes (``check_store_path``, section 17.2).
 - ``host.set_gpu_facts`` and ``host.set_est_drain`` feed ``run/daemon.json``: the NVML readings and the
   VRAM wait (DC-2's ``admission.gpu``), and the queue's drain estimate (``admission.queue.est_drain_s``).
 

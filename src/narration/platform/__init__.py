@@ -13,6 +13,9 @@ interpreter, which creation flags, which environment variables). Those three are
 unsupported platform answers them with the neutral values (no change, no flags, nothing added) rather than
 refusing.
 
+``narration.platform.testing.StandInPlatform`` is a stand-in ``Platform`` for tests on any OS; only tests
+use it.
+
 This package is the only place allowed to import ``msvcrt``, ``ctypes.windll``/``WinDLL``, ``winreg``,
 ``fcntl`` or ``win32*`` (AGENTS.md section 6; ruff's TID251 enforces it elsewhere).
 """

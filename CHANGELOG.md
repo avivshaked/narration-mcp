@@ -174,6 +174,9 @@ are tracked here but no version is tagged; nothing described below is installabl
   `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC emissions on the CPU and runs
   the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not held against the take. A
   missing, damaged or foreign aligner snapshot is reported as not installed (`BACKEND_NOT_INSTALLED`).
+- `narration.platform.testing.StandInPlatform`: a `Platform` for tests that runs on any OS. It starts
+  no process, answers the path checks with the real platform's text rules, and reports a free-disk
+  figure the test sets.
 - `narration.daemon`: the background process that owns the GPU and the queue (design section 4), started
   as `python -m narration.daemon --store <store_root> --config <path>`. One daemon runs per store; a
   second one exits quietly. Started from an MCP session, it is detached from the session and keeps

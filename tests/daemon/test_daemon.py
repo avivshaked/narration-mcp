@@ -19,6 +19,7 @@ from narration.daemon.seam import NullRunner, RunnerHost, ShutdownReason, return
 from narration.daemon.service import EXIT_OK, STALE_STOP_REASON
 from narration.daemon.sweep import read_status
 from narration.daemon.testing import SCRATCH_DIR, FakeWorkerRunner
+from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.store.store import parse_iso, utc_iso
 
@@ -32,7 +33,6 @@ from .conftest import (
     running,
     wait_until,
 )
-from .standin import StandInPlatform
 from .test_seam_and_sweep import NO_SUCH_PID, status
 
 pytestmark = pytest.mark.timeout(120)
