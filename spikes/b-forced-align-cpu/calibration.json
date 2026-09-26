@@ -1,0 +1,340 @@
+{
+  "script": "spikes/b-forced-align-cpu/calibrate.py",
+  "run_at": "2026-09-26T19:28:43+00:00",
+  "model": "facebook/wav2vec2-large-960h-lv60-self@54074b1c16f4de6a5ad59affb4caa8f2ea03a119",
+  "takes": "<bakeoff>/outputs/qwen3-tts-1.7b-clone-{d2,d4}-*-seed{1,2,3}/r48_names_probe.wav",
+  "confidence": {
+    "spoken_sentences": {
+      "n": 114,
+      "min": 0.5953,
+      "p5": 0.8577,
+      "p50": 0.9195
+    },
+    "planted": [
+      {
+        "audio": "n08",
+        "text_of": "n07",
+        "cue_scores": [
+          0.2579,
+          0.3334
+        ],
+        "cues_not_spoken": [
+          0,
+          1
+        ]
+      },
+      {
+        "audio": "n05",
+        "text_of": "n08",
+        "cue_scores": [
+          0.4994,
+          0.7042
+        ],
+        "cues_not_spoken": [
+          0,
+          1
+        ]
+      },
+      {
+        "audio": "n07",
+        "text_of": "n03",
+        "cue_scores": [
+          0.2174,
+          0.1515
+        ],
+        "cues_not_spoken": [
+          0,
+          1
+        ]
+      },
+      {
+        "audio": "n08",
+        "text_of": "n08 + never_spoken",
+        "cue_scores": [
+          0.7245,
+          0.2353,
+          0.3929
+        ],
+        "cues_not_spoken": [
+          2
+        ]
+      },
+      {
+        "audio": "n07",
+        "text_of": "n07 with never_spoken second",
+        "cue_scores": [
+          0.6188,
+          0.1429,
+          0.9996
+        ],
+        "cues_not_spoken": [
+          1
+        ]
+      }
+    ],
+    "planted_cues_not_spoken": [
+      0.1429,
+      0.1515,
+      0.2174,
+      0.2579,
+      0.3334,
+      0.3929,
+      0.4994,
+      0.7042
+    ],
+    "planted_spoken_cues_beside_them": [
+      0.2353,
+      0.6188,
+      0.7245,
+      0.9996
+    ],
+    "per_take_sentence_scores": {
+      "qwen3-tts-1.7b-clone-d2-late-night_take1-seed1": {
+        "n01": [
+          0.913,
+          0.9488,
+          0.9147
+        ],
+        "n02": [
+          0.9197,
+          0.9998,
+          0.9581
+        ],
+        "n03": [
+          0.9009,
+          0.8173
+        ],
+        "n04": [
+          0.9677,
+          0.9091,
+          0.8832
+        ],
+        "n05": [
+          0.9087,
+          0.9019
+        ],
+        "n06": [
+          0.9998,
+          0.8712
+        ],
+        "n07": [
+          0.8688,
+          0.9996
+        ],
+        "n08": [
+          0.8728,
+          1.0
+        ]
+      },
+      "qwen3-tts-1.7b-clone-d2-late-night_take1-seed2": {
+        "n01": [
+          0.9276,
+          0.9515,
+          0.9286
+        ],
+        "n02": [
+          0.9292,
+          0.9858,
+          0.9554
+        ],
+        "n03": [
+          0.9022,
+          0.8602
+        ],
+        "n04": [
+          0.9903,
+          0.9009,
+          0.8954
+        ],
+        "n05": [
+          0.8801,
+          0.8834
+        ],
+        "n06": [
+          0.9982,
+          0.8848
+        ],
+        "n07": [
+          0.9002,
+          0.9974
+        ],
+        "n08": [
+          0.8725,
+          1.0
+        ]
+      },
+      "qwen3-tts-1.7b-clone-d2-late-night_take1-seed3": {
+        "n01": [
+          0.9194,
+          0.9456,
+          0.9325
+        ],
+        "n02": [
+          0.9004,
+          0.9983,
+          0.9594
+        ],
+        "n03": [
+          0.9077,
+          0.8574
+        ],
+        "n04": [
+          0.9785,
+          0.9137,
+          0.8876
+        ],
+        "n05": [
+          0.7904,
+          0.8524
+        ],
+        "n06": [
+          0.9999,
+          0.8831
+        ],
+        "n07": [
+          0.8961,
+          0.9999
+        ],
+        "n08": [
+          0.8765,
+          1.0
+        ]
+      },
+      "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed1": {
+        "n01": [
+          0.9263,
+          0.9386,
+          0.9282
+        ],
+        "n02": [
+          0.9151,
+          0.9952,
+          0.9526
+        ],
+        "n03": [
+          0.8996,
+          0.721
+        ],
+        "n04": [
+          0.978,
+          0.9016,
+          0.8691
+        ],
+        "n05": [
+          0.92,
+          0.5953
+        ],
+        "n06": [
+          1.0,
+          0.8846
+        ],
+        "n07": [
+          0.9059,
+          0.9999
+        ],
+        "n08": [
+          0.863,
+          1.0
+        ]
+      },
+      "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed2": {
+        "n01": [
+          0.9259,
+          0.9524,
+          0.9273
+        ],
+        "n02": [
+          0.8989,
+          0.9892,
+          0.9499
+        ],
+        "n03": [
+          0.9445,
+          0.8595
+        ],
+        "n04": [
+          0.973,
+          0.9119,
+          0.8852
+        ],
+        "n05": [
+          0.8579,
+          0.8937
+        ],
+        "n06": [
+          0.9997,
+          0.8625
+        ],
+        "n07": [
+          0.8849,
+          0.9993
+        ],
+        "n08": [
+          0.8831,
+          0.9983
+        ]
+      },
+      "qwen3-tts-1.7b-clone-d4-radio-drama_take2-seed3": {
+        "n01": [
+          0.9225,
+          0.9508,
+          0.9355
+        ],
+        "n02": [
+          0.9146,
+          0.9885,
+          0.9495
+        ],
+        "n03": [
+          0.9501,
+          0.8751
+        ],
+        "n04": [
+          0.9757,
+          0.901,
+          0.878
+        ],
+        "n05": [
+          0.9114,
+          0.9204
+        ],
+        "n06": [
+          0.9975,
+          0.8774
+        ],
+        "n07": [
+          0.9002,
+          0.9992
+        ],
+        "n08": [
+          0.8735,
+          0.9987
+        ]
+      }
+    }
+  },
+  "pauses": {
+    "energy_frame_s": 0.02,
+    "reference": "95th percentile of the paragraph's frame levels",
+    "between_sentences": {
+      "n": 66,
+      "share_with_run_of_2_frames_below_-30_db": 1.0,
+      "share_with_run_of_2_frames_below_-35_db": 1.0,
+      "share_with_run_of_2_frames_below_-40_db": 0.985,
+      "share_with_run_of_2_frames_below_-45_db": 0.924
+    },
+    "inside_sentences": {
+      "n": 1266,
+      "share_with_run_of_2_frames_below_-30_db": 0.2,
+      "share_with_run_of_2_frames_below_-35_db": 0.16,
+      "share_with_run_of_2_frames_below_-40_db": 0.118,
+      "share_with_run_of_2_frames_below_-45_db": 0.082
+    },
+    "between_sentences_min_db": {
+      "n": 66,
+      "min": -78.1,
+      "p5": -77.2,
+      "p50": -68.3
+    }
+  }
+}

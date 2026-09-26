@@ -4,7 +4,7 @@ This repository implements **narration-mcp**, a local MCP server that designs vo
 VoiceDesign, measures them, and narrates paragraphs of cues by cloning a reference clip with Qwen3-TTS
 Base. Every take comes back QA'd and cue-aligned.
 
-- **Spec (source of truth):** [docs/design.md](docs/design.md), revision 5.8. It is cited as "§n".
+- **Spec (source of truth):** [docs/design.md](docs/design.md), revision 5.9. It is cited as "§n".
   Read the sections your work package cites **in full** before you write code. Changes proposed since
   are in plan.md §1.5. Build to a proposed change only once it is marked approved there.
 - **This machine's facts** (paths, cached models, the GPU) are in `AGENTS.local.md`. It is gitignored,

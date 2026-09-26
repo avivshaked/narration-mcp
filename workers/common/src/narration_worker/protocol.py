@@ -298,8 +298,10 @@ class F0Reply(Reply):
 class AlignRequest(Request):
     """CTC forced alignment of a token sequence the server built (plan.md WP15).
 
-    ``tokens`` are labels in the aligner model's alphabet (letters, apostrophe, ``|`` between words). The
-    server keeps the token → (cue, word) map; the worker only aligns.
+    ``tokens`` are labels in the aligner model's alphabet (letters, apostrophe, ``|`` between words), and
+    ``*``, a wildcard for a run of words the alphabet cannot spell (plan.md DC-11): the worker aligns it
+    through an extra emission column, log(1 − P(blank)) per frame. The server keeps the token → (cue, word)
+    map; the worker only aligns.
     """
 
     wav: str

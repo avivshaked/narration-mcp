@@ -578,7 +578,9 @@ class QaScorer(Protocol):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AlignTranscript:
     """The aligner's transcript (section 11.2 step 1): tokens in the model's alphabet, and for each token the
-    (cue, word) it belongs to, or None for a word separator.
+    (cue, word) it belongs to, or None for a word separator. A ``*`` token is the wildcard for a run of words
+    the alphabet cannot spell (plan.md DC-11); it maps to its run's first word. ``dropped`` lists every word
+    that cannot be spelled.
 
     ``cue_count`` is the segment's number of cues, so a cue with no alignable word still gets its entry
     (null times, ``CUE_UNALIGNED``). ``term_words`` are the (cue, word) pairs a hinted term covers; the
@@ -620,6 +622,10 @@ class AlignerCore(Protocol):
         """``T ≥ L + R``: frames at least tokens plus repeats."""
         ...
 
+    def guard_details(self, transcript: AlignTranscript, num_frames: int) -> dict[str, Any]:
+        """The facts behind a failed guard, as the worker reports them: {reason, frames, tokens, repeats}."""
+        ...
+
     def resolve(
         self,
         transcript: AlignTranscript,
@@ -628,10 +634,16 @@ class AlignerCore(Protocol):
         sample_rate: int,
         asr_words: Sequence[AsrWord],
         measured_error: MeasuredError | None,
+        *,
+        error: Mapping[str, Any] | None = None,
     ) -> Alignment:
         """Turn the worker's token spans into cue and word times in delivery-file seconds: snap boundaries
-        into pauses, score confidence, cross-check with Whisper. ``reply`` None means the worker reported
-        ``ALIGNMENT_ERROR``: every cue unaligned and the take gets ``ALIGNMENT_ERROR`` (fail)."""
+        into pauses, score confidence, cross-check with Whisper.
+
+        ``reply`` None means the worker reported ``ALIGNMENT_ERROR`` (pass its ``details`` as ``error``), or
+        the caller's own guard failed (pass ``guard_details``): every cue unaligned and the take gets
+        ``ALIGNMENT_ERROR`` (fail). An ``ok: false`` reply with any other code raises ``WorkerFailure``: it is
+        no verdict on the take, and the caller records ``QA_UNAVAILABLE``."""
         ...
 
 

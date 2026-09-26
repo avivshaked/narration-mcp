@@ -82,3 +82,17 @@ def test_an_align_transcript_names_its_cue_count_and_term_words_s11_2() -> None:
         "term_words",
         "dropped",
     ]
+
+
+def test_the_aligner_core_takes_the_workers_error_and_gives_the_guards_facts_s11_2() -> None:
+    # Contracts 1.6.2: resolve takes the ALIGNMENT_ERROR reply's details as a keyword, and guard_details
+    # gives the facts behind a failed guard, so a caller whose own guard fails can pass them.
+    resolve = inspect.signature(interfaces.AlignerCore.resolve)
+    error = resolve.parameters["error"]
+    assert (error.kind, error.default) == (inspect.Parameter.KEYWORD_ONLY, None)
+    assert list(inspect.signature(interfaces.AlignerCore.guard_details).parameters) == [
+        "self",
+        "transcript",
+        "num_frames",
+    ]
+    assert "*" in (inspect.getdoc(interfaces.AlignTranscript) or "")
