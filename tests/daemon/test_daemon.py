@@ -358,6 +358,20 @@ def test_a_stop_the_exiting_daemon_answered_stops_the_one_waiting_to_take_over_s
     assert ("stopping", b_started) in written and written[-1][0] == "stopped", "B stopped as a stop does"
 
 
+def test_a_stop_answered_stopped_false_does_not_stop_a_waiting_daemon_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore
+) -> None:
+    # Lead's ruling: only an answer of stopped: true holds for the service. A stop that was stale for the
+    # daemon that read it, and answered stopped: false, does not stop the one that takes over.
+    posted = store.post_command("stop")
+    store.complete_command(posted.command_id, {"stopped": False, "reason": STALE_STOP_REASON})
+    job = make_job(store, "Run by the daemon that takes over.")
+    daemon = run_daemon(FakeWorkerRunner(), launched_at=parse_iso(posted.requested_at) - 0.5)
+    wait_until(lambda: job_status(store, job).status == "completed", what="the daemon to serve")
+    daemon.command("stop")
+    assert daemon.join() == EXIT_OK
+
+
 def test_an_answered_stop_from_the_future_does_not_stop_new_daemons_s4_1(
     run_daemon: DaemonFactory, store: NarrationStore, caplog: pytest.LogCaptureFixture
 ) -> None:

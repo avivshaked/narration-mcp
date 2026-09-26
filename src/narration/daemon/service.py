@@ -32,10 +32,12 @@ answered:
 
 - a pending one, whenever it reads it: even one posted while it waited for the singleton, which the daemon
   it took over from never read;
-- one the daemon it took over from answered while this one waited (``stopped: true``: that daemon was
+- one the daemon it took over from answered ``stopped: true`` while this one waited (that daemon was
   exiting anyway). On taking the singleton, before any work, it lists the commands posted since its launch
-  (``Store.commands_since``); if one of them is a ``stop`` or ``stop_now`` already answered, it stops as a
-  ``stop`` would, having done nothing, so the answer the other daemon gave holds for the service.
+  (``Store.commands_since``); if one of them is a ``stop`` or ``stop_now`` answered ``stopped: true``, it
+  stops as a ``stop`` would, having done nothing, so the answer the other daemon gave holds for the
+  service. A stop answered ``stopped: false`` (one that was stale for the daemon that read it) does not
+  stop it (lead's ruling, WP30 third review).
 
 It completes a pending stop posted before it was launched with ``stopped: false`` and keeps serving, and it
 ignores an answered one: that stop was asked of a daemon that has gone, or of none. Both times are read
@@ -353,8 +355,8 @@ class Daemon:
                 log.error("unknown daemon command %r", command.kind)
 
     def _honour_answered_stops(self) -> None:
-        """Before any work: stop if a stop posted after this daemon's launch was already answered by another
-        daemon (see "Which stops a daemon honours")."""
+        """Before any work: stop if a stop posted after this daemon's launch was already answered
+        ``stopped: true`` by another daemon (see "Which stops a daemon honours")."""
         try:
             since = self.store.commands_since(utc_iso(self.launched_at - STAMP_PRECISION_S))
         except Exception:
@@ -366,6 +368,8 @@ class Daemon:
             if (
                 command.kind in ("stop", "stop_now")
                 and command.done_at is not None
+                and command.result is not None
+                and command.result.get("stopped") is True
                 and posted_after_launch(command.requested_at, self.launched_at)
             ):
                 if parse_iso(command.requested_at) > now + STAMP_PRECISION_S:
