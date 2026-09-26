@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Final
 
 from narration.config import Config
@@ -45,6 +46,7 @@ from narration.contracts.interfaces import AlignerCore
 from narration.contracts.models import JobRecord
 from narration.post import DeliveryPipeline
 from narration.qa import Scorer
+from narration.store.layout import LOGS
 from narration.text import TextPipeline
 
 from .admission import WALL_PER_AUDIO_S, est_drain_s
@@ -59,6 +61,8 @@ from .voice import PathCheck
 
 log = logging.getLogger(__name__)
 
+DAEMON_LOG: Final = "daemon.log"
+"""The daemon's log file under ``<store_root>/logs/`` (WP30 writes it; its name is WP30's ``LOG_NAME``)."""
 PREEMPTING: Final = "interactive"
 """The priority that makes a held ``batch`` job give way between two pieces of its work."""
 
@@ -209,6 +213,7 @@ class EngineRunner:
     def _failed(self, host: RunnerHost, error: NarrationError) -> None:
         job = self._job
         assert job is not None
+        error = _with_log(error, log_path(host.config))
         if self._handler is not None:
             self._handler.fail(host, job, error, self._run)
         else:  # no handler for the job (none built, or none for its kind): record the failure without one
@@ -268,11 +273,35 @@ def _registry(source: JobEngine | Registry) -> Registry:
 
 
 def _internal(exc: BaseException) -> NarrationError:
+    """The ``INTERNAL`` error for an exception the engine did not expect: a bug. The message names the
+    exception's type only, since its text may carry a caller's words or a local path; the text goes to the
+    log, whose path ``_with_log`` adds (section 14)."""
     return NarrationError(
         codes.INTERNAL,
-        f"the job engine failed: {type(exc).__name__}: {exc}",
+        f"the job engine failed ({type(exc).__name__})",
         retryable=False,
-        hint="This is a bug in the service; the daemon's log has the details. Nothing was published half made.",
+        hint="This is a bug in the service; report it with the log in 'details'. Nothing was published half made.",
+        details={"exception": type(exc).__name__},
+    )
+
+
+def log_path(config: Config) -> Path:
+    """The daemon's log, which an ``INTERNAL`` error names (section 14): ``<store_root>/logs/daemon.log``."""
+    return config.server.store_root / LOGS / DAEMON_LOG
+
+
+def _with_log(error: NarrationError, path: Path) -> NarrationError:
+    """An ``INTERNAL`` error with the log path in ``details.log``, as section 14 promises; others as they are."""
+    if error.code != codes.INTERNAL or (error.details or {}).get("log"):
+        return error
+    return NarrationError(
+        error.code,
+        error.message,
+        field=error.field,
+        hint=error.hint,
+        details={**(error.details or {}), "log": str(path)},
+        retryable=error.retryable,
+        retry_after_s=error.retry_after_s,
     )
 
 
@@ -328,4 +357,13 @@ def default_runner() -> EngineRunner:
     return EngineRunner(installed_engine)
 
 
-__all__ = ["PREEMPTING", "EngineFactory", "EngineRunner", "build_runner", "default_runner", "installed_engine"]
+__all__ = [
+    "DAEMON_LOG",
+    "PREEMPTING",
+    "EngineFactory",
+    "EngineRunner",
+    "build_runner",
+    "default_runner",
+    "installed_engine",
+    "log_path",
+]

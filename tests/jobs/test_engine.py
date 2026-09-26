@@ -352,8 +352,24 @@ def test_a_kind_this_engine_does_not_run_fails_with_a_hint_s8(world: World) -> N
     failed = world.job(job.job_id)
     assert failed.status == "failed" and failed.error is not None
     assert failed.error.code == codes.INTERNAL and not failed.error.retryable and failed.error.hint
-    assert failed.error.details is not None and failed.error.details["kind"] == "design"
+    assert failed.error.details == {"kind": "design", "log": str(world.root / "store" / "logs" / "daemon.log")}
     assert world.host.finished == 1
+
+
+def test_a_bug_fails_the_job_with_internal_and_the_log_path_not_its_text_s14(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(host: Any, run: Any) -> Any:
+        raise ValueError("a message that may carry a caller's words or a local path")
+
+    monkeypatch.setattr(world.engine, "advance", broken)
+    job = world.submit(LAMPS)
+    world.run()
+    failed = world.job(job.job_id)
+    assert failed.status == "failed" and failed.error is not None and failed.error.code == codes.INTERNAL
+    assert "caller" not in failed.error.message and "ValueError" in failed.error.message
+    log = str(world.root / "store" / "logs" / "daemon.log")
+    assert failed.error.details == {"exception": "ValueError", "log": log}  # section 14: the log path
 
 
 # ======================================================================== what the job record shows
