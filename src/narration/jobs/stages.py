@@ -192,7 +192,7 @@ class Stages:
         if state == "loaded" and need.group == "qwen":
             run.prepared = None
             client = host.workers.client("qwen", cublas_workspace_config=need.cublas_workspace_config)
-            hello = cast(HelloReply | None, getattr(client, "hello", None))
+            hello = client.hello
             core.phase(host, run, "canary")
             try:
                 core.canary = core.parts.guard.after_load(host, run.profile, hello)
@@ -296,7 +296,7 @@ class Stages:
         )
         samples, rate, gen_s = int(reply["samples"]), int(reply["sample_rate"]), float(reply["gen_s"])
         audio_s = samples / rate if rate else 0.0
-        hello = cast(HelloReply | None, getattr(client, "hello", None))
+        hello = client.hello
         record = RenderRecord(
             render_id=render_id,
             render_key=attempt.render_key,
