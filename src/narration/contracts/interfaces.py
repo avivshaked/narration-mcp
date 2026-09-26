@@ -578,11 +578,18 @@ class QaScorer(Protocol):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AlignTranscript:
     """The aligner's transcript (section 11.2 step 1): tokens in the model's alphabet, and for each token the
-    (cue, word) it belongs to, or None for a word separator."""
+    (cue, word) it belongs to, or None for a word separator.
+
+    ``cue_count`` is the segment's number of cues, so a cue with no alignable word still gets its entry
+    (null times, ``CUE_UNALIGNED``). ``term_words`` are the (cue, word) pairs a hinted term covers; the
+    Whisper cross-check leaves them out (section 11.2 step 6: names excluded).
+    """
 
     tokens: tuple[str, ...]
     token_words: tuple[tuple[int, int] | None, ...]
     words: tuple[tuple[int, int, str], ...]
+    cue_count: int
+    term_words: tuple[tuple[int, int], ...] = ()
     dropped: tuple[tuple[int, int, str], ...] = ()
 
 

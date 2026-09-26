@@ -125,3 +125,15 @@ def test_qa_unavailable_names_its_code_s14() -> None:
     from narration.contracts.errors import QaUnavailable
 
     assert QaUnavailable.code == codes.QA_UNAVAILABLE
+
+
+def test_a_cue_no_retake_can_place_is_not_a_retake_trigger_dc12_s11_1() -> None:
+    no_words = {"reason": codes.CUE_NO_ALIGNABLE_WORDS}
+    assert codes.CUE_NO_ALIGNABLE_WORDS == "no_alignable_words"
+    assert codes.is_retake_trigger("CUE_UNALIGNED", "warn", no_words) is False
+    assert codes.is_retake_trigger("CUE_UNALIGNED", "warn", {"reason": "low_confidence"}) is True
+    assert codes.is_retake_trigger("CUE_UNALIGNED", "warn", {}) is True
+    assert codes.is_retake_trigger("CUE_UNALIGNED", "warn", None) is True
+    # The exception is CUE_UNALIGNED's alone: a fail, or another trigger, is still a trigger.
+    assert codes.is_retake_trigger("ALIGNMENT_ERROR", "fail", no_words) is True
+    assert codes.is_retake_trigger("HEAD_INSERTION", "warn", no_words) is True

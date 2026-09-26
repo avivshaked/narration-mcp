@@ -139,6 +139,8 @@ class AlignmentConfig:
     model: str = MODEL_ALIGNER
     device: str = "cpu"
     disagree_threshold_s: float = 0.25
+    low_confidence_below: float = 0.75
+    unplaced_below: float = 0.50
     benchmark: str = BENCHMARK
 
 
@@ -151,11 +153,15 @@ class QaConfig:
 class QwenBaseConfig:
     non_streaming_mode: bool = False
     x_vector_only_mode: bool = False
+    max_new_tokens_per_char: float = 2.5
+    max_new_tokens_floor: int = 128
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class QwenDesignConfig:
     non_streaming_mode: bool = True
+    max_new_tokens_per_char: float = 2.5
+    max_new_tokens_floor: int = 128
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -216,6 +222,12 @@ _RANGES: dict[tuple[str, str], tuple[float, float]] = {
     ("measurement", "sim_warn_margin"): (0, 1),
     ("measurement", "sim_fail_floor"): (0, 1),
     ("alignment", "disagree_threshold_s"): (0, 10),
+    ("alignment", "low_confidence_below"): (0, 1),
+    ("alignment", "unplaced_below"): (0, 1),
+    ("engines.qwen3_base", "max_new_tokens_per_char"): (0.1, 100),
+    ("engines.qwen3_base", "max_new_tokens_floor"): (1, 8192),
+    ("engines.qwen3_design", "max_new_tokens_per_char"): (0.1, 100),
+    ("engines.qwen3_design", "max_new_tokens_floor"): (1, 8192),
 }
 
 
@@ -253,6 +265,8 @@ def parse_config(data: dict[str, Any], *, base: Path, path: Path | None = None) 
         extra = {role: _build(WorkerProject, raw, f"workers.{role}", base) for role, raw in worker_projects.items()}
         sections["workers"] = dataclasses.replace(current, **extra)
     config = Config(**sections, path=path)
+    if config.alignment.unplaced_below > config.alignment.low_confidence_below:
+        raise ConfigError("alignment.unplaced_below must not be above alignment.low_confidence_below")
     for sha in config.voices.allow_sha256:
         if not isinstance(sha, str) or not _SHA256.fullmatch(sha):
             raise ConfigError(f"voices.allow_sha256: {sha!r} is not 64 lower-case hex characters")

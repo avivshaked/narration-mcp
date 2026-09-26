@@ -275,9 +275,9 @@ class Trim:
 class Loudness:
     """The loudness record (section 13 steps 3 and 6). ``target_lufs`` appears in App. B's take.json.
 
-    ``measured_lufs`` and ``true_peak_dbtp`` are null for a take with no defined loudness: every block under
-    BS.1770-4's absolute gate (-70 LUFS), or an all-zero file. JSON cannot carry minus infinity, and a floor
-    value would be a measurement nobody made.
+    ``measured_lufs`` is null for a take with no defined loudness: every block under BS.1770-4's absolute
+    gate (-70 LUFS). ``true_peak_dbtp`` is null only for an all-zero file; a take under the gate still has a
+    measurable peak. JSON cannot carry minus infinity, and a floor value would be a measurement nobody made.
     """
 
     measured_lufs: float | None
@@ -794,6 +794,11 @@ class EngineProfile:
     driver, CUDA, cuDNN: recorded, not hashed), ``tier`` (the outcome of the repeat test on this machine,
     section 10.1: an observation, set after the pin) and ``canary`` (made on the installing machine, DC-3).
     Setting ``tier`` or ``canary`` after the pin therefore changes no render key.
+
+    ``settings`` holds every audio-changing setting, passed explicitly (section 10.1): for Qwen,
+    ``non_streaming_mode``, the effective ``generation`` values (``max_new_tokens`` is the ceiling), and the
+    per-call cap rule ``max_new_tokens_per_char`` and ``max_new_tokens_floor`` (DC-4,
+    ``names.max_new_tokens_for``).
     """
 
     schema: str = ENGINE_PROFILE_SCHEMA

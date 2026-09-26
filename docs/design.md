@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.4 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.5 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -46,6 +46,13 @@ applied here, each listed in the revision history below.*
   paragraphs, −22 is reached by all of them and −20 by 40. **DC-10**: the trim measures frames with
   the take's mean removed and never lets the speech threshold fall below −70 dBFS, so a DC offset or a
   near-silent take no longer defeats it; QA warns on a DC offset above 0.001 (sections 11.1, 13, 16).*
+- *Revision 5.5 (the same day) applies the owner's **DC-4**: every `synthesize` and `design` call passes
+  its own `max_new_tokens`, min(8192, max(128, ceil(2.5 × characters))), so a runaway render costs about
+  a minute of GPU, not twenty, and `TOKEN_CAP_HIT` can fire. The cap only truncates (measured), so no
+  render that ends under it changes (sections 6, 10.1, 11.1, 16, App. A). With it, from the alignment
+  work: **DC-12**, a cue whose text has no word the aligner can place is not a retake trigger, since no
+  retake can place it; the aligner's confidence thresholds become configuration, and its method id
+  covers them (section 11.2). A take under the loudness gate keeps its measured true peak (section 13).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -711,7 +718,7 @@ records a caller's script, choices or approvals.
 
 | Entity | Key fields |
 |---|---|
-| **EngineProfile** ⊘ | `engine_profile_id` (`qwen3-base-1.7b.p1`, `qwen3-design-1.7b.p1`), `hash`, `model_repo`, `model_revision` (40-hex), `snapshot_dir`, `weights` {file: sha256}, `worker_project`, `uv_lock_sha256`, package versions, dtype, `attn_implementation`, **determinism switches** (section 10.1), **audio-changing settings** (`non_streaming_mode`: False for Base, True for VoiceDesign; the effective sampling parameters incl. `max_new_tokens`), capabilities, licence, `vram_need_mb`. Observed but not hashed: GPU, driver, CUDA, cuDNN. Also not hashed: `snapshot_dir` (a local path) and the **canary** {material, seed, raw hash, embedding, calibrated threshold}, which `engine pin` makes on the installing machine (section 10.1; revision 5.2, DC-3). |
+| **EngineProfile** ⊘ | `engine_profile_id` (`qwen3-base-1.7b.p1`, `qwen3-design-1.7b.p1`), `hash`, `model_repo`, `model_revision` (40-hex), `snapshot_dir`, `weights` {file: sha256}, `worker_project`, `uv_lock_sha256`, package versions, dtype, `attn_implementation`, **determinism switches** (section 10.1), **audio-changing settings** (`non_streaming_mode`: False for Base, True for VoiceDesign; the effective sampling parameters incl. `max_new_tokens`, which is the ceiling, and the per-call cap rule `max_new_tokens_per_char` and `max_new_tokens_floor`, DC-4), capabilities, licence, `vram_need_mb`. Observed but not hashed: GPU, driver, CUDA, cuDNN. Also not hashed: `snapshot_dir` (a local path) and the **canary** {material, seed, raw hash, embedding, calibrated threshold}, which `engine pin` makes on the installing machine (section 10.1; revision 5.2, DC-3). |
 | **Candidate** | `design_id`, index, clip {path, sha256}, exact transcript, verbatim description, seed, engine profile, lint, profile. Kept for the retention period; the caller copies the clip it chooses. |
 | **Provenance entry** ⊘ | clip sha256, `design_id`, date. One per clip the service designed; never pruned (section 17). |
 | **Voice** *(not stored)* | What a request sends: clip path + sha256 + transcript. `voice_hash` is computed from them on every request (section 10.2). |
@@ -1379,7 +1386,16 @@ The text tests use the service's own fixtures, never a caller's script:
      - `non_streaming_mode=true` for VoiceDesign (its default);
      - the effective sampling values from the pinned snapshot's `generate_config.json`, or the library's
        fallbacks, passed explicitly;
-     - `max_new_tokens`.
+     - `max_new_tokens`, in two parts (DC-4, the owner's decision of 2026-09-26; ADR 0003):
+       - `load` passes the snapshot's value, 8192, as the ceiling;
+       - every `synthesize` and `design` call passes its own cap, computed by the daemon from the text
+         the call speaks: `min(8192, max(floor, ceil(per_char × len(text))))`, with `per_char` = 2.5 and
+         `floor` = 128 from `[engines.*]`, hashed into the engine profile. Speech measured 0.70–0.82
+         frames per character (KNOW), so the factor leaves about three times the largest rate, and the
+         floor is about 10 s of audio.
+       - The cap only truncates (KNOW: renders at 8192, 2048 and the exact step count are
+         bit-identical), so a render that ends under its cap is the same under any cap. A runaway
+         render stops after about a minute instead of about 22 (BELIEVE, extrapolated).
    - **Tier.** Bit-exact output within one process is KNOW only for VoiceDesign (section 1, row B). For
      the Base clone path the service uses, it is BELIEVE, within one process and across processes; the
      Phase 0 repeat test (d) decides, on the clone path with the switches above. The tier is reported in
@@ -1461,8 +1477,9 @@ on other takes, because verdicts are cached (section 10.2).
 
 1. **Signal checks**: clipping (on raw), longest internal silence, NaN/DC (`SIGNAL_INVALID`, DC-5), and
    **token cap**. A render
-   whose generated length reached `max_new_tokens` is `TOKEN_CAP_HIT` (fail), because the model stopped
-   mid-text and that must never pass silently.
+   whose generation reached its call's `max_new_tokens` (DC-4) is `TOKEN_CAP_HIT` (fail), because the
+   model stopped mid-text or ran away, and that must never pass silently. The worker reports it exactly
+   (the last token was not the end token), never from the audio's length.
 2. **ASR**: Whisper-large-v3 (fp16, English, greedy, word timestamps; revision pinned). A take can be
    longer than Whisper's 30 s window, so the QA profile pins sequential long-form transcription (30 s
    windows, each conditioned on the text before it) with word timestamps.
@@ -1519,7 +1536,9 @@ which made verdicts depend on render order and leak from one script to another.)
 
 **Retake triggers.** Any fail-severity flag (so `EXACT_SPAN_MISMATCH` too), **`CUE_UNALIGNED`**
 (warn-level, but a caller cannot time the cue), or `HEAD_INSERTION`. Each failing take slot gets up to
-`max_retakes` automatic retakes (section 8).
+`max_retakes` automatic retakes (section 8). The exception (DC-12): a `CUE_UNALIGNED` whose
+`details.reason` is `no_alignable_words` is not a trigger. That cue's text gives the aligner no word to
+place, so every retake would fail the same way; it stays in listen-first.
 
 **Report and listen-first.**
 
@@ -1568,15 +1587,20 @@ seconds):
    silence gap between the two aligned words (20 ms energy frames). With no gap, the CTC times are kept
    and `CUE_BOUNDARY_NO_PAUSE` (info) is added. The first onset and last offset are snapped the same
    way.
-5. **Confidence.** The mean token posterior per cue. Below the threshold: `CUE_LOW_CONFIDENCE`.
+5. **Confidence.** The mean token posterior per cue. Below `low_confidence_below` (0.75, ASSUME;
+   set from the benchmark): `CUE_LOW_CONFIDENCE`.
 6. **Cross-check.** At each boundary, compare with Whisper's word boundary where the neighbouring words
    match (names excluded). A difference above 0.25 s (ASSUME; set from the benchmark) gives
    `CUE_ALIGNMENT_DISAGREE`. `max_disagreement_s` is reported.
-7. **Unplaceable cue**: very low confidence, or its words are missing from the transcript. It gets
-   `start_s` / `end_s` = null, `CUE_UNALIGNED` (warn, listen-first, retake trigger). **It is never
-   interpolated.**
+7. **Unplaceable cue**: confidence below `unplaced_below` (0.50, ASSUME), or its words are missing
+   from the transcript. It gets `start_s` / `end_s` = null, `CUE_UNALIGNED` (warn, listen-first, retake
+   trigger). **It is never interpolated.** A cue with no word the aligner can place at all has
+   `details.reason` = `no_alignable_words`, and is not a retake trigger (DC-12, section 11.1).
 8. **Output**: `cues[]` with `words[]` in delivery-file seconds, and `alignment` {method
    `ctc-forced-align+silence-snap`, model, revision, cross-check, measured error, flags}.
+   - The analysis key names the aligner by its **method id**, `ctc-snap/<model>@<revision>+p<12 hex>`.
+     The hash covers every setting the aligner decides by (the pause and snap parameters and the
+     thresholds), so a changed threshold changes the key and no cached verdict is reused.
 
 **Accuracy (R1): measured and published, not promised.** The service sets no target for callers. How
 much error a caller can bear is the caller's. The service measures its own error and publishes it with
@@ -1696,8 +1720,9 @@ caller wants none (Q7).
   5. **Quantise** to WAV PCM_24 mono.
   6. **True peak**, measured on **this final 48 kHz file** (4× oversampled). If it is above −1.0 dBTP,
      lower the gain until it is ≤ −1.0, re-quantise, and flag `LOUDNESS_UNDER_TARGET` (info) with the
-     shortfall. A take with no measurable loudness (every block under the −70 LUFS gate, or silence)
-     reports `measured_lufs` and `true_peak_dbtp` as null.
+     shortfall. A take with no measurable loudness (every block under the −70 LUFS gate) reports
+     `measured_lufs` as null. `true_peak_dbtp` is null only for an all-zero file: a quiet take still has
+     a measurable peak (revision 5.5).
 
   **The true-peak ceiling wins over the loudness target**, so takes of one script can sit at slightly
   different loudness. Each take's **loudness record** {measured_lufs, gain_db, true_peak_dbtp,
@@ -1929,6 +1954,8 @@ model = "facebook/wav2vec2-large-960h-lv60-self"   # apache-2.0; the default (Q1
 # model = "Qwen/Qwen3-ForcedAligner-0.6B"          # only if Phase 0 chooses it (section 11.2); device = "cuda:0"
 device = "cpu"
 disagree_threshold_s = 0.25    # ASSUME; set from the benchmark
+low_confidence_below = 0.75    # ASSUME; CUE_LOW_CONFIDENCE below this mean token posterior (section 11.2)
+unplaced_below = 0.50          # ASSUME; below this the cue is not placed (CUE_UNALIGNED)
 benchmark = "alignment-en.v1"  # the service's own; its measured error is published (R1, section 11.2)
 
 [qa]
@@ -1937,8 +1964,12 @@ profile = "default.v3"
 [engines.qwen3_base]
 non_streaming_mode = false     # all clone evidence used this; change only after a Phase 0 A/B
 x_vector_only_mode = false     # ICL; part of the voice hash
+max_new_tokens_per_char = 2.5  # DC-4: each call's cap is min(8192, max(floor, ceil(2.5 × characters)))
+max_new_tokens_floor = 128     # frames (12.5 per second of audio)
 [engines.qwen3_design]
 non_streaming_mode = true
+max_new_tokens_per_char = 2.5
+max_new_tokens_floor = 128
 
 [workers.qwen3]
 project = '<service_root>\workers\qwen3tts'
@@ -2177,15 +2208,15 @@ daemon computes the hashes. All times are in seconds.
     "env":{"CUBLAS_WORKSPACE_CONFIG":":4096:8"}}}
 → {"id":2,"op":"load","engine_profile":{…},"snapshot_dir":"<models_root>\\…\\snapshots\\<sha>",
     "determinism":{"tf32":false,"cudnn_deterministic":true,"deterministic_algorithms":"warn_only"},
-    "settings":{"non_streaming_mode":false,"generation":{"do_sample":true,"top_k":50,"…":"explicit","max_new_tokens":2048}}}
+    "settings":{"non_streaming_mode":false,"generation":{"do_sample":true,"top_k":50,"…":"explicit","max_new_tokens":8192}}}
 ← {"id":2,"ok":true,"load_s":18.2,"vram_mb":6120}
 → {"id":3,"op":"prepare_voice","voice_hash":"sha256:…","ref_wav":"…\\scratch\\voices\\5b1e….wav",
     "ref_text":"Far below the surface, …","x_vector_only_mode":false}
 ← {"id":3,"ok":true}
 → {"id":4,"op":"synthesize","voice_hash":"sha256:…","engine_text":"…","language":"English","seed":1834112093,
-    "out_path":"…\\scratch\\job_…\\p03_a0.wav"}
+    "max_new_tokens":868,"out_path":"…\\scratch\\job_…\\p03_a0.wav"}   // the call's cap (DC-4)
 ← {"id":4,"ok":true,"sample_rate":24000,"samples":222240,"gen_s":21.3,"hit_token_cap":false}
-→ {"id":5,"op":"design","description":"…","design_text":"…","seed":2001,"out_path":"…"}   // VoiceDesign
+→ {"id":5,"op":"design","description":"…","design_text":"…","seed":2001,"max_new_tokens":400,"out_path":"…"}   // VoiceDesign
 → {"id":6,"op":"unload"}   → {"id":7,"op":"shutdown"}
 ← {"id":n,"ok":false,"error":{"code":"GPU_OOM","message":"CUDA out of memory …"}}
 // QA worker: transcribe {wav, word_timestamps, long_form} (GPU) · embed {wav, device} · f0 {wav}

@@ -6,6 +6,7 @@ refer to ``docs/design.md``.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Final, Literal, get_args
@@ -202,3 +203,23 @@ JOB_STATUSES: Final = get_args(JobStatus)
 TERMINAL_JOB_STATUSES: Final = ("completed", "failed", "cancelled")
 JOB_PHASES: Final = get_args(JobPhase)
 SEGMENT_STATES: Final = get_args(SegmentState)
+
+
+# ---------------------------------------------------------------- the per-call generation cap (DC-4)
+MAX_NEW_TOKENS_CEILING: Final = 8192
+"""The pinned Qwen snapshots' ``generation_config.json`` value, which all the evidence used (plan.md section
+1.3): the most any render may generate. The engine profile records the effective value; pass that."""
+
+
+def max_new_tokens_for(text: str, *, per_char: float, floor: int, ceiling: int) -> int:
+    """The cap one ``synthesize`` or ``design`` call passes (design section 10.1, DC-4).
+
+    ``min(ceiling, max(floor, ceil(per_char * len(text))))``, where ``text`` is the text the call speaks
+    (the engine text, or the design text) and ``per_char``/``floor`` are the engine's
+    ``max_new_tokens_per_char``/``max_new_tokens_floor``, hashed into its engine profile. ``len`` counts
+    code points of the NFC text. The cap only truncates (ADR 0003), so a render that ends under its cap is
+    the same with any cap; a render that reaches it is ``TOKEN_CAP_HIT``.
+    """
+    if per_char <= 0 or floor < 1 or ceiling < 1:
+        raise ValueError("per_char must be positive, and floor and ceiling at least 1")
+    return min(ceiling, max(floor, math.ceil(per_char * len(text))))

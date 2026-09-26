@@ -272,6 +272,7 @@ name = "narration"
 version = "0.1.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "jiwer" },
     { name = "jsonschema" },
     { name = "mcp" },
@@ -297,6 +298,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.15,<5" },
     { name = "jiwer", specifier = "==4.0.0" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "mcp", specifier = "==2.2.0" },

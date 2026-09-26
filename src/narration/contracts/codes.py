@@ -10,6 +10,7 @@ code as a string literal elsewhere.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -320,13 +321,21 @@ FLAGS: Final[dict[str, FlagCode]] = {
 }
 
 
-def is_retake_trigger(code: str, severity: Severity) -> bool:
+CUE_NO_ALIGNABLE_WORDS: Final = "no_alignable_words"
+"""``CUE_UNALIGNED``'s ``details.reason`` for a cue whose text has no word the aligner can place (DC-12)."""
+
+
+def is_retake_trigger(code: str, severity: Severity, details: Mapping[str, object] | None = None) -> bool:
     """Whether a flag triggers an automatic retake (section 11.1).
 
-    Any fail-severity flag does, and so do ``CUE_UNALIGNED`` and ``HEAD_INSERTION`` at any severity.
+    Any fail-severity flag does, and so do ``CUE_UNALIGNED`` and ``HEAD_INSERTION`` at any severity, except
+    a ``CUE_UNALIGNED`` whose ``details.reason`` is ``no_alignable_words`` (DC-12): the cue's text gives the
+    aligner nothing to place, so every retake would fail the same way.
     """
     if severity == "fail":
         return True
+    if code == CUE_UNALIGNED and details is not None and details.get("reason") == CUE_NO_ALIGNABLE_WORDS:
+        return False
     flag = FLAGS.get(code)
     return flag is not None and flag.retake == "always"
 

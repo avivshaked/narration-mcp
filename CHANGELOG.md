@@ -10,6 +10,12 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- Each Qwen render passes its own generation cap, min(8192, max(128, ceil(2.5 × characters))), set by
+  `max_new_tokens_per_char` and `max_new_tokens_floor` under `[engines.*]`. A render that runs away
+  stops after about a minute, not twenty, and is flagged `TOKEN_CAP_HIT`. A render that ends under its
+  cap is unchanged by it.
+- `[alignment]` gains `low_confidence_below` and `unplaced_below`, the cue-confidence thresholds. A cue
+  whose text has no word the aligner can place is reported but not retaken, since no retake can place it.
 - Repository bootstrap: the server `pyproject.toml`, worker project skeletons, `pytest`/`ruff`/
   `basedpyright` configuration, and the dev tools (`tools/gpu_lock.py`, `tools/check_tracked.py`, the git
   hooks, the worktree helper).
