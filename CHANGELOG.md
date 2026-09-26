@@ -10,6 +10,13 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
+  then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
+  `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same
+  request twice completes from the cache and is never retaken again. It loads one model group at a
+  time, waits for free GPU memory (then `GPU_UNAVAILABLE` after `[gpu] wait_timeout_min`), retries an
+  out-of-memory error once, lets interactive jobs go first, and reports `poll_after_s`, `retry_after_s`
+  and the queue's drain estimate.
 - `tools/check_private.py`, run by the git hooks and by a new pre-push hook on every pushed commit: it
   refuses a commit that copies a passage, a name or a distinctive number from private text the
   developer lists locally (`.dev/private-text.txt`). It does nothing when no private text is listed.
