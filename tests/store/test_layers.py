@@ -294,7 +294,9 @@ def test_a_publish_that_cannot_remove_the_replaced_copy_still_succeeds(
     assert store.get_profile(audio, "profile-2") == newer
     assert "left for gc" in caplog.text and "neither" not in caplog.text
     trash = [p for p in store.profile_dir(audio).parent.iterdir() if p.name.startswith(".trash-")]
-    assert len(trash) == 1
+    assert len(trash) == 1 and store_files.trash_time(trash[0].name) == int(clock.now)
+    store.gc(dry_run=False)
+    assert trash[0].is_dir()  # renamed just now: not yet an old leftover
     clock.advance(2 * DAY)
     report = store.gc(dry_run=False)
     assert store.layout.rel(trash[0]) in report["leftovers"] and not trash[0].exists()

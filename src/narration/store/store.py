@@ -398,7 +398,7 @@ class NarrationStore:
             if decide(conn) == "keep":
                 return False
             if os.path.lexists(final):
-                trash = final.with_name(f".trash-{files.token()}-{final.name}")
+                trash = files.trash_name(final, self._clock())
                 renames.rename(final, trash)
             renames.rename(staging, final)
             commit(conn)
@@ -432,7 +432,7 @@ class NarrationStore:
                     files.discard(tmp)
                     return False
                 if os.path.lexists(final):
-                    trash = final.with_name(f".trash-{files.token()}-{final.name}")
+                    trash = files.trash_name(final, self._clock())
                     renames.rename(final, trash)
                 renames.rename(tmp, final)
                 commit(conn)
@@ -1496,9 +1496,10 @@ class NarrationStore:
         Collected: renders, takes (with their analyses), analyses, voice profiles, designs and finished jobs
         not used for ``retention_days``; measurements not used for ``measurement_retention_days``; expired
         leases; ``.tmp-``/``.staging-``/``.trash-`` leftovers and unindexed folders older than ``grace_s``
-        (what a crash leaves); scratch files not touched for ``retention_days``. Never collected: the
-        provenance list, engine profiles and their canaries, alignment benchmarks, queued or running jobs,
-        and what a live measurement or design keeps alive (the module docstring).
+        (what a crash leaves; a trash name's age is the time written in it, see ``files.trash_name``);
+        scratch files not touched for ``retention_days``. Never collected: the provenance list, engine
+        profiles and their canaries, alignment benchmarks, queued or running jobs, and what a live
+        measurement or design keeps alive (the module docstring).
 
         A real run collects in bounded write transactions (``GC_BATCH_ITEMS`` items, about
         ``GC_BATCH_SECONDS``), so other writers never wait on it for long. In each, it renames each item to a
@@ -1637,7 +1638,7 @@ class NarrationStore:
         cannot be renamed: its rows are then kept for the next run."""
         if not os.path.lexists(path):
             return True
-        trash = path.with_name(f".trash-{files.token()}-{path.name}")
+        trash = files.trash_name(path, self._clock())
         try:
             self._layout.confine(trash)
             renames.rename(path, trash, attempts=1)
@@ -1790,7 +1791,7 @@ class NarrationStore:
                 subfolders[:] = []
                 continue
             for name in [*subfolders, *names_here]:
-                if name.startswith(TEMP_PREFIXES) and _mtime(here / name) < cutoff:
+                if name.startswith(TEMP_PREFIXES) and _leftover_time(here / name) < cutoff:
                     leftovers.append(here / name)
             # never enter work in progress, links or junctions (os.walk does not follow symlinks)
             subfolders[:] = [
@@ -2002,6 +2003,13 @@ def _command(row: sqlite3.Row) -> DaemonCommand:
         done_at=row["done_at"],
         result=json.loads(row["result"]) if row["result"] is not None else None,
     )
+
+
+def _leftover_time(path: Path) -> float:
+    """When a work-in-progress name was made: the time written in a trash name (a renamed file keeps its old
+    modification time, so that says nothing about when it became trash), else the modification time."""
+    written = files.trash_time(path.name)
+    return written if written is not None else _mtime(path)
 
 
 def _mtime(path: Path) -> float:

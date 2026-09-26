@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -583,3 +584,46 @@ def test_a_failed_gc_transaction_puts_folders_back_before_it_releases_the_lock_s
     with pytest.raises(RuntimeError):
         store.gc(dry_run=False)
     assert seen == [[True, True]]
+
+
+# ---------------------------------------------------------------- follow-ups: a trash name's age is written in it
+
+
+def test_a_trash_name_carries_the_moment_of_the_rename_s15(tmp_path: Path) -> None:
+    trash = store_files.trash_name(tmp_path / "profile.json", 1_790_000_000.7)
+    assert trash.parent == tmp_path
+    assert re.fullmatch(r"\.trash-1790000000-[0-9a-f]{16}-profile\.json", trash.name)
+    assert store_files.trash_time(trash.name) == 1_790_000_000.0
+    # The older layout (.trash-<16 hex token>-<name>) and any other name carry no time.
+    assert store_files.trash_time(".trash-0123456789abcdef-profile.json") is None
+    assert store_files.trash_time(".trash-1234567890123456-profile.json") is None
+    assert store_files.trash_time(".tmp-0123456789abcdef-profile.json") is None
+    assert store_files.trash_time("profile.json") is None
+
+
+def test_gc_judges_a_trash_name_by_its_time_not_its_mtime_s15(store: NarrationStore, clock: FakeClock) -> None:
+    # A publisher renames a published folder, which may be months old, to a trash name, and renames it back
+    # if its commit fails. gc must not take that folder for an old leftover because of its old mtime.
+    months_ago = clock.now - 90 * DAY
+    shard = store.root / "profiles" / "ab"
+    shard.mkdir(parents=True)
+
+    def trash_folder(name: str, mtime: float) -> Path:
+        folder = shard / name
+        folder.mkdir()
+        (folder / "profile.json").write_bytes(b"{}")
+        for path in (folder / "profile.json", folder):
+            os.utime(path, (mtime, mtime))
+        return folder
+
+    just_made = trash_folder(store_files.trash_name(shard / ("ab" * 32), clock.now).name, months_ago)
+    token_and_name = just_made.name.split("-", 2)[2]
+    long_made = trash_folder(f".trash-{int(months_ago)}-{token_and_name}", clock.now)  # a recent mtime
+    legacy = trash_folder(".trash-0123456789abcdef-" + "ab" * 32, months_ago)  # no time: judged by mtime
+    report = store.gc(dry_run=False)
+    assert just_made.is_dir()
+    assert not long_made.exists() and not legacy.exists()
+    assert sorted(report["leftovers"]) == sorted(store.layout.rel(p) for p in (long_made, legacy))
+    clock.advance(2 * DAY)  # past the grace period since the rename
+    store.gc(dry_run=False)
+    assert not just_made.exists()

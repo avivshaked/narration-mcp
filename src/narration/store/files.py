@@ -15,6 +15,7 @@ import contextlib
 import errno
 import hashlib
 import os
+import re
 import secrets
 import stat
 import time
@@ -71,6 +72,30 @@ def temp_name(path: Path) -> Path:
     """A temporary sibling of ``path``: same folder (so the rename stays on one volume), never a published
     name."""
     return path.with_name(f".tmp-{token()}-{path.name}")
+
+
+TRASH_PREFIX: Final = ".trash-"
+_TRASH_NAME: Final = re.compile(r"\.trash-([0-9]{9,11})-[0-9a-f]{16}-.+", re.DOTALL)
+"""``.trash-<UTC epoch seconds>-<16 hex token>-<name>``. The token of the older layout (``.trash-<16 hex
+token>-<name>``) has 16 characters, so it never reads as a time here."""
+
+
+def trash_name(path: Path, now: float) -> Path:
+    """The sibling ``path`` is renamed to before it is removed: ``.trash-<UTC epoch seconds>-<token>-<name>``.
+
+    The time is when the rename happened. A renamed file keeps its own modification time, which for a
+    published file replaced today may be months old, so ``gc`` judges a trash name's age by this time
+    instead: a trash name another process has just made, and may still rename back, is never collected
+    as an old leftover.
+    """
+    return path.with_name(f"{TRASH_PREFIX}{int(now)}-{token()}-{path.name}")
+
+
+def trash_time(name: str) -> float | None:
+    """The moment written in a trash name (``trash_name``), or None for any other name, including the
+    older layout without a time."""
+    match = _TRASH_NAME.fullmatch(name)
+    return float(match.group(1)) if match else None
 
 
 def write_temp(
