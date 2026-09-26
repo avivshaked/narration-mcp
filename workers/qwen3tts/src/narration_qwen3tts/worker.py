@@ -9,9 +9,10 @@ Ops: ``hello`` (from ``WorkerHandler``), ``load``, ``prepare_voice``, ``synthesi
   ``BACKEND_NOT_INSTALLED``, checked first), be an absolute path, be named by its 40-hex revision (section 4)
   and hold Qwen3-TTS Base or VoiceDesign (``engine.check_snapshot``). Only a ``load`` that passes every check
   applies the determinism switches, before the model loads, so a refused ``load`` changes nothing. Every
-  audio-changing setting comes from ``settings`` (``settings.parse_settings``), none from the library's
-  defaults; ``settings.generation.max_new_tokens`` is the ceiling of the calls' own caps. Every ``load``
-  clears the prepared voices.
+  audio-changing setting comes from ``settings``, none from the library's defaults, and
+  ``settings.generation.max_new_tokens`` is the ceiling of the calls' own caps. The checks on ``dtype``,
+  ``attn_implementation`` and ``settings`` are ``narration_worker.qwen_settings``, which the fake worker
+  shares, so it refuses the same loads. Every ``load`` clears the prepared voices.
 - ``prepare_voice`` keeps at most ``engine.MAX_PREPARED_VOICES`` voices, evicting the least recently used,
   so ``VOICE_NOT_PREPARED`` from ``synthesize`` means "send ``prepare_voice`` again, then retry".
 - ``synthesize`` and ``design`` take a required ``max_new_tokens``, the call's own generation cap (design
@@ -37,7 +38,6 @@ libraries (section 17.7), whatever its environment says.
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final, TypeVar
@@ -46,6 +46,8 @@ import numpy as np
 from narration_worker.determinism import apply_determinism, parse_determinism, seed_everything
 from narration_worker.errors import OpError
 from narration_worker.handler import (
+    DEVICE_PATTERN,
+    REVISION_PATTERN,
     Request,
     WorkerContext,
     WorkerHandler,
@@ -56,14 +58,12 @@ from narration_worker.handler import (
     require_str,
 )
 from narration_worker.protocol import Controls, WorkerErrorCode
+from narration_worker.qwen_settings import ATTN_IMPLEMENTATIONS, DTYPES, SettingsError, parse_settings
 from narration_worker.wav import write_float32_mono
 
 from .engine import EngineError, QwenEngine, Rendered, check_snapshot
-from .settings import ATTN_IMPLEMENTATIONS, DTYPES, SettingsError, parse_settings
 
 OFFLINE_ENV: Final = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
-REVISION_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
-DEVICE_PATTERN: Final = re.compile(r"cpu|cuda(:\d+)?")
 MAX_SEED: Final = 0xFFFFFFFF
 T = TypeVar("T")
 

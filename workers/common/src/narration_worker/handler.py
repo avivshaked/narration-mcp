@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +56,11 @@ log = logging.getLogger(__name__)
 
 Request = Mapping[str, Any]
 """A decoded request: ``id``, ``op`` and the op's members."""
+
+REVISION_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
+"""A snapshot's revision in a ``load``: a 40-hex commit SHA, which names its folder (design section 4)."""
+DEVICE_PATTERN: Final = re.compile(r"cpu|cuda(:\d+)?")
+"""The ``device`` a ``load`` accepts (``fullmatch``): ``cpu``, ``cuda`` or ``cuda:<n>``."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

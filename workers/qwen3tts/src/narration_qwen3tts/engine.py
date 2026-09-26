@@ -58,16 +58,9 @@ import soundfile as sf
 from narration_worker.errors import is_transient_load_error
 from narration_worker.handler import MIN_MAX_NEW_TOKENS
 from narration_worker.protocol import QwenSettings, WorkerErrorCode
+from narration_worker.qwen_settings import DTYPES, SettingsError, ceiling_of, generation_kwargs
 
-from .settings import (
-    DTYPES,
-    ModelKind,
-    SettingsError,
-    SnapshotUnreadable,
-    ceiling_of,
-    generation_kwargs,
-    read_model_kind,
-)
+from .settings import ModelKind, SnapshotUnreadable, read_model_kind
 
 log = logging.getLogger(__name__)
 

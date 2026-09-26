@@ -13,8 +13,9 @@ is started (``worker_argv``, ``worker_env``) or to enable the tests that need a 
 
 - ``load_request``: a ``load`` request that succeeds here. The default ``None`` skips the tests that need
   it, as for a real model on a machine without it. For a role with ``synthesize`` or ``design``, it is a
-  complete Qwen load: ``model``, ``determinism`` and ``settings`` with the ceiling,
-  ``settings.generation.max_new_tokens`` (the ceiling test fails, not skips, without them);
+  complete Qwen load: ``model``, ``determinism`` and ``settings`` whose ``generation`` has all ten sampling
+  values (``GENERATION`` is one), the ceiling ``settings.generation.max_new_tokens`` among them (the
+  ceiling test fails, not skips, without them);
 - ``render_requests``: for a role with ``synthesize`` or ``design``, the requests to send after that
   ``load`` so that one of those calls succeeds, that call last (for example a ``prepare_voice`` and then a
   ``synthesize``). The test sets the last call's ``max_new_tokens`` itself. A role with those ops that gives
@@ -52,6 +53,7 @@ from typing import Any, ClassVar
 import pytest
 
 from narration_worker.protocol import COMMON_OPS, FAKE_OPS, OPS_BY_ROLE, PROTOCOL_VERSION, Fingerprint, WorkerRole
+from narration_worker.qwen_settings import CEILING_FIELD, GENERATION_KEYS
 
 from .client import WorkerProcess, check_reply
 
@@ -71,6 +73,20 @@ DETERMINISM: dict[str, Any] = {
     "cudnn_benchmark": False,
     "deterministic_algorithms": "warn_only",
 }
+GENERATION: dict[str, Any] = {
+    "do_sample": True,
+    "top_k": 50,
+    "top_p": 1.0,
+    "temperature": 0.9,
+    "repetition_penalty": 1.05,
+    "subtalker_dosample": True,
+    "subtalker_top_k": 50,
+    "subtalker_top_p": 1.0,
+    "subtalker_temperature": 0.9,
+    "max_new_tokens": DEFAULT_CEILING,
+}
+"""A complete ``settings.generation`` for a test's Qwen ``load``: all ten sampling values
+(``qwen_settings.GENERATION_KEYS``), as the pinned snapshots set them (plan.md section 1.3 item 1)."""
 
 
 def sample_requests(store_root: Path) -> dict[str, dict[str, Any]]:
@@ -124,7 +140,7 @@ def missing_snapshot_load(store_root: Path) -> dict[str, Any]:
         "dtype": "bfloat16",
         "attn_implementation": "sdpa",
         "determinism": dict(DETERMINISM),
-        "settings": {"non_streaming_mode": False, "generation": {"max_new_tokens": 8192}},
+        "settings": {"non_streaming_mode": False, "generation": dict(GENERATION)},
     }
 
 
@@ -280,13 +296,19 @@ class WorkerContract:
             pytest.skip(f"no loadable {self.role} models here: override the load_request fixture to run this")
         settings = load_request.get("settings")
         generation = settings.get("generation") if isinstance(settings, dict) else None
-        if "model" not in load_request or not isinstance(generation, dict) or "max_new_tokens" not in generation:
+        if (
+            "model" not in load_request
+            or "determinism" not in load_request
+            or not isinstance(generation, dict)
+            or not set(GENERATION_KEYS) <= set(generation)
+        ):
             pytest.fail(
                 f"the {self.role} role renders, so its load_request must be a complete Qwen load: model, "
-                "determinism, and settings with settings.generation.max_new_tokens"
+                "determinism, and settings whose generation has all ten sampling values (GENERATION_KEYS), "
+                "the ceiling settings.generation.max_new_tokens among them"
             )
         assert isinstance(settings, dict)
-        ceiling = "settings.generation.max_new_tokens"
+        ceiling = CEILING_FIELD
         cases: list[tuple[str, object]] = [
             ("settings", MISSING),
             ("settings", []),
