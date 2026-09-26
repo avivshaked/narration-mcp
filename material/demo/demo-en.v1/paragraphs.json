@@ -1,0 +1,178 @@
+{
+  "set": "demo-en.v1",
+  "title": "A Year on Harrowmere",
+  "language": "en",
+  "invented_names": ["Harrowmere", "Caerwen", "Sgeirra", "Tamsin Vey"],
+  "hints": [
+    {"term": "Harrowmere", "respell": "Harro-meer"},
+    {"term": "Caerwen", "respell": "Kire-wen"},
+    {"term": "Sgeirra", "respell": "Skeera"}
+  ],
+  "paragraphs": [
+    {
+      "segment_id": "demo-01",
+      "spoken_chars": 91,
+      "cues": [{"text": "Harrowmere lies at the head of a long valley, where three rivers meet and slow into a lake."}]
+    },
+    {
+      "segment_id": "demo-02",
+      "spoken_chars": 141,
+      "cues": [
+        {"text": "In winter the lake is still and grey."},
+        {"text": "Mist sits on the water until late morning,"},
+        {"text": "and the far shore can be lost from sight for days at a time."}
+      ]
+    },
+    {
+      "segment_id": "demo-03",
+      "spoken_chars": 169,
+      "cues": [
+        {"text": "The village of Caerwen stands on the eastern shore."},
+        {"text": "It has one street, one inn and a small stone church,"},
+        {
+          "text": "and a little over four hundred people live there all year round.",
+          "exact": [{"start": 18, "end": 30}]
+        }
+      ]
+    },
+    {
+      "segment_id": "demo-04",
+      "spoken_chars": 76,
+      "cues": [{"text": "Most of them make their living from the lake, as their families always have."}]
+    },
+    {
+      "segment_id": "demo-05",
+      "spoken_chars": 244,
+      "cues": [
+        {"text": "Before the road was built, the only way in or out was by water."},
+        {"text": "Tamsin Vey runs the ferry now, as her father did before her."},
+        {
+          "text": "She makes the crossing to the western shore six times a day in summer,",
+          "exact": [{"start": 44, "end": 47}]
+        },
+        {"text": "and twice a day in winter, when the wind allows."}
+      ]
+    },
+    {
+      "segment_id": "demo-06",
+      "spoken_chars": 100,
+      "cues": [
+        {"text": "The crossing takes about twenty minutes."},
+        {"text": "On a calm morning it is the quietest journey in the valley."}
+      ]
+    },
+    {
+      "segment_id": "demo-07",
+      "spoken_chars": 186,
+      "cues": [
+        {"text": "Out in the middle of the lake lies Sgeirra, a low island of rock and pine."},
+        {"text": "Nobody has lived there for more than a century,"},
+        {"text": "but the ruins of a small farm can still be seen from the ferry."}
+      ]
+    },
+    {
+      "segment_id": "demo-08",
+      "spoken_chars": 53,
+      "cues": [{"text": "In spring the snow on the high ground begins to melt."}]
+    },
+    {
+      "segment_id": "demo-09",
+      "spoken_chars": 407,
+      "cues": [
+        {"text": "The rivers rise quickly."},
+        {"text": "Within a week the lake climbs by almost two metres,", "exact": [{"start": 40, "end": 43}]},
+        {"text": "and the meadows along the northern edge vanish under a sheet of shallow water."},
+        {"text": "For the birds, this is the best time of the year."},
+        {"text": "Herons stand in the flooded grass."},
+        {"text": "Geese arrive from the south in long, untidy lines."},
+        {"text": "And on still evenings, the calls of the curlew carry across the whole valley."},
+        {"text": "By May the water has gone down again."}
+      ]
+    },
+    {
+      "segment_id": "demo-10",
+      "spoken_chars": 58,
+      "cues": [{"text": "The fields are cut for hay in the first dry weeks of June."}]
+    },
+    {
+      "segment_id": "demo-11",
+      "spoken_chars": 159,
+      "cues": [
+        {
+          "text": "Every farm in the valley helps with the harvest, moving from one field to the next until all of it is in."
+        },
+        {"text": "On the steeper slopes the work is still done by hand."}
+      ]
+    },
+    {
+      "segment_id": "demo-12",
+      "spoken_chars": 188,
+      "cues": [
+        {"text": "At the northern end of the lake stands an old water mill."},
+        {
+          "text": "It ground corn for Caerwen's bakers for nearly three hundred years,",
+          "exact": [{"start": 47, "end": 60}]
+        },
+        {"text": "and it still turns on open days, though only for visitors now."}
+      ]
+    },
+    {
+      "segment_id": "demo-13",
+      "spoken_chars": 74,
+      "cues": [{"text": "Summer brings walkers."}, {"text": "Some come for a single afternoon, others for weeks."}]
+    },
+    {
+      "segment_id": "demo-14",
+      "spoken_chars": 134,
+      "cues": [
+        {"text": "The path around the lake is twenty-two kilometres long.", "exact": [{"start": 28, "end": 38}]},
+        {"text": "Most people walk it in two days, stopping for the night at the inn in Caerwen."}
+      ]
+    },
+    {
+      "segment_id": "demo-15",
+      "spoken_chars": 63,
+      "cues": [{"text": "By September, the evenings are drawing in and the air is sharp."}]
+    },
+    {
+      "segment_id": "demo-16",
+      "spoken_chars": 208,
+      "cues": [
+        {"text": "The ferry's timetable changes at the start of October."},
+        {"text": "The inn closes its upstairs rooms,"},
+        {
+          "text": "and the boats that have been out on the lake all summer are pulled up onto the shingle and turned over for the winter."
+        }
+      ]
+    },
+    {
+      "segment_id": "demo-17",
+      "spoken_chars": 149,
+      "cues": [
+        {"text": "Autumn is the season of storms on Harrowmere."},
+        {"text": "Wind funnels down the valley from the north,"},
+        {"text": "and the waves on the open water can reach a metre or more."}
+      ]
+    },
+    {
+      "segment_id": "demo-18",
+      "spoken_chars": 76,
+      "cues": [{"text": "When a storm is forecast, the ferry stays in harbour, and the village waits."}]
+    },
+    {
+      "segment_id": "demo-19",
+      "spoken_chars": 194,
+      "cues": [
+        {"text": "Then, some time in December, the first hard frost arrives."},
+        {"text": "Ice forms along the edges of the lake,"},
+        {"text": "thin at first, then thicker each night."},
+        {"text": "In a cold year it reaches all the way across to Sgeirra."}
+      ]
+    },
+    {
+      "segment_id": "demo-20",
+      "spoken_chars": 96,
+      "cues": [{"text": "And the valley grows quiet once more, as it has every winter for as long as anyone can remember."}]
+    }
+  ]
+}

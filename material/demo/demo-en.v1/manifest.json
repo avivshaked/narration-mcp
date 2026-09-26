@@ -1,0 +1,18 @@
+{
+  "set": "demo-en.v1",
+  "kind": "demo",
+  "version": 1,
+  "status": "draft",
+  "language": "en",
+  "description": "The Phase 4 demo script (design section 20): twenty paragraphs of cues in spoken form, a short documentary about an invented lake valley through one year, with pronunciation hints for its invented names and a few exact spans.",
+  "design": "docs/design.md revision 5.1, sections 7.2, 9.1 and 20 (Phase 4)",
+  "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
+  "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
+  "files": [
+    {
+      "path": "paragraphs.json",
+      "bytes": 6305,
+      "sha256": "66ddc4bb7f37f57f4c7601b052a2e02c28cc558ba5ac0e22db32389f7c39b2e6"
+    }
+  ]
+}
