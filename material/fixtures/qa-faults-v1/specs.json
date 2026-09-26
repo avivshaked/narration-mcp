@@ -1,0 +1,242 @@
+{
+  "set": "qa-faults-v1",
+  "design_revision": "5.1",
+  "conventions": [
+    "Specs, not audio: each gives the segment as sent (a Segment, design section 7.2), the request's hints, and the transcript the ASR is pretended to return (asr.text). A pure QA test feeds asr.text to the QA logic through the fake worker; a GPU test renders render.text so that real audio carries the fault, and scores it against the segment.",
+    "kind is fault (must be caught) or non-fault (must pass).",
+    "expect.flags must be raised; expect.absent codes must not be raised at any severity; expect.absent_severity must not be raised at that severity. expect.verdict is the verdict when the checks outside the spec (speaker, pace, signal, alignment of the other cues) raise nothing.",
+    "retake_trigger: whether the take triggers an automatic retake (design 11.1).",
+    "The spoken text is in spoken form; asr.text is what an ASR writes and may hold digits and symbols."
+  ],
+  "specs": [
+    {
+      "name": "fault_exact_span_different_number",
+      "kind": "fault",
+      "design": ["11.3", "11.1", "20 (Phase 3)"],
+      "about": "The ASR hears a different number inside an exact span. A word rate alone would pass it.",
+      "segment": {
+        "segment_id": "fault-exact-span-different-number",
+        "cues": [
+          {
+            "text": "The survey counted three hundred and twelve nesting pairs along the northern shore of the lake this year.",
+            "exact": [{"start": 19, "end": 43}]
+          }
+        ]
+      },
+      "hints": [],
+      "render": {
+        "text": "The survey counted three hundred and twenty nesting pairs along the northern shore of the lake this year."
+      },
+      "asr": {
+        "text": "The survey counted three hundred and twenty nesting pairs along the northern shore of the lake this year."
+      },
+      "expect": {
+        "flags": [{"code": "EXACT_SPAN_MISMATCH", "severity": "fail", "cue": 0}],
+        "exact": [{"cue": 0, "match": "different", "expected": "312", "heard": "320"}],
+        "retake_trigger": true,
+        "verdict": "fail"
+      },
+      "unsure": ["expect.exact[0].expected", "expect.exact[0].heard"],
+      "note": "expected and heard are shown in normalised form (design 11.3 step 1); whether they are reported raw or normalised is WP14's."
+    },
+    {
+      "name": "fault_head_insertion_three_words",
+      "kind": "fault",
+      "design": ["11.1", "20 (Phase 3)"],
+      "about": "Three words are heard before the first word of cue 0.",
+      "segment": {
+        "segment_id": "fault-head-insertion-three-words",
+        "cues": [
+          {"text": "The tide came in slowly over the mud flats,"},
+          {"text": "and by evening the channel by the old quay was full again."}
+        ]
+      },
+      "hints": [],
+      "render": {
+        "text": "Well, as always, the tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+      },
+      "asr": {
+        "text": "Well, as always, the tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+      },
+      "expect": {"flags": [{"code": "HEAD_INSERTION", "severity": "fail"}], "retake_trigger": true, "verdict": "fail"}
+    },
+    {
+      "name": "fault_head_insertion_reference_bleed",
+      "kind": "fault",
+      "design": ["11.1", "20 (Phase 3)"],
+      "about": "Words of the voice's own transcript are heard before cue 0: reference bleed, a known ICL failure.",
+      "segment": {
+        "segment_id": "fault-head-insertion-reference-bleed",
+        "cues": [
+          {"text": "The tide came in slowly over the mud flats,"},
+          {"text": "and by evening the channel by the old quay was full again."}
+        ]
+      },
+      "hints": [],
+      "voice_transcript": "Far below the surface, where the light grows thin, small things live quiet lives. Some of them thrive, and some of them simply disappear, and the water keeps no record of either.",
+      "render": {
+        "text": "And the water keeps no record of either. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+      },
+      "asr": {
+        "text": "And the water keeps no record of either. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+      },
+      "expect": {"flags": [{"code": "HEAD_INSERTION", "severity": "fail"}], "retake_trigger": true, "verdict": "fail"},
+      "note": "voice_transcript is the design text of canary.v1, standing in for any voice's transcript."
+    },
+    {
+      "name": "boundary_head_insertion_one_word",
+      "kind": "fault",
+      "design": ["11.1", "20 (Phase 3)"],
+      "about": "One word before cue 0 is a warning, and still a retake trigger.",
+      "segment": {
+        "segment_id": "boundary-head-insertion-one-word",
+        "cues": [
+          {"text": "The tide came in slowly over the mud flats,"},
+          {"text": "and by evening the channel by the old quay was full again."}
+        ]
+      },
+      "hints": [],
+      "render": {
+        "text": "So the tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+      },
+      "asr": {
+        "text": "So the tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+      },
+      "expect": {"flags": [{"code": "HEAD_INSERTION", "severity": "warn"}], "retake_trigger": true}
+    },
+    {
+      "name": "fault_token_cap_hit",
+      "kind": "fault",
+      "design": ["11.1", "20 (Phase 3)"],
+      "about": "Generation stopped at max_new_tokens partway through the text.",
+      "segment": {
+        "segment_id": "fault-token-cap-hit",
+        "cues": [
+          {"text": "The wind rose steadily through the afternoon."},
+          {"text": "By dusk it was strong enough to lift the slates from the barn roof,"},
+          {"text": "and the last ferry of the day stayed in harbour."}
+        ]
+      },
+      "hints": [],
+      "render": {
+        "text": "The wind rose steadily through the afternoon. By dusk it was strong enough to lift the slates from the barn roof, and the last ferry of the day stayed in harbour.",
+        "max_new_tokens": 60,
+        "generated_tokens": 60
+      },
+      "asr": {"text": "The wind rose steadily through the afternoon. By dusk it was strong enough"},
+      "expect": {"flags": [{"code": "TOKEN_CAP_HIT", "severity": "fail"}], "retake_trigger": true, "verdict": "fail"},
+      "note": "Planted with a test-only low cap (plan.md section 1.3 item 1): 60 tokens at 12 Hz is 5 s of audio, shorter than this text. The worker reports generated_tokens; reaching the cap is the fault."
+    },
+    {
+      "name": "fault_unplaceable_cue",
+      "kind": "fault",
+      "design": ["11.2", "11.1", "20 (Phase 3)"],
+      "about": "Cue 1's words are missing from the audio and the transcript, so it cannot be placed.",
+      "segment": {
+        "segment_id": "fault-unplaceable-cue",
+        "cues": [
+          {"text": "The path climbs through birch woods to the ridge."},
+          {"text": "From the top you can see across three valleys on a clear day."},
+          {"text": "The way down is steeper and takes longer than most walkers expect."}
+        ]
+      },
+      "hints": [],
+      "render": {
+        "text": "The path climbs through birch woods to the ridge. The way down is steeper and takes longer than most walkers expect."
+      },
+      "asr": {
+        "text": "The path climbs through birch woods to the ridge. The way down is steeper and takes longer than most walkers expect."
+      },
+      "expect": {
+        "flags": [{"code": "CUE_UNALIGNED", "severity": "warn", "cue": 1}],
+        "cues": [{"index": 1, "start_s": null, "end_s": null}],
+        "retake_trigger": true,
+        "verdict": "fail"
+      },
+      "note": "The cue's times are null and never interpolated (design 11.2 step 7). The fail verdict comes from WER_HIGH (thirteen words missing), not from CUE_UNALIGNED, which is a warning and a retake trigger."
+    },
+    {
+      "name": "nonfault_per_cent_heard_as_percent",
+      "kind": "non-fault",
+      "design": ["11.3", "20 (Phase 3)"],
+      "about": "per cent heard as percent: both normalise to 14%.",
+      "segment": {
+        "segment_id": "nonfault-per-cent-heard-as-percent",
+        "cues": [
+          {
+            "text": "Over the summer the lake level fell by fourteen per cent, the lowest it has been in a decade.",
+            "exact": [{"start": 39, "end": 56}]
+          }
+        ]
+      },
+      "hints": [],
+      "render": {"text": "Over the summer the lake level fell by fourteen per cent, the lowest it has been in a decade."},
+      "asr": {"text": "Over the summer the lake level fell by fourteen percent, the lowest it has been in a decade."},
+      "expect": {"absent": ["EXACT_SPAN_MISMATCH", "WER_HIGH"], "exact": [{"cue": 0, "match": "same"}], "verdict": "pass"}
+    },
+    {
+      "name": "nonfault_per_cent_heard_as_digits",
+      "kind": "non-fault",
+      "design": ["11.3", "20 (Phase 3)"],
+      "about": "per cent heard as 14%: both normalise to 14%.",
+      "segment": {
+        "segment_id": "nonfault-per-cent-heard-as-digits",
+        "cues": [
+          {
+            "text": "Over the summer the lake level fell by fourteen per cent, the lowest it has been in a decade.",
+            "exact": [{"start": 39, "end": 56}]
+          }
+        ]
+      },
+      "hints": [],
+      "render": {"text": "Over the summer the lake level fell by fourteen per cent, the lowest it has been in a decade."},
+      "asr": {"text": "Over the summer the lake level fell by 14%, the lowest it has been in a decade."},
+      "expect": {"absent": ["EXACT_SPAN_MISMATCH", "WER_HIGH"], "exact": [{"cue": 0, "match": "same"}], "verdict": "pass"}
+    },
+    {
+      "name": "nonfault_nought_heard_as_zero",
+      "kind": "non-fault",
+      "design": ["11.3", "20 (Phase 3)"],
+      "about": "nought heard as zero: with the extra rule, both normalise to 0.5.",
+      "segment": {
+        "segment_id": "nonfault-nought-heard-as-zero",
+        "cues": [{"text": "The gauge on the jetty read nought point five metres at noon.", "exact": [{"start": 28, "end": 45}]}]
+      },
+      "hints": [],
+      "render": {"text": "The gauge on the jetty read nought point five metres at noon."},
+      "asr": {"text": "The gauge on the jetty read zero point five metres at noon."},
+      "expect": {"absent": ["EXACT_SPAN_MISMATCH", "WER_HIGH"], "exact": [{"cue": 0, "match": "same"}], "verdict": "pass"}
+    },
+    {
+      "name": "nonfault_nought_heard_as_digits",
+      "kind": "non-fault",
+      "design": ["11.3", "20 (Phase 3)"],
+      "about": "nought point five heard as 0.5.",
+      "segment": {
+        "segment_id": "nonfault-nought-heard-as-digits",
+        "cues": [{"text": "The gauge on the jetty read nought point five metres at noon.", "exact": [{"start": 28, "end": 45}]}]
+      },
+      "hints": [],
+      "render": {"text": "The gauge on the jetty read nought point five metres at noon."},
+      "asr": {"text": "The gauge on the jetty read 0.5 metres at noon."},
+      "expect": {"absent": ["EXACT_SPAN_MISMATCH", "WER_HIGH"], "exact": [{"cue": 0, "match": "same"}], "verdict": "pass"}
+    },
+    {
+      "name": "nonfault_one_slip_in_a_three_word_title",
+      "kind": "non-fault",
+      "design": ["11.1", "20 (Phase 3)"],
+      "about": "One slip in a three-word title is wer_adj 0.33 with one word error: a warning, not a failure.",
+      "segment": {"segment_id": "nonfault-one-slip-in-a-three-word-title", "cues": [{"text": "The Long Crossing."}]},
+      "hints": [],
+      "render": {"text": "The Lone Crossing."},
+      "asr": {"text": "The Lone Crossing."},
+      "expect": {
+        "flags": [{"code": "WER_HIGH", "severity": "warn"}],
+        "absent_severity": [{"code": "WER_HIGH", "severity": "fail"}],
+        "wer_adj": {"value": 0.3333, "word_errors": 1},
+        "verdict": "warn"
+      },
+      "note": "wer_adj.value is rounded to four places. Fail needs wer_adj > 0.06 and at least two word errors (design 11.1)."
+    }
+  ]
+}
