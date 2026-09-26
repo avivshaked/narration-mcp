@@ -26,6 +26,7 @@ from typing import Any, get_args
 import jsonschema
 import pytest
 
+from narration.config import VoiceDesignConfig
 from narration.contracts import codes, names, schemas
 from narration.contracts.models import Hint, SegmentIn, SegmentText
 from narration.contracts.serial import from_json, to_json
@@ -51,12 +52,18 @@ HINT_SCHEMA = jsonschema.Draft202012Validator(_SUBMIT_JOB["hints"]["items"])
 _DESIGN_VOICE = schemas.TOOLS_BY_NAME["design_voice"].input_schema["properties"]
 MAX_DESCRIPTION_CHARS = _DESIGN_VOICE["description"]["maxLength"]
 MAX_DESIGN_TEXT_CHARS = _DESIGN_VOICE["design_text"]["maxLength"]
+VERDICTS = get_args(names.Verdict)
+"""pass, warn, fail: the contract lists the verdicts from best to worst (design 11.1)."""
+FAILING = VERDICTS[-1]
+EXACT_MATCHES = get_args(names.ExactMatch)
+TEXT_WARNING_KINDS = get_args(names.TextWarningKind)
+TEXT_WARNING_SEVERITIES = codes.FLAGS[codes.WRITTEN_FORM_TOKEN].severities
 
 _ONES = ("zero", "nought", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
 _TEENS = ("eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
 _TENS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
 CARDINALS = frozenset(_ONES + _TEENS + _TENS + ("hundred", "thousand", "million"))
-"""The number words the calibration corpus marks as exact spans (design 3.2, 11.3)."""
+"""The number words the calibration corpus marks as exact spans: the material's own rule (design 3.2, 11.3)."""
 SPAN_NUMBER_WORDS = CARDINALS | {"and", "point"}
 
 
@@ -184,13 +191,6 @@ def covered(text: str, start: int, end: int) -> list[str]:
 
 def number_parts(word: str) -> list[str]:
     return word.lower().split("-")
-
-
-def resolve(obj: Any, path: str) -> Any:
-    """Follow a path such as ``expect.cues[0].warnings`` into a JSON value (raises if it does not exist)."""
-    for part in re.findall(r"[^.\[\]]+|\[\d+\]", path):
-        obj = obj[int(part[1:-1])] if part.startswith("[") else obj[part]
-    return obj
 
 
 # ============================================================================ manifests and files (section 15)
@@ -422,8 +422,12 @@ def test_canary_description_is_positive_only_s3_5() -> None:
 
 
 def test_canary_design_text_is_the_designs_default_s16() -> None:
+    """One default design text: design section 16, the code's default, the shipped config and the canary."""
     design_text = load(CANARY, "canary.json")["voice"]["design_text"]
     assert design_text == design_config()["voice_design"]["design_text"]
+    assert design_text == VoiceDesignConfig().design_text
+    example = tomllib.loads((ROOT / "narration.example.toml").read_text(encoding="utf-8"))
+    assert design_text == example["voice_design"]["design_text"]
     assert len(design_text) <= MAX_DESIGN_TEXT_CHARS
 
 
@@ -490,14 +494,13 @@ def test_text_fixture_is_well_formed_s9_3(case: dict[str, Any]) -> None:
     assert expect["outcome"] in {"ok", "refused"}
     if expect["outcome"] == "refused":
         assert expect["error"]["code"] in {codes.INVALID_ARGUMENT, codes.TEXT_REFUSED}
-    for path in case.get("unsure", []):
-        resolve(case, path)
+    assert "unsure" not in case, "every open point is settled (WP10); a case's note says which rule it pins"
     for flag in expect.get("flags", []):
         assert flag["code"] in codes.FLAGS and flag["severity"] in names.SEVERITIES
     for cue_expect in expect.get("cues", []):
         for warning in cue_expect.get("warnings", []):
-            assert warning["kind"] in get_args(names.TextWarningKind)
-            assert warning["severity"] == ("info" if warning["kind"] == "letter" else "warn")
+            assert warning["kind"] in TEXT_WARNING_KINDS
+            assert warning["severity"] in TEXT_WARNING_SEVERITIES
 
 
 @pytest.mark.parametrize("case", lint_cases(), ids=lambda c: c["name"])
@@ -544,14 +547,15 @@ def test_qa_spec_is_well_formed_s20(spec: dict[str, Any]) -> None:
     spans = [s for c in spec["segment"]["cues"] for s in c.get("exact", [])]
     assert len(expect.get("exact", [])) <= len(spans)
     for exact in expect.get("exact", []):
-        assert exact["match"] in {"same", "different", "missing"}
+        assert exact["match"] in EXACT_MATCHES
+    if "verdict" in expect:
+        assert expect["verdict"] in VERDICTS
     if spec["kind"] == "fault":
         assert expect["flags"], "a planted fault names the flag that catches it"
     else:
-        assert expect["verdict"] in {"pass", "warn"}
-        assert all(f["severity"] != "fail" for f in expect.get("flags", []))
-    for path in spec.get("unsure", []):
-        resolve(spec, path)
+        assert expect["verdict"] != FAILING
+        assert all(f["severity"] != FAILING for f in expect.get("flags", []))
+    assert "unsure" not in spec, "every open point is settled; a spec's note says which rule it pins"
 
 
 def test_the_reference_bleed_spec_plants_words_of_its_voices_transcript_s11_1() -> None:
