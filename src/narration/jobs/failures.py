@@ -22,8 +22,9 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError, QaUnavailable, WorkerCrashed, WorkerFailure, WorkerTimeout
 from narration.contracts.models import Flag
 from narration.contracts.names import GpuHolder
+from narration.contracts.worker import WorkerErrorCode
 
-from .core import EngineCore
+from .core import EngineCore, worker_code
 from .host import RunnerHost
 from .stages import Stages
 from .state import Attempt, JobRun, Outcome, label
@@ -34,6 +35,8 @@ OOM_WAIT_S: Final = 15.0
 """Section 4 item 5: on an out-of-memory error, unload, wait this long, and retry once."""
 MAX_RETRIES: Final = 1
 """Retries of one piece of work after an out-of-memory error, a crash or a timeout of its worker."""
+LOST_STATE: Final[tuple[WorkerErrorCode, ...]] = ("NOT_LOADED", "VOICE_NOT_PREPARED")
+"""The worker codes that say it lost its models or the prepared voice (unloaded meanwhile)."""
 
 
 class Failures:
@@ -52,14 +55,15 @@ class Failures:
         except WorkerFailure as exc:
             if host.should_stop():
                 return "stopped"
-            if exc.code == "BACKEND_NOT_INSTALLED":
+            code = worker_code(exc)
+            if code == codes.BACKEND_NOT_INSTALLED:
                 raise NarrationError(codes.BACKEND_NOT_INSTALLED, exc.message, details=exc.details) from exc
-            if exc.code == "GPU_OOM" and group is not None:
+            if code == codes.GPU_OOM and group is not None:
                 return self._oom(host, run, attempt, group, exc)
-            if exc.code in ("NOT_LOADED", "VOICE_NOT_PREPARED") and group is not None:
+            if code in LOST_STATE and group is not None:
                 return self._lost_state(run, attempt, group, exc)
-            code = codes.QA_UNAVAILABLE if group == "qa" else codes.RENDER_FAILED
-            self.fail_attempt(run, attempt, code, f"the worker could not {_verb(group)} it: {exc}", exc.code)
+            flag = codes.QA_UNAVAILABLE if group == "qa" else codes.RENDER_FAILED
+            self.fail_attempt(run, attempt, flag, f"the worker could not {_verb(group)} it: {exc}", exc.code)
             return "worked"
         except (WorkerCrashed, WorkerTimeout) as exc:
             if host.stop_mode == "now" or host.should_stop():
@@ -147,4 +151,4 @@ def _verb(group: GpuHolder | None) -> str:
     return "render" if group == "qwen" else "score" if group == "qa" else "post-process"
 
 
-__all__ = ["MAX_RETRIES", "OOM_WAIT_S", "Failures"]
+__all__ = ["LOST_STATE", "MAX_RETRIES", "OOM_WAIT_S", "Failures"]

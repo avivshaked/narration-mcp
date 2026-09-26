@@ -11,11 +11,13 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Final, Protocol
+from typing import Final, Protocol, cast
 
 from narration.config import Config
+from narration.contracts.errors import WorkerFailure
 from narration.contracts.interfaces import AlignerCore, DeliveryProcessor, QaScorer, TextPlanner
 from narration.contracts.names import CanaryStatus, JobPhase
+from narration.contracts.worker import WORKER_ERROR_CODES, WorkerErrorCode
 
 from .admission import Throughput
 from .gpu import NoProbe, Residency, VramProbe
@@ -56,6 +58,12 @@ class EngineParts:
     defer_s: float = DEFER_S
 
 
+def worker_code(exc: WorkerFailure) -> WorkerErrorCode:
+    """A worker's error code, typed as the protocol's (App. A), so the engine compares it with the
+    protocol's members and never a retyped string. A code the protocol does not have reads as ``INTERNAL``."""
+    return cast(WorkerErrorCode, exc.code) if exc.code in WORKER_ERROR_CODES else "INTERNAL"
+
+
 class EngineCore:
     """The config and parts, and the state one engine keeps across the jobs it runs: which model group is
     resident (``residency``), how fast work goes (``throughput``), and the canary outcome of the Qwen load in
@@ -76,4 +84,4 @@ class EngineCore:
             host.job_phase(phase)
 
 
-__all__ = ["DEFER_S", "EngineCore", "EngineParts", "Scorer"]
+__all__ = ["DEFER_S", "EngineCore", "EngineParts", "Scorer", "worker_code"]

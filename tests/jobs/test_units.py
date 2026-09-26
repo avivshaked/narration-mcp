@@ -13,10 +13,13 @@ import pytest
 
 from narration.config import Config, DefaultsConfig, GpuConfig
 from narration.contracts import codes, names
-from narration.contracts.errors import NarrationError
+from narration.contracts.errors import NarrationError, WorkerFailure
 from narration.contracts.models import DaemonStatus, GpuStatus, Hint, JobRecord, Progress, ProvenanceEntry, SegmentIn
 from narration.contracts.names import GpuHolder, JobPhase
+from narration.contracts.worker import WORKER_ERROR_CODES
 from narration.jobs import admission
+from narration.jobs.core import worker_code
+from narration.jobs.failures import LOST_STATE
 from narration.jobs.gpu import GroupNeed, NoProbe, NvmlProbe, Residency
 from narration.jobs.pins import ModelPin, ProfileError, QaPins, call_cap, ceiling, qwen_load_payload
 from narration.jobs.plan import (
@@ -485,3 +488,10 @@ def test_only_a_designed_or_allowed_clip_may_be_cloned_s17_4(store: NarrationSto
     with pytest.raises(NarrationError) as caught:
         require_synthetic(store, (allowed,), other, field="clip_sha256")
     assert caught.value.code == codes.VOICE_NOT_SYNTHETIC and caught.value.field == "clip_sha256"
+
+
+def test_the_worker_codes_the_engine_reacts_to_are_the_protocols_app_a() -> None:
+    reacted = {codes.GPU_OOM, codes.BACKEND_NOT_INSTALLED, codes.ALIGNMENT_ERROR, codes.UNSUPPORTED_AUDIO, *LOST_STATE}
+    assert reacted <= set(WORKER_ERROR_CODES)
+    assert worker_code(WorkerFailure("NOT_LOADED", "no model")) == "NOT_LOADED"
+    assert worker_code(WorkerFailure("SOMETHING_NEW", "a newer worker")) == "INTERNAL"

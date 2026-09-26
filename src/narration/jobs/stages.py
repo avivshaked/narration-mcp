@@ -45,7 +45,7 @@ from narration.contracts.models import (
 from narration.contracts.names import GpuHolder
 from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 
-from .core import EngineCore
+from .core import EngineCore, worker_code
 from .gpu import GroupNeed, Readiness
 from .host import GROUP_ROLES, ResidencyError, RunnerHost
 from .pins import call_cap, generation, qwen_load_payload
@@ -216,9 +216,10 @@ class Stages:
         try:
             return core.residency.ensure(host, need, phase=lambda p: core.phase(host, run, p))
         except WorkerFailure as exc:
-            if exc.code == "GPU_OOM":
+            worker = worker_code(exc)
+            if worker == codes.GPU_OOM:
                 raise
-            code = codes.BACKEND_NOT_INSTALLED if exc.code == "BACKEND_NOT_INSTALLED" else codes.INTERNAL
+            code = codes.BACKEND_NOT_INSTALLED if worker == codes.BACKEND_NOT_INSTALLED else codes.INTERNAL
             raise NarrationError(
                 code,
                 f"the {need.group} worker could not load {need.label}: {exc.message}",
@@ -451,7 +452,7 @@ class Stages:
                     client.request("align", {"wav": wav, "tokens": list(transcript.tokens)}, timeout_s=QA_TIMEOUT_S),
                 )
             except WorkerFailure as exc:
-                if exc.code != codes.ALIGNMENT_ERROR:
+                if worker_code(exc) != codes.ALIGNMENT_ERROR:
                     raise
                 error = dict(exc.details or {})
                 log.info("job %s: the aligner could not align %s: %s", run.job_id, take.take_id, exc.message)
