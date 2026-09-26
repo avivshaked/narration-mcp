@@ -7,6 +7,8 @@
   processes the test's own daemon started are ever added.
 - ``set_below_normal_priority``: records the pid.
 - ``check_store_path``: confinement under the root, as the store's tests do; the rest raise.
+- ``python_for``, ``worker_creationflags``, ``hardening_env`` (``ProcessPlatform``): this OS's real answers
+  (``narration.platform.get_platform()``; pure, so safe in tests), so tests start workers as the daemon does.
 """
 
 from __future__ import annotations
@@ -21,6 +23,9 @@ import psutil
 
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
+from narration.platform import get_platform
+
+_REAL = get_platform()
 
 _HELD: dict[str, threading.Lock] = {}
 _HELD_LOCK = threading.Lock()
@@ -112,6 +117,16 @@ class StandInPlatform:
 
     def check_readable_path(self, path: str) -> Path:
         raise NotImplementedError
+
+    # ---- how Python processes are started: this OS's real, pure answers
+    def python_for(self, python: Path, *, console: bool) -> Path:
+        return _REAL.python_for(python, console=console)
+
+    def worker_creationflags(self, *, below_normal: bool) -> int:
+        return _REAL.worker_creationflags(below_normal=below_normal)
+
+    def hardening_env(self) -> Mapping[str, str]:
+        return _REAL.hardening_env()
 
     def free_disk_bytes(self, path: Path) -> int:
         raise NotImplementedError

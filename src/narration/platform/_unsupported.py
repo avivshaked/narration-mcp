@@ -1,7 +1,9 @@
 """The platform for an OS v1 does not support (plan.md Q2: Windows first; WP19).
 
-Every method raises ``narration.contracts.errors.UnsupportedPlatform`` (``DAEMON_UNAVAILABLE``, not
-retryable), naming the operation and the OS. The POSIX implementations (an ``fcntl`` lock file,
+Every ``Platform`` method raises ``narration.contracts.errors.UnsupportedPlatform`` (``DAEMON_UNAVAILABLE``,
+not retryable), naming the operation and the OS. The three ``ProcessPlatform`` descriptions answer with the
+neutral values, which are also what a POSIX system needs: the same interpreter, no creation flags, nothing
+added to the environment. The POSIX implementations (an ``fcntl`` lock file,
 ``start_new_session``, process groups with ``PR_SET_PDEATHSIG``, the ``/proc`` and ``/dev`` path rules) are
 later work; they will replace this class in ``narration.platform.get_platform``.
 """
@@ -51,3 +53,16 @@ class UnsupportedOsPlatform:
     def free_disk_bytes(self, path: Path) -> int:
         """Refused: the free-disk check is not implemented on this OS."""
         raise self._refuse("free_disk_bytes")
+
+    # ---- how Python processes are started: neutral values, never refused
+    def python_for(self, python: Path, *, console: bool) -> Path:
+        """``python`` itself: this OS has no console and windowless variants of the interpreter."""
+        return python
+
+    def worker_creationflags(self, *, below_normal: bool) -> int:
+        """0: creation flags are a Windows notion."""
+        return 0
+
+    def hardening_env(self) -> Mapping[str, str]:
+        """Nothing to add on this OS."""
+        return {}

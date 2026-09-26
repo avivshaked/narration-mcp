@@ -95,14 +95,19 @@ def session(spec: dict[str, Any]) -> None:
             result["spawned_pid"] = start_detached(store_root, config, extra=DAEMON_OPTIONS)
         elif spec["how"] == "console-python":
             store_root.mkdir(parents=True, exist_ok=True)
-            argv = daemon_argv(store_root, config, extra=DAEMON_OPTIONS)
-            argv[0] = str(Path(sys.executable).with_name("python.exe"))  # not pythonw.exe
+            console = get_platform().python_for(Path(sys.executable), console=True)  # not pythonw.exe
+            argv = daemon_argv(store_root, config, python=console, extra=DAEMON_OPTIONS)
             result["spawned_pid"] = get_platform().spawn_detached(argv, cwd=store_root, env=dict(os.environ))
         else:  # no-breakaway-flag: detached, but still in this session's job
             store_root.mkdir(parents=True, exist_ok=True)
             flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
             child = subprocess.Popen(
-                daemon_argv(store_root, config, extra=DAEMON_OPTIONS),
+                daemon_argv(
+                    store_root,
+                    config,
+                    python=get_platform().python_for(Path(sys.executable), console=False),
+                    extra=DAEMON_OPTIONS,
+                ),
                 cwd=store_root,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,

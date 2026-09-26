@@ -30,8 +30,6 @@ from narration_worker.threads import cap_threads_env
 from narration.config import Config, load_config
 from narration.contracts.errors import ConfigError
 
-from .settings import NO_CWD_EXE_SEARCH
-
 DEFAULT_RUNNER: Final = "narration.daemon.seam:NullRunner"
 """The job runner the daemon drives unless ``--runner`` names another (the job engine, WP31, replaces it)."""
 LOG_NAME: Final = "daemon.log"
@@ -79,10 +77,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return _EXIT_USAGE
     cap_threads_env(config.workers.cpu_threads)  # before anything below imports numpy (section 4.1)
-    if os.name == "nt":
-        # The daemon runs in the store root; no program it or a library of it starts through cmd.exe may be
-        # looked for there (section 17; the workers get the same, supervisor.harden_env).
-        os.environ[NO_CWD_EXE_SEARCH] = "1"
     return _serve(args, config)
 
 
@@ -109,6 +103,9 @@ def _serve(args: argparse.Namespace, config: Config) -> int:
         print(f"narration daemon: {exc}", file=sys.stderr)
         return _EXIT_USAGE
     platform = get_platform()
+    # The daemon runs in the store root: this OS's hardening applies to it and to everything it starts, as
+    # to its workers (section 17; on Windows, cmd.exe no longer looks for programs in the working folder).
+    os.environ.update(platform.hardening_env())
     try:
         store = NarrationStore(settings.store_root, platform, retention=config.retention)
     except Exception as exc:

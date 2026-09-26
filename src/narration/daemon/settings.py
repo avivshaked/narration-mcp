@@ -15,9 +15,6 @@ from narration.config import Config
 
 DEFAULT_POLL_S: Final = 0.5
 """How often the daemon looks for commands, and for work when it has none."""
-NO_CWD_EXE_SEARCH: Final = "NoDefaultCurrentDirectoryInExePath"
-"""Set (to ``1``) on Windows in the daemon's environment and each worker's: ``cmd.exe`` then stops looking for
-programs in the current directory before ``PATH`` (section 17; see ``supervisor``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

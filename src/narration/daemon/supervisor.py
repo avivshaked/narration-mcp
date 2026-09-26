@@ -16,12 +16,13 @@ one_group_at_a_time`` it refuses a second GPU group (``ResidencyError``); which 
 swap, is the job engine's choice (WP31).
 
 **Where a worker runs (section 17).** A worker's working directory is its worker project folder
-(``[workers.<role>] project``), never the store root, and on Windows its environment has
-``NoDefaultCurrentDirectoryInExePath=1``. Importing ``qwen_tts`` imports ``sox``, which runs
-``os.popen("sox -h")``; on Windows that goes through ``cmd.exe``, which looks for the program in the current
-directory before ``PATH`` (KNOW, WP20's reading of qwen-tts 0.1.1). The variable turns that search off, and
-the project folder is the operator's own. ``PATH`` itself is kept: it is the operator's, and a scrubbed
-``PATH`` can break DLL loading.
+(``[workers.<role>] project``), never the store root, and its environment gets this OS's
+``ProcessPlatform.hardening_env`` (on Windows ``NoDefaultCurrentDirectoryInExePath=1``). Importing
+``qwen_tts`` imports ``sox``, which runs ``os.popen("sox -h")``; on Windows that goes through ``cmd.exe``,
+which looks for the program in the current directory before ``PATH`` (KNOW, WP20's reading of qwen-tts
+0.1.1). The variable turns that search off, and the project folder is the operator's own. ``PATH`` itself is
+kept: it is the operator's, and a scrubbed ``PATH`` can break DLL loading. Its creation flags come from
+``ProcessPlatform.worker_creationflags`` (on Windows no console window, and below-normal priority).
 """
 
 from __future__ import annotations
@@ -29,7 +30,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -42,13 +42,12 @@ from typing import Any, Final
 
 from narration.config import Config
 from narration.contracts.errors import WorkerCrashed, WorkerFailure, WorkerTimeout
-from narration.contracts.interfaces import Platform
 from narration.contracts.models import WorkerInfo
 from narration.contracts.names import GpuHolder, WorkerRole
+from narration.platform import ProcessPlatform
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command, worker_project
 
 from .seam import GROUP_ROLES
-from .settings import NO_CWD_EXE_SEARCH
 
 log = logging.getLogger(__name__)
 
@@ -74,25 +73,6 @@ def worker_cwd(config: Config, group: GpuHolder, role: WorkerRole, python: Path)
     return python.parent
 
 
-def console_python() -> Path:
-    """This interpreter as a console program: ``python.exe`` beside ``sys.executable`` when the daemon runs as
-    ``pythonw.exe`` (``start.daemon_python``). The fake role runs with the server's own interpreter, and a
-    worker speaks over its standard streams, which a windowless Python does not promise."""
-    exe = Path(sys.executable)
-    if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").is_file():
-        return exe.with_name("python.exe")
-    return exe
-
-
-def harden_env(env: Mapping[str, str]) -> dict[str, str]:
-    """``env`` with ``NoDefaultCurrentDirectoryInExePath=1`` on Windows (nothing else changes; ``PATH`` is
-    kept as it is)."""
-    hardened = dict(env)
-    if os.name == "nt":
-        hardened[NO_CWD_EXE_SEARCH] = "1"
-    return hardened
-
-
 CommandFactory = Callable[[WorkerRole, str | None], WorkerCommand]
 """Builds a worker's command from its role and the engine profile's cuBLAS pin."""
 ClientFactory = Callable[..., SubprocessWorkerClient]
@@ -105,22 +85,6 @@ class ResidencyError(RuntimeError):
 
 class SupervisorClosed(WorkerCrashed):
     """The daemon is stopping: its workers were stopped, and none will start again."""
-
-
-def worker_creationflags(*, below_normal: bool) -> int:
-    """The process-creation flags of a worker: no console window, and below-normal priority if asked.
-
-    ``CREATE_NO_WINDOW``: a detached daemon has no console, and a console program it starts (a worker's
-    ``python.exe``) without this flag gets a new console of its own, which Windows may show as a window.
-    With it, the worker still gets a console (spike g saw its ``conhost.exe``), but one with no window.
-    ``BELOW_NORMAL_PRIORITY_CLASS`` holds
-    from the process's first instant, and a venv launcher's child (the interpreter) inherits it. Both are 0
-    off Windows, where they do not exist.
-    """
-    flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    if below_normal:
-        flags |= int(getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
-    return flags
 
 
 @dataclass(slots=True)
@@ -141,7 +105,7 @@ class WorkerSupervisor:
 
     ``roles`` maps each group to the role that serves it (``seam.GROUP_ROLES`` by default; ``FAKE_ROLES``
     for tests). ``base_env`` is the environment workers start from (this process's by default); every
-    worker's environment is then hardened (``harden_env``) and it runs in ``worker_cwd``. ``on_change`` is
+    worker's environment then gets ``platform.hardening_env()``, and it runs in ``worker_cwd``. ``on_change`` is
     called, without arguments and on the thread that made it, after every change a status would show: a
     worker started, stopped or found dead; models loaded or unloaded.
     """
@@ -149,7 +113,7 @@ class WorkerSupervisor:
     def __init__(
         self,
         config: Config,
-        platform: Platform,
+        platform: ProcessPlatform,
         *,
         roles: Mapping[GpuHolder, WorkerRole] | None = None,
         below_normal: bool = True,
@@ -414,12 +378,12 @@ class WorkerSupervisor:
         except WorkerFailure as exc:
             self._fail_for_good(group, slot, exc)
             raise
-        command = dataclasses.replace(command, env=harden_env(command.env))
+        command = dataclasses.replace(command, env={**command.env, **self._platform.hardening_env()})
         client = self._client_factory(
             command,
             cwd=worker_cwd(self._config, group, slot.role, Path(command.argv[0])),
             on_spawn=self._on_spawn,
-            creationflags=worker_creationflags(below_normal=self._below_normal),
+            creationflags=self._platform.worker_creationflags(below_normal=self._below_normal),
             **self._client_options,
         )
         with self._lock:
@@ -470,7 +434,8 @@ class WorkerSupervisor:
                 log.warning("could not lower the priority of worker %d: %s", pid, exc)
 
     def _default_command(self, role: WorkerRole, cublas: str | None) -> WorkerCommand:
-        python = console_python() if role == "fake" else None
+        # The fake role runs with the server's own interpreter, as a console program (it speaks over stdio).
+        python = self._platform.python_for(Path(sys.executable), console=True) if role == "fake" else None
         return worker_command(
             self._config, role, python=python, base_env=self._base_env, cublas_workspace_config=cublas
         )

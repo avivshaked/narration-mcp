@@ -14,13 +14,13 @@ For the front-end's autostart (WP36) and ``narration-admin daemon start | status
 Starting a daemon when one already runs is harmless: the second one exits quietly (the singleton). One that
 finds the running daemon ``stopping`` waits for it to go, then takes over.
 
-**The interpreter.** On Windows the daemon runs as ``pythonw.exe``, the venv's windowless Python, when it
-is there. A venv's ``python.exe`` is a launcher that starts the interpreter as a console program, and that
-interpreter, started detached, gets a new console of its own (KNOW, spike g: a ``conhost.exe`` child).
-Windows may show such a console as a window that a user could close, killing the daemon (BELIEVE: spike g
-saw no window owned by the daemon's own processes, but did not look at terminal hosts outside its tree).
-``pythonw.exe`` gets no console at all (KNOW, spike g), and the daemon starts its workers with
-``CREATE_NO_WINDOW``.
+**The interpreter.** The daemon runs as ``ProcessPlatform.python_for(python, console=False)``: on Windows
+``pythonw.exe``, the venv's windowless Python, when it is there. A venv's ``python.exe`` is a launcher that
+starts the interpreter as a console program, and that interpreter, started detached, gets a new console of
+its own (KNOW, spike g: a ``conhost.exe`` child). Windows may show such a console as a window that a user
+could close, killing the daemon (BELIEVE: spike g saw no window owned by the daemon's own processes, but did
+not look at terminal hosts outside its tree). ``pythonw.exe`` gets no console at all (KNOW, spike g), and
+the daemon starts its workers with ``CREATE_NO_WINDOW``.
 """
 
 from __future__ import annotations
@@ -33,8 +33,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from narration.contracts.interfaces import Platform, Store
+from narration.contracts.interfaces import Store
 from narration.contracts.models import DaemonStatus
+from narration.platform import ProcessPlatform
 
 from .sweep import daemon_alive, read_status
 
@@ -43,23 +44,11 @@ RUNNING_STATES: Final = ("idle", "busy")
 """States of a daemon that serves the queue (``stopping`` is on its way out; ``stopped`` is gone)."""
 
 
-def daemon_python(python: Path | None = None) -> Path:
-    """The interpreter the daemon runs as: ``pythonw.exe`` beside ``python`` (this interpreter by default)
-    on Windows when there is one, else ``python`` itself (see the module docstring)."""
-    exe = Path(sys.executable if python is None else python)
-    if os.name == "nt" and exe.name.lower() == "python.exe":
-        windowless = exe.with_name("pythonw.exe")
-        if windowless.is_file():
-            return windowless
-    return exe
-
-
-def daemon_argv(
-    store_root: Path, config_path: Path, *, python: Path | None = None, extra: Sequence[str] = ()
-) -> list[str]:
-    """The daemon's command line; ``-m narration.daemon --store <store_root>`` is its identity marker."""
+def daemon_argv(store_root: Path, config_path: Path, *, python: Path, extra: Sequence[str] = ()) -> list[str]:
+    """The daemon's command line, run by ``python``; ``-m narration.daemon --store <store_root>`` is its identity
+    marker (section 4.1)."""
     return [
-        str(daemon_python(python)),
+        str(python),
         "-m",
         DAEMON_MODULE,
         "--store",
@@ -74,7 +63,7 @@ def start_detached(
     store_root: Path,
     config_path: Path,
     *,
-    platform: Platform | None = None,
+    platform: ProcessPlatform | None = None,
     env: Mapping[str, str] | None = None,
     python: Path | None = None,
     extra: Sequence[str] = (),
@@ -83,8 +72,9 @@ def start_detached(
 
     That pid is the first process of the command line, a launcher's under a venv; the daemon records its
     own pid in ``run/daemon.json``. The store root is created first (the singleton's name hashes its
-    ``realpath``). Raises ``NarrationError(DAEMON_UNAVAILABLE)`` when breakaway is refused, and never falls
-    back to a daemon that is not detached; on an OS v1 does not support, ``UnsupportedPlatform``.
+    ``realpath``). The interpreter is ``platform.python_for(python, console=False)``, where ``python`` is
+    this interpreter by default. Raises ``NarrationError(DAEMON_UNAVAILABLE)`` when breakaway is refused, and
+    never falls back to a daemon that is not detached; on an OS v1 does not support, ``UnsupportedPlatform``.
     """
     if platform is None:
         from narration.platform import get_platform
@@ -92,7 +82,8 @@ def start_detached(
         platform = get_platform()
     root = Path(os.path.abspath(store_root))
     root.mkdir(parents=True, exist_ok=True)
-    argv = daemon_argv(root, Path(os.path.abspath(config_path)), python=python, extra=extra)
+    interpreter = platform.python_for(Path(sys.executable) if python is None else python, console=False)
+    argv = daemon_argv(root, Path(os.path.abspath(config_path)), python=interpreter, extra=extra)
     return platform.spawn_detached(argv, cwd=root, env=dict(os.environ if env is None else env))
 
 
@@ -130,7 +121,7 @@ def ensure_daemon(
     store: Store,
     config_path: Path,
     *,
-    platform: Platform | None = None,
+    platform: ProcessPlatform | None = None,
     env: Mapping[str, str] | None = None,
     python: Path | None = None,
     wait_s: float = 0.0,

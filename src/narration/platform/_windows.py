@@ -40,6 +40,12 @@ DETACHED_CREATION_FLAGS: Final = CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | 
 """The creation flags of a detached daemon, exactly as section 4.1 lists them."""
 
 BELOW_NORMAL_PRIORITY_CLASS: Final = 0x00004000
+CREATE_NO_WINDOW: Final = 0x08000000
+
+NO_CWD_EXE_SEARCH: Final = "NoDefaultCurrentDirectoryInExePath"
+"""Set (to ``1``) for every process the service starts: ``cmd.exe`` then stops looking for a program in the
+current folder before ``PATH`` (section 17). Importing ``qwen_tts`` imports ``sox``, which runs
+``os.popen("sox -h")`` through ``cmd.exe`` (KNOW, WP20's reading of qwen-tts 0.1.1)."""
 
 _JOB_OBJECT_LIMIT_BREAKAWAY_OK: Final = 0x00000800
 _JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK: Final = 0x00001000
@@ -478,6 +484,38 @@ class WindowsPlatform:
                 continue
             except psutil.AccessDenied as exc:
                 raise PermissionError(f"cannot set the priority of process {child.pid}, a child of {pid}") from exc
+
+    # ---- how Python processes are started (ProcessPlatform; WP30)
+    def python_for(self, python: Path, *, console: bool) -> Path:
+        """``pythonw.exe`` beside ``python`` when ``console`` is False, ``python.exe`` beside it when True, if that
+        file exists; else ``python``.
+
+        A venv's ``python.exe`` is a launcher that starts the interpreter as a console program, and that
+        interpreter, started detached, gets a console of its own (KNOW, spike g), which Windows may show as a
+        window a user could close. ``pythonw.exe`` gets none (KNOW, spike g): the daemon runs as it. A worker
+        speaks over its standard streams, which a windowless Python does not promise, so it runs as
+        ``python.exe``.
+        """
+        name = python.name.lower()
+        wanted = "python.exe" if console else "pythonw.exe"
+        if name in ("python.exe", "pythonw.exe") and name != wanted and python.with_name(wanted).is_file():
+            return python.with_name(wanted)
+        return python
+
+    def worker_creationflags(self, *, below_normal: bool) -> int:
+        """``CREATE_NO_WINDOW``, plus ``BELOW_NORMAL_PRIORITY_CLASS`` when ``below_normal``.
+
+        A detached daemon has no console, and a console program it starts without ``CREATE_NO_WINDOW`` gets a
+        new console of its own, which Windows may show as a window. With it, the worker still gets a console
+        (spike g saw its ``conhost.exe``), but one with no window. The priority class holds from the
+        process's first instant, and a venv launcher's child (the interpreter) inherits it.
+        """
+        return CREATE_NO_WINDOW | (BELOW_NORMAL_PRIORITY_CLASS if below_normal else 0)
+
+    def hardening_env(self) -> Mapping[str, str]:
+        """``NoDefaultCurrentDirectoryInExePath=1`` (see ``NO_CWD_EXE_SEARCH``). ``PATH`` is left alone: it is the
+        operator's, and a scrubbed ``PATH`` can break DLL loading."""
+        return {NO_CWD_EXE_SEARCH: "1"}
 
     def check_readable_path(self, path: str) -> Path:
         r"""Check a caller's path to a file the service will read (section 17.3); return it resolved.

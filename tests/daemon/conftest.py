@@ -7,6 +7,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -22,7 +23,7 @@ from narration.contracts.names import DaemonCommandKind, JobStatus, WorkerRole
 from narration.daemon.seam import JobRunner
 from narration.daemon.service import Daemon
 from narration.daemon.settings import DaemonSettings
-from narration.daemon.supervisor import FAKE_ROLES, WorkerSupervisor, console_python
+from narration.daemon.supervisor import FAKE_ROLES, WorkerSupervisor
 from narration.daemon.sweep import read_status
 from narration.daemon.testing import job_request
 from narration.keys import Keys
@@ -75,12 +76,15 @@ def fake_env(folder: Path, spec: dict[str, Any] | None = None) -> dict[str, str]
     return env
 
 
-def unstartable(config: Config, env: dict[str, str]) -> Callable[[WorkerRole, str | None], WorkerCommand]:
+def unstartable(
+    config: Config, env: dict[str, str], platform: StandInPlatform
+) -> Callable[[WorkerRole, str | None], WorkerCommand]:
     """A command factory whose fake worker cannot start: its handler cannot be imported, so it exits with
     ``EXIT_START_FAILED`` before ``hello``, as a worker whose env is broken does (``BACKEND_NOT_INSTALLED``)."""
+    python = platform.python_for(Path(sys.executable), console=True)
 
     def command(role: WorkerRole, cublas: str | None) -> WorkerCommand:
-        made = worker_command(config, role, python=console_python(), base_env=env, cublas_workspace_config=cublas)
+        made = worker_command(config, role, python=python, base_env=env, cublas_workspace_config=cublas)
         return dataclasses.replace(made, argv=(*made.argv, "--handler", "no_such_module_here:Handler"))
 
     return command
@@ -214,7 +218,7 @@ def run_daemon(
                 base_env=env,
                 close_timeout_s=5.0,
                 on_change=on_change,
-                command_factory=unstartable(config, env) if broken_workers else None,
+                command_factory=unstartable(config, env, platform) if broken_workers else None,
             )
 
         daemon = Daemon(

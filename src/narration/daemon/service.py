@@ -31,9 +31,10 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from narration.config import Config
-from narration.contracts.interfaces import Platform, Store
+from narration.contracts.interfaces import Store
 from narration.contracts.models import JobRecord
 from narration.contracts.names import JobPhase
+from narration.platform import ProcessPlatform
 from narration.store.store import utc_iso
 
 from .seam import DAEMON_HOLDER, GpuFacts, JobRunner, ShutdownReason, StopMode, return_job
@@ -124,7 +125,7 @@ class Daemon:
         settings: DaemonSettings,
         config: Config,
         store: Store,
-        platform: Platform,
+        platform: ProcessPlatform,
         runner: JobRunner,
         supervisor_factory: SupervisorFactory | None = None,
         pid: int | None = None,

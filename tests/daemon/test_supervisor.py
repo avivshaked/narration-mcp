@@ -7,8 +7,6 @@ stand-in's kill-on-close group kills whatever is left when it closes.
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -19,16 +17,12 @@ import pytest
 from narration.config import Config
 from narration.contracts.errors import WorkerCrashed, WorkerFailure
 from narration.contracts.names import WorkerRole
-from narration.daemon.settings import NO_CWD_EXE_SEARCH
 from narration.daemon.supervisor import (
     CRASH_LIMIT,
     FAKE_ROLES,
     ResidencyError,
     SupervisorClosed,
     WorkerSupervisor,
-    console_python,
-    harden_env,
-    worker_creationflags,
     worker_cwd,
 )
 from narration.store import NarrationStore
@@ -89,14 +83,30 @@ def test_normal_priority_when_the_config_says_so_s16(supervisors: SupervisorFact
     assert platform.lowered == []
 
 
-def test_the_creation_flags_give_no_window_and_below_normal_s4_1() -> None:
-    if os.name == "nt":
-        assert worker_creationflags(below_normal=True) == (
-            subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS
-        )
-        assert worker_creationflags(below_normal=False) == subprocess.CREATE_NO_WINDOW
-    else:
-        assert worker_creationflags(below_normal=True) == 0
+def test_a_worker_gets_the_platforms_creation_flags_s4_1(
+    config: Config, platform: StandInPlatform, store: NarrationStore, tmp_path: Path
+) -> None:
+    seen: list[int] = []
+
+    class Capture(SubprocessWorkerClient):
+        def __init__(self, command: WorkerCommand, **options: Any) -> None:
+            seen.append(options["creationflags"])
+            super().__init__(command, **options)
+
+    for below_normal in (True, False):
+        with WorkerSupervisor(
+            config,
+            platform,
+            roles=FAKE_ROLES,
+            base_env=fake_env(tmp_path),
+            client_factory=Capture,
+            below_normal=below_normal,
+        ) as sup:
+            sup.client("qwen")
+    assert seen == [
+        platform.worker_creationflags(below_normal=True),
+        platform.worker_creationflags(below_normal=False),
+    ]
 
 
 def test_a_worker_runs_in_its_project_folder_with_the_cmd_search_off_s17(
@@ -117,18 +127,15 @@ def test_a_worker_runs_in_its_project_folder_with_the_cmd_search_off_s17(
         client = sup.client("qwen")
         assert seen["cwd"] == project
         env = seen["command"].env
-        if os.name == "nt":
-            assert env[NO_CWD_EXE_SEARCH] == "1"
-        else:
-            assert NO_CWD_EXE_SEARCH not in env
+        hardening = dict(platform.hardening_env())
+        assert {name: env.get(name) for name in hardening} == hardening
         assert env["PATH"] == os.environ["PATH"], "the operator's PATH is kept"
         # The process itself: its working directory and environment, read from the worker this test started.
         assert client.pid is not None
         process = psutil.Process(client.pid)
         assert os.path.normcase(process.cwd()) == os.path.normcase(str(project))
-        if os.name == "nt":  # Windows keeps names case-insensitively (this one arrives upper-cased)
-            names = {name.upper(): value for name, value in process.environ().items()}
-            assert names.get(NO_CWD_EXE_SEARCH.upper()) == "1"
+        names = {name.upper(): value for name, value in process.environ().items()}  # Windows: case-insensitive
+        assert {name: names.get(name.upper()) for name in hardening} == hardening
         assert config.server.store_root not in (Path(process.cwd()),)
 
 
@@ -139,17 +146,6 @@ def test_worker_cwd_is_never_the_store_root_s17(config: Config, tmp_path: Path) 
     assert worker_cwd(config, "qa", "fake", python) == config.service_root / "workers" / "qa"
     bare = Config.for_tests(tmp_path / "store")  # no config file: no service root, no projects
     assert worker_cwd(bare, "qwen", "fake", python) == python.parent
-
-
-def test_harden_env_adds_only_the_cmd_switch_s17() -> None:
-    env = {"PATH": "a;b", "X": "1"}
-    hardened = harden_env(env)
-    extra = {NO_CWD_EXE_SEARCH: "1"} if os.name == "nt" else {}
-    assert hardened == {**env, **extra}
-
-
-def test_the_fake_worker_speaks_through_a_console_python_s4_1() -> None:
-    assert console_python().name.lower() in ("python.exe", "python", Path(sys.executable).name.lower())
 
 
 # ---------------------------------------------------------------- crashes and start failures (section 14)
@@ -183,7 +179,7 @@ def test_a_worker_that_keeps_crashing_is_not_started_in_a_loop_appA(
 def test_a_worker_that_cannot_start_is_backend_not_installed_for_good_s14(
     supervisors: SupervisorFactory, platform: StandInPlatform, config: Config, tmp_path: Path
 ) -> None:
-    supervisor = supervisors(command_factory=unstartable(config, fake_env(tmp_path)))
+    supervisor = supervisors(command_factory=unstartable(config, fake_env(tmp_path), platform))
     with pytest.raises(WorkerFailure) as first:
         supervisor.client("qa")
     assert first.value.code == "BACKEND_NOT_INSTALLED"

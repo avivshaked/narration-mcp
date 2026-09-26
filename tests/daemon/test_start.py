@@ -13,7 +13,7 @@ import pytest
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import DaemonStatus, GpuStatus
-from narration.daemon.start import daemon_argv, daemon_python, ensure_daemon, running_daemon, start_detached
+from narration.daemon.start import daemon_argv, ensure_daemon, running_daemon, start_detached
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 
@@ -46,21 +46,11 @@ def test_the_command_line_carries_the_identity_marker_s4_1(tmp_path: Path) -> No
     ]
 
 
-@pytest.mark.skipif(os.name != "nt", reason="pythonw.exe exists on Windows only")
-def test_on_windows_the_daemon_runs_windowless_s4_1(tmp_path: Path) -> None:
-    scripts = tmp_path / "Scripts"
-    scripts.mkdir()
-    python = scripts / "python.exe"
-    python.write_bytes(b"")
-    assert daemon_python(python) == python, "without pythonw.exe beside it, python.exe is used"
-    (scripts / "pythonw.exe").write_bytes(b"")
-    assert daemon_python(python) == scripts / "pythonw.exe"
-
-
-@pytest.mark.skipif(os.name == "nt", reason="checks the behaviour off Windows")
-def test_off_windows_the_daemon_runs_as_this_python_s4_1(tmp_path: Path) -> None:
-    (tmp_path / "pythonw.exe").write_bytes(b"")
-    assert daemon_python(tmp_path / "python.exe") == tmp_path / "python.exe"
+def test_the_daemon_runs_as_the_platforms_windowless_python_s4_1(tmp_path: Path) -> None:
+    platform = StandInPlatform()
+    start_detached(tmp_path / "store", tmp_path / "narration.toml", platform=platform, python=Path(sys.executable))
+    ((argv, _, _),) = platform.spawned
+    assert argv[0] == str(platform.python_for(Path(sys.executable), console=False))
 
 
 def test_a_detached_start_uses_the_platform_with_the_store_as_cwd_s4_1(tmp_path: Path) -> None:
