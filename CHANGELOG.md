@@ -36,3 +36,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   check, and the path rules: caller paths must be absolute local regular files, network, device and
   reserved-name paths are refused, and store writes refuse links and junctions). On any other OS each
   call reports that v1 runs on Windows only.
+- `narration.text`: the text pipeline (text checks `text-1.1.0`). It speaks the text as sent, changing
+  only whitespace and Unicode form. It refuses markup and control characters (`TEXT_REFUSED`, listing
+  every offender) and applies pronunciation hints per cue, never across a cue (`TERM_SPLIT_ACROSS_CUES`).
+  It warns about digits, symbols, unit-like tokens and lone letters (`WRITTEN_FORM_TOKEN`), turns exact
+  spans into word ranges, and adds `SEGMENT_TOO_LONG` as a warning only.
+- `narration.lint`: the positive-only check of voice descriptions. It warns about negated qualities
+  ("not rough") and suggests a positive rephrasing; it never refuses.
