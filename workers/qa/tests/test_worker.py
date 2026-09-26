@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 import pytest
 import soundfile as sf
-import torch
 from narration_worker.errors import OpError
 from narration_worker.handler import WorkerContext
 from narration_worker_qa import worker as qa_worker
@@ -22,6 +21,9 @@ from narration_worker_qa.asr import WhisperAsr
 from narration_worker_qa.sv import WavLmSv
 from narration_worker_qa.voice import PICTURES, PROFILE_KEYS
 from narration_worker_qa.worker import QaHandler
+
+torch = pytest.importorskip("torch", reason="needs torch and transformers: the QA worker's full venv")
+pytest.importorskip("transformers", reason="needs torch and transformers: the QA worker's full venv")
 
 torch.set_num_threads(4)
 

@@ -17,10 +17,12 @@ from typing import Any
 
 import numpy as np
 import pytest
-import torch
 from narration_worker_qa import align as qa
 from narration_worker_qa.asr import WhisperAsr
 from narration_worker_qa.sv import WavLmSv
+
+torch = pytest.importorskip("torch", reason="needs torch and transformers: the QA worker's full venv")
+pytest.importorskip("transformers", reason="needs torch and transformers: the QA worker's full venv")
 
 torch.set_num_threads(4)
 

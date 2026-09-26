@@ -23,6 +23,8 @@ class TestQaWorkerContract(contract.WorkerContract):
 
     @pytest.fixture
     def load_request(self, tiny_snapshot: Callable[..., Path]) -> dict[str, Any]:
+        pytest.importorskip("torch", reason="the tiny snapshots need torch and transformers")
+        pytest.importorskip("transformers", reason="the tiny snapshots need torch and transformers")
         models = {
             use: {"repo": f"example/{use}", "revision": REVISIONS[use], "snapshot_dir": str(tiny_snapshot(use))}
             for use in ("asr", "sv", "aligner")

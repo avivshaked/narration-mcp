@@ -17,9 +17,11 @@ from typing import Any
 import numpy as np
 import pytest
 import soundfile as sf
-import torch
 from narration_worker.protocol import WORKER_ERROR_CODES
 from narration_worker_qa import align as qa
+
+torch = pytest.importorskip("torch", reason="needs torch and transformers: the QA worker's full venv")
+pytest.importorskip("transformers", reason="needs torch and transformers: the QA worker's full venv")
 
 REPO = "facebook/wav2vec2-large-960h-lv60-self"
 REVISION = "54074b1c16f4de6a5ad59affb4caa8f2ea03a119"

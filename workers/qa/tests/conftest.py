@@ -4,8 +4,8 @@
   ``tempfile`` directory, and matplotlib's and numba's caches are under ``<checkout>/.pytest-tmp``, as the
   repository's own ``conftest.py`` does.
 - The CPU thread cap (design section 4.1) and the offline switches are set before torch or transformers
-  load, and no test sees a GPU unless it is marked ``gpu`` (those run in a process of their own, with the GPU
-  lock; ``test_gpu.py``).
+  load, and this process sees no GPU: the ``gpu`` tests (``test_gpu.py``) run the worker as a process of its
+  own, given the GPU back, with the GPU lock held.
 - ``tiny_snapshot`` builds real, tiny snapshots of the three models (random weights), so the loaders' checks
   run on files transformers really writes.
 """
@@ -26,10 +26,14 @@ CHECKOUT = QA_ROOT.parents[1]
 TEST_TMP = CHECKOUT / ".pytest-tmp"
 THREADS = "4"
 
+GPU_ENV = "NARRATION_QA_TESTS_CUDA_VISIBLE_DEVICES"
+"""Where the GPU tests find the ``CUDA_VISIBLE_DEVICES`` the run started with (``<unset>`` if none): this process
+hides every GPU, and the GPU tests give it back to the worker processes they start."""
+
 for _name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
     os.environ[_name] = THREADS
-if os.environ.get("NARRATION_QA_TEST_GPU") != "1":
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ.setdefault(GPU_ENV, os.environ.get("CUDA_VISIBLE_DEVICES", "<unset>"))
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["MPLCONFIGDIR"] = str(TEST_TMP / "matplotlib")
