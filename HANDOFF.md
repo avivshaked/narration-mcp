@@ -73,11 +73,11 @@ after `1814b3b`. Resume in this order:
    Re-run it, then merge first, with the lead's design note (§11.2 step 7, the four `CUE_UNALIGNED`
    reasons; the lead's script bumps the revision). Contracts 1.6.3. Then tell WP22 the shared patterns
    are on main.
-3. **WP30** (`wp/30-daemon`, c7e15c6 or later): the third review was merge with follow-ups. Three last
-   fixes were in progress (an answered stop from the future is not trusted; only `stopped: true` answers
-   stop a waiter; `[0-9]` in `_STORE_TIME`); see `status/WP30.md` for which are done. The lead checks
-   that diff, renumbers the contract to 1.6.4 on rebase, and merges with design text for §4, §4.1 and
-   §17 item 9 (the lead's drafted edit; next revision).
+3. **WP30** (`wp/30-daemon`, 05f99f3, state `review`): all fixes done, including the third review's
+   three last ones (an answered stop from the future is not trusted; only a `stopped: true` answer stops a
+   waiter; `[0-9]` in `_STORE_TIME`), each with a test that failed before it. Full suite 2968 passed. The
+   lead checks the diff since c7e15c6, renumbers the contract to 1.6.4 on rebase, and merges with the
+   drafted design text for §4, §4.1 and §17 item 9 (next revision).
 4. **WP31** (`wp/31-jobs`, b98d4a5, status handoff 2cb9905): fixed; its reviewer's re-verification was cut
    short. Done: both checks, `tests/jobs` once (107 passed), a full read (F1–F5 closed on reading, the F9
    replay and the invariants sound). A candidate Medium, not yet confirmed: the lease keeper starts a
