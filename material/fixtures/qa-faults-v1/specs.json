@@ -1,6 +1,6 @@
 {
   "set": "qa-faults-v1",
-  "design_revision": "5.2",
+  "design_revision": "5.8",
   "conventions": [
     "Specs, not audio: each gives the segment as sent (a Segment, design section 7.2), the request's hints, and the transcript the ASR is pretended to return (asr.text). A pure QA test feeds asr.text to the QA logic through the fake worker; a GPU test renders render.text so that real audio carries the fault, and scores it against the segment.",
     "kind is fault (must be caught) or non-fault (must pass).",

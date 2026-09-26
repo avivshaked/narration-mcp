@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.7 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.8 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -58,6 +58,10 @@ applied here, each listed in the revision history below.*
 - *Revision 5.7 (the same day) records spike (d): the clone path is `bit_exact` on the pinned stack, the
   one exemption from deterministic algorithms (the voice prompt's encode), a worker's own WAV writer, and
   the tier decided by `engine pin` on the installing machine (section 10.1; ADR 0002).*
+- *Revision 5.8 (the same day) applies the owner's **DC-13**: the service ships its own default design
+  text, written for it in place of the bake-off's reference text, since the bake-off's texts are private
+  (section 16; it is also the canary's text, DC-3). Section 3.1 and the examples in section 7.3 and
+  Appendices A and B follow.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
