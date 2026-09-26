@@ -2,7 +2,7 @@
 
 *Plan revision 2, 2026-09-26. Status: **H0 answered and the plan pushed; WP00 next.** Nothing is built yet.*
 
-**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.4**. It is the
+**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.6**. It is the
 bake-off's design copied into this repository, and differs only in two example paths and a header note.
 This plan cites it as "§n". Changes to it are proposed and approved in §1.5, and approved changes enter
 it as revision 5.2. Where this plan and the design disagree, the design wins, and the plan gets fixed.
@@ -646,22 +646,22 @@ Updated by the lead on `main` only.
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
 | WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
-| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.6 (PRs #7, #8, #9, #11, #12, #14) since |
+| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.6.1 (PRs #7–#9, #11, #12, #14, #17) since |
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; reviewed twice; low follow-ups 1–5 in HANDOFF |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; low follow-ups 1–5 on `wp/12-followups` |
 | WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
-| WP14 | QA logic (pure) | 1 | WP01 | – | `active` | `wp/14-qa` | re-review 2: fixing F1 (a split name's function-word fragment) and F3 (°) |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | built; adding DC-11's wildcard and contracts 1.6, then review |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PR #10 | 2026-09-26; follow-ups a–c done and (d) DC-4's per-call cap on `wp/16-followups` |
-| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `active` | `wp/17-mcp` | re-review: MERGE-WITH-FOLLOWUPS; fixing 4 small items |
-| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; every set `draft` until H1 freezes it |
+| WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | removing private text from its history; then DC-11's wildcard; then review |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups a–e (DC-4's per-call cap; the fake matched to the real worker) |
+| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
+| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; follow-up on `wp/18-followups`: the service's own reference text (owner), WP10's fixture changes |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `review` | `wp/20-gpu-lane` | acceptance met; tier `bit_exact` (ADR 0002); DC-4 decided (per-call cap); reviewer running |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `active` | `wp/20-gpu-lane` | review: BLOCK for private text (never pushed); fixing that, 10 findings and DC-4 |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | started 2026-09-26 night |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `todo` | – | DC-2 |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `active` | `wp/31-jobs` | started 2026-09-26 night, against WP30's seam |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
@@ -847,3 +847,21 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     `bit_exact` (spike d: 40 renders in 7 processes, one hash per item). It is under review.
   - WP30 (daemon) started. The lead's earlier docs script had written status rows into section 3's
     Wave 1 table; restored (aeb8a08).
+- 2026-09-26, late night: **WP17 (PR #16), WP14 (PR #18) and the WP16 follow-ups (PR #19) merged**, and
+  a private-text guard (PR #17).
+  - **Incident: fragments of the owner's private bake-off script reached the public repo.**
+    - The lead quoted a story name and a sentence ending into two plan.md rows on main.
+    - The lead pushed WP14's branch for CI with a story name and a paraphrased sentence in its tests.
+      The remote branch was deleted within minutes, before any PR was opened, and its CI run was deleted
+      with the owner's approval.
+    - WP15's and WP20's branches held more, but were never pushed. Their history is being rewritten.
+    - The plan.md rows were fixed forward (9437d79). The owner chose to keep main's history rather than
+      force-push.
+    - **Prevention:** `tools/check_private.py` runs in the pre-commit, commit-msg and a new pre-push hook,
+      and checks every pushed commit against the private text named in the gitignored
+      `.dev/private-text.txt` and `private-terms.txt`. AGENTS.md §1 rule 1 spells out the rules, and every
+      review now includes the check.
+  - The owner decided: the default reference and design text becomes a new text written for the service
+    (a WP18 follow-up).
+  - Contracts 1.6.1: the per-call cap's floor is at least 2, and its product exact.
+  - Started: WP31 (job engine), the WP12 follow-ups and the WP18 follow-up.

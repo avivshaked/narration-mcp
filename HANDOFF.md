@@ -5,21 +5,25 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
 
-- **Stage: Wave 1 is nearly merged; Wave 2 has started.**
-  - Merged into `main` and pushed: WP00–WP03, WP18, WP01, WP19, WP10, WP16, WP12, WP13, and contracts
-    1.1–1.6. Design revision 5.5. Main has 2142 tests passing.
-  - **Every branch gets an independent read-only reviewer before merge.** The reviews found about 50 real
-    defects in branches whose suites all passed. Findings are fixed before merge, and a branch that had
-    a BLOCK or a data-loss finding is re-verified by its reviewer.
-  - **WP14** (QA): fixing the second re-review's F1 and F3, then merge (no further review needed).
-  - **WP17** (MCP): fixing the re-review's four small items, then merge.
-  - **WP15** (alignment): built; adding DC-11's wildcard (on condition of its measurement) and
-    contracts 1.6's fields; then an independent review.
-  - **WP16 follow-ups** (`wp/16-followups`): a–c done; adding (d), DC-4's per-call cap, to the fake
-    worker; then the WP16/WP17 reviewer verifies.
-  - **WP20** (Qwen worker, GPU): done, under review. After the review it adds the per-call cap (DC-4).
-    Its renders are listenable in its worktree's `.dev\spikes\`.
-  - **WP30** (daemon): building.
+- **Stage: Wave 1 is merged except WP15 and WP20; Wave 2 is under way.**
+  - Merged into `main` and pushed: WP00–WP03, WP01, WP10, WP12, WP13, WP14, WP16 (with follow-ups),
+    WP17, WP18 (draft), WP19, contracts 1.1–1.6.1, and the private-text guard. Design revision 5.6.
+    Main has 2631 tests passing.
+  - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before
+    merge, and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
+  - **Private text:** the bake-off's scripts and transcripts are the owner's private story, and the
+    repo is public.
+    - `tools/check_private.py` runs in the git hooks, including pre-push.
+    - The lead runs it on every branch before pushing, and every reviewer runs it.
+    - The main checkout's gitignored `.dev/private-text.txt` and `.dev/private-terms.txt` configure it for
+      every worktree.
+  - **WP15** (alignment) and **WP20** (Qwen worker): rewriting their branches' history to drop private
+    text. Then WP15 adds DC-11's wildcard and goes to review; WP20 fixes its review's findings and adds
+    DC-4.
+  - **WP30** (daemon): building. **WP31** (job engine): building against WP30's seam
+    (`narration.daemon.seam.JobRunner`).
+  - **Follow-ups building:** WP12's five low items (`wp/12-followups`); WP18's new reference text
+    and WP10's fixture changes (`wp/18-followups`).
 - **GPU:** the owner lifted the hold on 2026-09-26 evening. Agents take the GPU lock in bounded runs.
 - **Hangs:** Avast's Auto-Sandbox took custody of venv launcher `.exe`s. Agents run every tool as
   `uv run python -m …`. Avast was off for the session.
@@ -56,37 +60,37 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - Later:
   - the GitHub description, which still says voices are "locked" (WP44);
   - gates H2 to H4.
-- Low priority: the default `design_text` (§16) is the bakeoff's reference text. WP18 copied it into the
-  canary set as briefed. Keep it, or write a new default?
 
 ## Next steps
 
-1. Merge as each branch comes back: rebase onto `main`, full suite, PR, CI, `--no-ff`, remove the
-   worktree. Next: WP14, WP17, the WP16 follow-ups, then WP20 and WP15 after their reviews.
-2. **Start WP31** (job engine) as soon as WP14 merges; its dependencies WP12, WP13 and WP16 are in.
-   Tell it:
-   - construct `DeliveryPipeline(fade_s=config.delivery.fade_s)`;
-   - compute each call's cap with `names.max_new_tokens_for`;
-   - use `codes.is_retake_trigger(code, severity, details)`.
+1. Merge as each branch comes back. Before any push, run
+   `py -3.12 tools/check_private.py --commits main..<branch> --base main`; the pre-push hook runs it too.
+   Then: full suite, PR, CI, `--no-ff`, remove the worktree.
+   - WP20 after its fixes; its reviewer should verify the BLOCK item (private text).
+   - WP15 after its scrub and an independent review.
+   - The WP12 and WP18 follow-ups: a quick review each.
+   - WP30 and WP31: an independent review each.
+2. At WP20's merge (lead):
+   - edit design §10.1 for ADR 0002 (`bit_exact`; the encode exemption covers the whole
+     `create_voice_clone_prompt`);
+   - mark ADR 0003 accepted;
+   - add a CI job for `workers/qwen3tts`'s pure tests.
+
+   At WP15's merge (lead): apply DC-11's text to §11.2 step 1. At WP14's merge, which happened: add
+   §11.3's description of the @2 rules (clock times, minus, money after the normaliser, the degree
+   sign, the comma trade-off). Not yet done.
 3. Follow-ups not yet assigned:
-   - **WP12** (low; review round 2):
-     1. gc holds the write lock for the whole collection; batch it before `narration-admin gc` exists;
-     2. post-commit trash removal is best-effort;
-     3. a failed COMMIT in `_publish_dir`;
-     4. `put_canary_clip` destroys the clip on failure;
-     5. `_collect`'s restore ordering.
-   - **WP18**: the fixture changes WP10 listed; switch `tests/material` to `narration.text` and
-     `narration.lint`.
-   - **WP36 must restamp** cached QA results with the request's segment id and exact-span offsets
-     (contracts 1.2), and turn `QaUnavailable` into the segment's `QA_UNAVAILABLE`. Its backend calls,
-     except `get_job`'s wait, must finish well inside the front-end's shield deadline.
-   - **WP22**: package `workers/qa`; wire WP15's `AlignOp` into `QaHandler`; write WAVs with a
-     byte-reproducible writer, never soundfile's defaults (soundfile's float WAV has a time-stamped
-     `PEAK` chunk).
-   - **WP36**: pass `reply=None` to the aligner's `resolve` only for an `ALIGNMENT_ERROR` reply.
-   - **CI**: nothing type-checks `workers/qwen3tts` (WP20's note).
+   - **WP36 must restamp** cached QA results with the request's segment id and exact-span offsets, and turn
+     `QaUnavailable` into the segment's `QA_UNAVAILABLE`. Its backend write calls must finish well inside
+     the front-end's 30 s shield deadline (`server.WRITE_DEADLINE_S`). It passes `reply=None` to the
+     aligner's `resolve` only for an `ALIGNMENT_ERROR` reply.
+   - **WP22**: package `workers/qa`; wire WP15's `AlignOp` into `QaHandler`; write any WAV with a
+     byte-reproducible writer (soundfile's float WAV has a time-stamped `PEAK` chunk).
+   - **WP30/WP31**: the daemon sets the CPU thread-cap environment for itself before numpy is imported.
+     Workers start with `cwd` = their project folder and `NoDefaultCurrentDirectoryInExePath=1`
+     (qwen-tts's `sox` import runs a shell command).
 4. **Wave 2**, in dependency order:
-   - on the CPU: WP31, then WP36 and WP37;
+   - on the CPU: WP30 and WP31 (building), then WP36 and WP37;
    - on the GPU: WP22 (QA worker) after WP15, then WP32 (engine profiles and canary).
 5. Gate H1 (the owner listens to about 10 renders) once the full pipeline renders.
 

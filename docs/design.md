@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.5 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.6 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -53,6 +53,8 @@ applied here, each listed in the revision history below.*
   work: **DC-12**, a cue whose text has no word the aligner can place is not a retake trigger, since no
   retake can place it; the aligner's confidence thresholds become configuration, and its method id
   covers them (section 11.2). A take under the loudness gate keeps its measured true peak (section 13).*
+- *Revision 5.6 (the same day) describes number reader `@2` as built: clock times, a leading minus, the
+  degree sign, money, and the comma trade-off (section 11.3; DC-7).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -1645,7 +1647,17 @@ A caller may mark spans of a cue's spoken text that must be heard exactly, such 
    through Whisper's English text normaliser, after one extra rule that reads "nought" as "zero". Since
    revision 5.3 (DC-7, reader version `@2`), each side is read in phrases split at punctuation, so number
    words never merge across a comma ("two thousand, forty" is `2000 40`, not `2040`), and ’ ‘ ʼ are
-   read as the straight apostrophe. Version `@1` failed perfect takes on both counts. That
+   read as the straight apostrophe. Version `@1` failed perfect takes on both counts. As built
+   (revision 5.6), `@2` also reads both sides alike in four more places:
+   - it joins a clock time (one or two digits, a colon, two digits), so "4:30" reads like "four thirty";
+   - it reads a hyphen-minus or minus sign directly before a digit, at the start of a word, as "minus";
+   - it rewrites "°C", "°F" and "°" as "degrees celsius", "degrees fahrenheit" and "degrees";
+   - after the normaliser, it splits money at the decimal point, so "£3.50" reads like "three pounds
+     fifty".
+
+   The phrase split has one known cost: a comma inside one spoken number splits it ("three thousand, two
+   hundred" reads `3000 200`, while "3,200" reads `3200`). Other known limits are listed for the
+   acceptance tests to measure (WP14's status, WP40). That
    normaliser turns number words into digits and treats spelling variants alike. Tested here (KNOW,
    `eval/normaliser_check.py` and its output `.txt`, transformers 5.17.0):
    - "fourteen per cent", "fourteen percent" and "14%" all become `14%`;
