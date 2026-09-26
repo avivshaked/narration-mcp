@@ -52,3 +52,6 @@ are tracked here but no version is tagged; nothing described below is installabl
 - A `fake` worker role with deterministic synthetic audio and QA outputs, and faults it can plant on
   request of a test (`NARRATION_FAKE_SPEC`), so the service can be developed and tested without a model
   or a GPU; and the worker contract tests every worker runs (`narration_worker.testing`).
+- `narration.keys`: the cache keys of design section 10.2 (`voice_hash`, measurement, render, delivery and
+  analysis keys) over RFC 8785 canonical JSON, the seed of section 10.3, the `rn_`/`tk_`/`an_` ids, and
+  ULID job and design ids. Key values are pinned by golden tests: they name every take and never change.
