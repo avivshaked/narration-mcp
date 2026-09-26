@@ -23,6 +23,7 @@ from narration.store import (
     StoreError,
     StoreIntegrityError,
 )
+from narration.store import db as store_db
 from narration.store import files as store_files
 
 from .factories import (
@@ -41,6 +42,7 @@ from .factories import (
     sha,
 )
 from .standin import StandInPlatform
+from .txn_fakes import commit_fails
 
 DESIGN_ID = Keys().new_design_id()
 
@@ -306,3 +308,33 @@ def test_a_row_replaced_meanwhile_is_never_dropped_as_missing(store: NarrationSt
     store_files.discard(store.root / rel)
     store._drop("profile", audio, current[0], rel)  # the same row, its file still missing: dropped
     assert _profile_row(store, audio) is None
+
+
+# ---------------------------------------------------------------- follow-ups: a canary clip is never destroyed
+
+
+def test_a_refused_canary_clip_goes_back_to_scratch_dc_3(store: NarrationStore) -> None:
+    # The canary is designed on the GPU: a clip the store refuses goes back where the caller had it.
+    clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, scratch_file(store, "canary.wav", b"canary"))
+    store.put_engine_profile(dataclasses.replace(engine_profile(), canary=canary_pin(clip)))
+    other = scratch_file(store, "c3.wav", b"another canary")
+    with pytest.raises(StoreIntegrityError):
+        store.put_canary_clip(names.ENGINE_PROFILE_BASE, other)
+    assert other.read_bytes() == b"another canary" and not store_files.is_readonly(other)
+    assert Path(clip.path).read_bytes() == b"canary"
+    assert not [p for p in store.root.rglob("*") if p.name.startswith((".tmp-", ".trash-"))]
+
+
+def test_a_canary_clip_whose_commit_fails_goes_back_and_the_old_one_stays_dc_3(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, scratch_file(store, "canary.wav", b"canary"))
+    other = scratch_file(store, "c2.wav", b"a newer canary")
+    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_canary_clip(names.ENGINE_PROFILE_BASE, other)
+    monkeypatch.undo()
+    assert other.read_bytes() == b"a newer canary" and not store_files.is_readonly(other)
+    assert Path(clip.path).read_bytes() == b"canary" and store_files.is_readonly(Path(clip.path))
+    assert store.verify()["mismatched"] == []
+    assert not [p for p in store.root.rglob("*") if p.name.startswith((".tmp-", ".trash-"))]

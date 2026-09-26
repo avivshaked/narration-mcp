@@ -79,6 +79,11 @@ are tracked here but no version is tagged; nothing described below is installabl
   - A failed publish puts the caller's audio back in `scratch/` and keeps the folder it would have
     replaced. The store moves in files only from `scratch/`.
   - The current alignment benchmark is the configured aligner's.
+  - `gc` collects in short write transactions (at most 200 items, or about 2 seconds, each), so other
+    writers never wait on it for long. It tries a folder in use once and lists it instead of waiting.
+  - A publish whose database COMMIT fails is undone, and the caller's audio (a render, a take, a designed
+    clip or the canary clip) goes back to `scratch/`. A publish that has committed never reports a failure
+    because it could not tidy up afterwards.
 - `narration.post`: delivery post-processing (design section 13). A raw take becomes a 48 kHz PCM_24 mono
   WAV through the relative trim, a pinned resampler, static gain to -16 LUFS (BS.1770-4) with the
   -1.0 dBTP true-peak ceiling winning, and 10 ms fades. Each delivery reports its trim and loudness

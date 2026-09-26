@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import os
 import sqlite3
@@ -13,7 +14,9 @@ import pytest
 from narration.contracts.models import ProvenanceEntry, RenderRecord, TakeRecord
 from narration.keys import Keys
 from narration.store import NarrationStore
+from narration.store import db as store_db
 from narration.store import files as store_files
+from narration.store import store as store_module
 
 from .conftest import FakeClock
 from .factories import (
@@ -30,6 +33,7 @@ from .factories import (
     sha,
     take_record,
 )
+from .txn_fakes import observing_rollback
 
 DAY = 86_400.0
 KEYS = Keys()
@@ -290,10 +294,10 @@ def test_gc_lists_what_it_cannot_move_aside_and_goes_on_s15(
     render_dir = store.render_dir(items["render"].render_id)
     real = store_files.rename_retrying
 
-    def refuse_the_render(src: Path, dst: Path) -> None:
+    def refuse_the_render(src: Path, dst: Path, *, attempts: int = store_files.REPLACE_ATTEMPTS) -> None:
         if Path(src) == render_dir:
             raise PermissionError(13, "a file in it is open", str(src))
-        real(src, dst)
+        real(src, dst, attempts=attempts)
 
     monkeypatch.setattr(store_files, "rename_retrying", refuse_the_render)
     report = store.gc(dry_run=False)
@@ -429,3 +433,153 @@ def test_a_gc_that_fails_midway_puts_every_folder_back_s15(
     assert store.get_take_by_id(items["take"].take_id) == items["take"]
     assert not [p for p in store.root.rglob("*") if p.name.startswith(".trash-")]
     assert store.verify()["missing"] == []
+
+
+# ---------------------------------------------------------------- follow-ups: gc never holds the write lock for long
+
+
+def _write_lock_is_free(store: NarrationStore) -> bool:
+    """Whether another connection can take the write lock at once, without waiting."""
+    conn = sqlite3.connect(str(store.root / "narration.sqlite"), timeout=0)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("ROLLBACK")
+        return True
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+def _old_renders(store: NarrationStore, clock: FakeClock, count: int) -> list[RenderRecord]:
+    renders = [
+        store.put_render(
+            render_record(f"Line {i} of an invented batch."), scratch_file(store, "raw.wav", audio_bytes(str(i)))
+        )
+        for i in range(count)
+    ]
+    clock.advance(31 * DAY)
+    return renders
+
+
+def _count_per_transaction(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """How many items each write transaction of the store collects, in order (0 for other transactions)."""
+    per_txn: list[int] = []
+    real_write, real_delete = store._write, store._delete_rows
+
+    def counting_write() -> contextlib.AbstractContextManager[sqlite3.Connection]:
+        per_txn.append(0)
+        return real_write()
+
+    def counting_delete(conn: sqlite3.Connection, kind: str, ident: str) -> None:
+        per_txn[-1] += 1
+        real_delete(conn, kind, ident)
+
+    monkeypatch.setattr(store, "_write", counting_write)
+    monkeypatch.setattr(store, "_delete_rows", counting_delete)
+    return per_txn
+
+
+def test_gc_collects_in_bounded_transactions_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A first gc over thousands of folders must not hold the write lock past the busy timeout every other
+    # writer waits for: it commits every GC_BATCH_ITEMS items, and the lock is free while it removes trash.
+    renders = _old_renders(store, clock, 5)
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 2)
+    per_txn = _count_per_transaction(store, monkeypatch)
+    lock_free: list[bool] = []
+    real_remove = store._remove
+
+    def remove_and_probe(path: Path, shown_as: Path, errors: list[dict[str, str]]) -> bool:
+        lock_free.append(_write_lock_is_free(store))
+        return real_remove(path, shown_as, errors)
+
+    monkeypatch.setattr(store, "_remove", remove_and_probe)
+    report = store.gc(dry_run=False)
+    assert report["items"]["renders"] == sorted(r.render_id for r in renders)
+    assert [n for n in per_txn if n] == [2, 2, 1]
+    assert len(lock_free) >= 5 and all(lock_free)  # five renders' trash, then the old scratch folder
+
+
+def test_gc_commits_after_a_few_seconds_whatever_the_count_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _old_renders(store, clock, 3)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", 0.0)
+    per_txn = _count_per_transaction(store, monkeypatch)
+    report = store.gc(dry_run=False)
+    assert len(report["items"]["renders"]) == 3
+    assert [n for n in per_txn if n] == [1, 1, 1]  # each transaction still takes one item
+
+
+def test_gc_tries_a_folder_in_use_once_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Under the write lock, a folder in use is not waited for: tried once, listed, and kept for the next run.
+    renders = sorted(_old_renders(store, clock, 2), key=lambda r: r.render_id)
+    locked = store.render_dir(renders[0].render_id)
+    tries: list[str] = []
+    real_rename = os.rename
+
+    def rename(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        if Path(src) == locked:
+            tries.append(os.fspath(src))
+            raise PermissionError(13, "a file in it is open", os.fspath(src))
+        real_rename(src, dst)
+
+    def no_waiting(attempt: int) -> None:
+        raise AssertionError("gc waited for a folder in use")
+
+    monkeypatch.setattr(os, "rename", rename)
+    monkeypatch.setattr(store_files, "_retry_sleep", no_waiting)
+    report = store.gc(dry_run=False)
+    assert len(tries) == 1
+    assert report["items"]["renders"] == [renders[1].render_id]
+    assert [e["path"] for e in report["errors"]] == [store.layout.rel(locked)]
+    monkeypatch.undo()
+    assert store.get_render(renders[0].render_key) == renders[0]
+
+
+def test_an_item_used_while_gc_runs_is_kept_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each transaction checks its items against a plan made under its own lock.
+    first, second = sorted(_old_renders(store, clock, 2), key=lambda r: r.render_id)
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 1)
+    real_remove = store._remove
+
+    def use_the_second_meanwhile(path: Path, shown_as: Path, errors: list[dict[str, str]]) -> bool:
+        store.touch("render", second.render_id)
+        return real_remove(path, shown_as, errors)
+
+    monkeypatch.setattr(store, "_remove", use_the_second_meanwhile)
+    report = store.gc(dry_run=False)
+    assert report["items"]["renders"] == [first.render_id]
+    monkeypatch.undo()
+    assert store.get_render(second.render_key) == second
+
+
+def test_a_failed_gc_transaction_puts_folders_back_before_it_releases_the_lock_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The renames are undone inside the transaction: once the ROLLBACK makes the rows visible again, their
+    # folders are already back under their own names.
+    items = populate(store)
+    clock.advance(31 * DAY)
+    folders = [store.render_dir(items["render"].render_id), store.take_dir(items["take"].take_id)]
+    real_delete = store._delete_rows
+    calls = {"n": 0}
+
+    def fail_on_the_second(conn: sqlite3.Connection, kind: str, ident: str) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("the disk went away")
+        real_delete(conn, kind, ident)
+
+    seen: list[object] = []
+    monkeypatch.setattr(store_db, "write_txn", observing_rollback(lambda: [f.is_dir() for f in folders], seen))
+    monkeypatch.setattr(store, "_delete_rows", fail_on_the_second)
+    with pytest.raises(RuntimeError):
+        store.gc(dry_run=False)
+    assert seen == [[True, True]]

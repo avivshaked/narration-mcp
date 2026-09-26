@@ -32,9 +32,10 @@ keeps those takes as long as the measurement (above), so section 15's promise ho
 kept for ``measurement_retention_days``. Copying each take into the measurement's folder would store the
 same audio twice under two retention rules.
 
-**Concurrent collection.** ``gc`` takes the write lock, renames every victim to a ``.trash-`` sibling and
-deletes its rows in the same transaction, and only after the commit removes those trash names. A key
-published again meanwhile goes to a fresh folder that ``gc`` never touches.
+**Concurrent collection.** ``gc`` works in short write transactions, a bounded batch of items each. In
+each one it renames every victim to a ``.trash-`` sibling and deletes its rows, and only after the commit
+does it remove those trash names, outside the lock. A key published again meanwhile goes to a fresh folder
+that ``gc`` never touches, and no writer waits on ``gc`` for more than a few seconds.
 """
 
 from __future__ import annotations
@@ -151,6 +152,11 @@ DC6_HINT: Final = "Use a new key for a different request."
 _log = logging.getLogger(__name__)
 _DAY: Final = 86_400.0
 DEFAULT_GRACE_S: Final = _DAY
+GC_BATCH_ITEMS = 200
+"""The most items one ``gc`` write transaction collects."""
+GC_BATCH_SECONDS = 2.0
+"""About how long one ``gc`` write transaction may run before it commits and lets other writers in: far
+below the busy timeout (``db.BUSY_TIMEOUT_MS``) every other writer waits for."""
 """How old a temporary, staging or unindexed entry must be before ``gc`` treats it as left over by a crash
 (a publish takes seconds, so a day never races one)."""
 
@@ -383,30 +389,22 @@ class NarrationStore:
     ) -> bool:
         """Rename a staged folder into place and index it, in one write transaction. Anything already at
         ``final`` (an older profile version, or a crash's leftover without an index row) is renamed aside
-        first and removed after the commit. If a rename or the commit fails, what was at ``final`` is put
-        back, so a failed replace never loses the published folder."""
+        first, and removed after the commit. If the transaction does not commit (a rename, the index write
+        or the COMMIT itself fails), both renames are undone: the staged folder goes back to ``staging``
+        and what was at ``final`` comes back, so a failed replace never loses the published folder."""
+        renames = _Renames()
         trash: Path | None = None
-        with self._write() as conn:
+        with self._write_undoing(renames) as conn:
             if decide(conn) == "keep":
                 return False
             if os.path.lexists(final):
                 trash = final.with_name(f".trash-{files.token()}-{final.name}")
-                files.rename_retrying(final, trash)
-            try:
-                files.rename_retrying(staging, final)
-            except BaseException:
-                if trash is not None:
-                    _put_back(trash, final)
-                raise
-            try:
-                commit(conn)
-            except BaseException:
-                if _put_back(final, staging) and trash is not None:
-                    _put_back(trash, final)
-                raise
+                renames.rename(final, trash)
+            renames.rename(staging, final)
+            commit(conn)
         files.fsync_dir(final.parent)
         if trash is not None:
-            files.remove_tree(trash)
+            _discard_trash(trash, final)
         return True
 
     def _publish_file(
@@ -415,18 +413,53 @@ class NarrationStore:
         final: Path,
         decide: Callable[[sqlite3.Connection], _Decision],
         commit: Callable[[sqlite3.Connection], None],
+        *,
+        source: Path | None = None,
     ) -> bool:
-        """Rename a finished temporary file into place and index it, in one write transaction."""
+        """Rename a finished temporary file into place and index it, in one write transaction. A file
+        already at ``final`` is renamed aside first, and removed after the commit. If the transaction does
+        not commit, both renames are undone, so the old file stays published.
+
+        ``source`` is where the caller had ``tmp`` (a clip the store moved in). If the publish fails, ``tmp``
+        goes back there, writable, instead of being discarded. If the key is already published (``keep``),
+        ``tmp`` is a duplicate and is discarded.
+        """
+        renames = _Renames()
+        trash: Path | None = None
+        try:
+            with self._write_undoing(renames) as conn:
+                if decide(conn) == "keep":
+                    files.discard(tmp)
+                    return False
+                if os.path.lexists(final):
+                    trash = final.with_name(f".trash-{files.token()}-{final.name}")
+                    renames.rename(final, trash)
+                renames.rename(tmp, final)
+                commit(conn)
+        except BaseException:
+            _give_back(tmp, source)
+            raise
+        files.fsync_dir(final.parent)
+        if trash is not None:
+            _discard_trash(trash, final)
+        return True
+
+    @contextlib.contextmanager
+    def _write_undoing(self, renames: _Renames) -> Iterator[sqlite3.Connection]:
+        """A write transaction whose file renames are undone if it does not commit. When its body fails
+        they are undone inside the transaction, before the ROLLBACK releases the lock, so no other process
+        ever sees a restored row whose folder is still under a ``.trash-`` name. When the COMMIT itself
+        fails, they are undone right after it."""
         try:
             with self._write() as conn:
-                if decide(conn) == "keep":
-                    return False
-                files.publish_temp(tmp, final)
-                commit(conn)
-        finally:
-            files.discard(tmp)
-        files.fsync_dir(final.parent)
-        return True
+                try:
+                    yield conn
+                except BaseException:
+                    renames.undo()
+                    raise
+        except BaseException:
+            renames.undo()  # the COMMIT failed; after a failed body there is nothing left to undo
+            raise
 
     def _index_files(
         self, conn: sqlite3.Connection, owner_kind: str, owner_id: str, entries: list[tuple[str, str, int]]
@@ -1065,7 +1098,7 @@ class NarrationStore:
         def commit(conn: sqlite3.Connection) -> None:
             self._index_files(conn, "canary", engine_profile_id, [(rel, sha, size)])
 
-        self._publish_file(tmp, final, decide, commit)
+        self._publish_file(tmp, final, decide, commit, source=src)  # a failure gives the clip back
         return AudioRef(path=str(final), sha256=sha)
 
     # ================================================================ the alignment benchmark (section 11.2)
@@ -1467,10 +1500,14 @@ class NarrationStore:
         provenance list, engine profiles and their canaries, alignment benchmarks, queued or running jobs,
         and what a live measurement or design keeps alive (the module docstring).
 
-        A real run renames each item to a ``.trash-`` sibling and deletes its rows in one write transaction,
-        then removes the trash names after the commit, so a key published again meanwhile is never touched.
-        Leftovers and orphans are found before any row is deleted, so a dry run and a real run report the
-        same things, each once. A path that cannot be removed is listed under ``errors`` and the run goes on.
+        A real run collects in bounded write transactions (``GC_BATCH_ITEMS`` items, about
+        ``GC_BATCH_SECONDS``), so other writers never wait on it for long. In each, it renames each item to a
+        ``.trash-`` sibling and deletes its rows, and after the commit it removes those trash names, so a
+        key published again meanwhile is never touched. A folder in use is tried once, then listed under
+        ``errors`` and kept for the next run. Leftovers and orphans are found before any row is deleted, so a
+        dry run and a real run report the same things, each once. A path that cannot be removed is listed
+        under ``errors`` and the run goes on. If a transaction fails, its renames are undone and the error
+        is raised; what earlier transactions collected stays collected.
         """
         now = self._clock() if now is None else now
         cache_cutoff = now - self._retention.retention_days * _DAY
@@ -1492,16 +1529,10 @@ class NarrationStore:
             leftovers = _outside(leftovers, [*victims, *orphans])
             total = sum(files.tree_size(p) for p in [*victims, *leftovers, *orphans, *scratch])
         else:
-            items, orphans, expired_leases, total, trashed = self._collect(
+            items, orphans, expired_leases, total, victims = self._collect(
                 now, cache_cutoff, measurement_cutoff, leftover_cutoff, orphans, errors
             )
-            victims = [original for original, _ in trashed]
             leftovers, scratch = _outside(leftovers, victims), _outside(scratch, victims)
-            for original, trash in trashed:
-                self._remove(trash, original, errors)
-                if original.parent.parent.name == MEASUREMENTS:
-                    with contextlib.suppress(OSError):
-                        original.parent.rmdir()  # the voice's folder, once its last measurement is gone
             removed: list[Path] = []
             for path in [*leftovers, *scratch]:
                 if path in scratch and _newest_mtime(path) >= cache_cutoff:
@@ -1544,60 +1575,90 @@ class NarrationStore:
         leftover_cutoff: float,
         orphans: list[Path],
         errors: list[dict[str, str]],
-    ) -> tuple[dict[str, list[str]], list[Path], int, int, list[tuple[Path, Path]]]:
-        """The write-transaction half of a real ``gc``: plan again under the lock, rename each victim and
-        each orphan still unindexed to a ``.trash-`` sibling, and delete the victims' rows. Returns the items
-        collected, the orphans renamed, the expired leases deleted, their bytes, and the (original, trash)
-        pairs to remove after the commit. If the transaction fails, every rename is undone."""
-        renamed: list[tuple[Path, Path]] = []
+    ) -> tuple[dict[str, list[str]], list[Path], int, int, list[Path]]:
+        """The real half of ``gc``, in bounded write transactions. Each one checks its items against the plan
+        made under its own lock (an item used since, or newly kept alive, is left), renames each to a
+        ``.trash-`` sibling and deletes its rows; after its commit its trash is removed. Orphans follow, each
+        checked again for an index row. Returns the items collected, the orphans taken, the expired leases
+        deleted, the bytes removed and the original paths of everything collected."""
+        with self._read() as conn:
+            planned = self._gc_plan(conn, cache_cutoff, measurement_cutoff)
+        queue = [(kind, ident) for kind, idents in planned.items() for ident in idents]
+        items: dict[str, list[str]] = {kind: [] for kind in planned}
+        victims: list[Path] = []
         total = 0
-        try:
-            with self._write() as conn:
-                planned = self._gc_plan(conn, cache_cutoff, measurement_cutoff)
-                items: dict[str, list[str]] = {}
-                for kind, idents in planned.items():
-                    items[kind] = []
-                    for ident in idents:
-                        try:
-                            path = self._item_path(conn, kind, ident)
-                        except NarrationError as exc:
-                            errors.append({"path": f"{kind}/{ident}", "error": exc.message})
-                            continue
-                        size = files.tree_size(path)
-                        if self._to_trash(path, renamed, errors):
-                            self._delete_rows(conn, _GC_KINDS[kind], ident)
-                            items[kind].append(ident)
-                            total += size
+        at = 0
+        while at < len(queue):
+            renames = _Renames()
+            batch: list[tuple[str, str]] = []
+            with self._write_undoing(renames) as conn:
+                still = {k: set(v) for k, v in self._gc_plan(conn, cache_cutoff, measurement_cutoff).items()}
+                started = time.monotonic()
+                while at < len(queue) and _batch_open(len(batch), started):
+                    kind, ident = queue[at]
+                    at += 1
+                    if ident not in still[kind]:
+                        continue  # used again, or newly kept alive, since the plan
+                    try:
+                        path = self._item_path(conn, kind, ident)
+                    except NarrationError as exc:
+                        errors.append({"path": f"{kind}/{ident}", "error": exc.message})
+                        continue
+                    if self._to_trash(path, renames, errors):
+                        self._delete_rows(conn, _GC_KINDS[kind], ident)
+                        batch.append((kind, ident))
+            for kind, ident in batch:
+                items[kind].append(ident)
+            total += self._empty_trash(renames, errors, victims)
+        taken: list[Path] = []
+        at = 0
+        while at < len(orphans):
+            renames = _Renames()
+            chosen: list[Path] = []
+            with self._write_undoing(renames) as conn:
                 indexed = self._indexed(conn)
-                taken: list[Path] = []
-                for path in orphans:
+                started = time.monotonic()
+                while at < len(orphans) and _batch_open(len(chosen), started):
+                    path = orphans[at]
+                    at += 1
                     if self._layout.rel(path) in indexed or _mtime(path) >= leftover_cutoff:
                         continue  # published since it was listed
-                    size = files.tree_size(path)
-                    if self._to_trash(path, renamed, errors):
-                        taken.append(path)
-                        total += size
-                expired = conn.execute("DELETE FROM leases WHERE expires_at <= ?", (now,)).rowcount
-        except BaseException:  # the rows are rolled back, so every folder goes back under its name
-            for original, trash in reversed(renamed):
-                _put_back(trash, original)
-            raise
-        return items, taken, expired, total, renamed
+                    if self._to_trash(path, renames, errors):
+                        chosen.append(path)
+            taken.extend(chosen)
+            total += self._empty_trash(renames, errors, victims)
+        with self._write() as conn:
+            expired = conn.execute("DELETE FROM leases WHERE expires_at <= ?", (now,)).rowcount
+        return items, taken, expired, total, victims
 
-    def _to_trash(self, path: Path, renamed: list[tuple[Path, Path]], errors: list[dict[str, str]]) -> bool:
-        """Rename ``path`` to a ``.trash-`` sibling (nothing to do if it is already gone). False, with the
-        error listed, if it cannot be renamed: its rows are then kept for the next run."""
+    def _to_trash(self, path: Path, renames: _Renames, errors: list[dict[str, str]]) -> bool:
+        """Rename ``path`` to a ``.trash-`` sibling (nothing to do if it is already gone), trying once: this
+        runs under the write lock, so a folder in use is not waited for. False, with the error listed, if it
+        cannot be renamed: its rows are then kept for the next run."""
         if not os.path.lexists(path):
             return True
         trash = path.with_name(f".trash-{files.token()}-{path.name}")
         try:
             self._layout.confine(trash)
-            files.rename_retrying(path, trash)
+            renames.rename(path, trash, attempts=1)
         except (OSError, NarrationError) as exc:
             errors.append({"path": self._layout.rel(path), "error": _describe(exc)})
             return False
-        renamed.append((path, trash))
         return True
+
+    def _empty_trash(self, renames: _Renames, errors: list[dict[str, str]], victims: list[Path]) -> int:
+        """After a ``gc`` transaction commits (outside the lock): measure and remove its trash, and record the
+        original paths in ``victims``. Returns the bytes removed."""
+        total = 0
+        for original, trash in renames.done:
+            victims.append(original)
+            size = files.tree_size(trash)
+            if self._remove(trash, original, errors):
+                total += size
+            if original.parent.parent.name == MEASUREMENTS:
+                with contextlib.suppress(OSError):
+                    original.parent.rmdir()  # the voice's folder, once its last measurement is gone
+        return total
 
     def _remove(self, path: Path, shown_as: Path, errors: list[dict[str, str]]) -> bool:
         """Remove a tree; on failure list the error (under ``shown_as``) and carry on."""
@@ -1867,6 +1928,54 @@ class _Staging:
                 _log.error("could not move %s back to %s: %s", dst, src, exc)
                 ok = False
         return ok
+
+
+class _Renames:
+    """File renames made inside one write transaction, so they can be undone, newest first, if it does not
+    commit."""
+
+    def __init__(self) -> None:
+        self.done: list[tuple[Path, Path]] = []
+
+    def rename(self, src: Path, dst: Path, *, attempts: int = files.REPLACE_ATTEMPTS) -> None:
+        files.rename_retrying(src, dst, attempts=attempts)
+        self.done.append((src, dst))
+
+    def undo(self) -> None:
+        """Put every renamed path back; one that cannot be is logged (``_put_back``)."""
+        while self.done:
+            src, dst = self.done.pop()
+            _put_back(dst, src)
+
+
+def _batch_open(count: int, started: float) -> bool:
+    """Whether a ``gc`` transaction may take one more item: it always takes one, then stops at
+    ``GC_BATCH_ITEMS`` items or ``GC_BATCH_SECONDS``."""
+    return count == 0 or (count < GC_BATCH_ITEMS and time.monotonic() - started < GC_BATCH_SECONDS)
+
+
+def _discard_trash(trash: Path, final: Path) -> None:
+    """Remove what a publish replaced, after its commit. The publish has succeeded, so this is best effort:
+    a failure is logged, and ``gc`` removes the ``.trash-`` name later as a leftover."""
+    try:
+        files.remove_tree(trash)
+    except OSError as exc:
+        _log.warning("published %s; the replaced copy %s is left for gc: %s", final, trash, exc)
+
+
+def _give_back(tmp: Path, source: Path | None) -> None:
+    """After a failed file publish: move ``tmp`` back to the caller's ``source`` (writable), or discard it
+    if the store wrote it itself (``source`` None). If it cannot be moved back it is kept and logged."""
+    if source is None:
+        files.discard(tmp)
+        return
+    if not os.path.lexists(tmp):
+        return  # an undone rename already failed, and was logged
+    try:
+        files.make_writable(tmp)
+        files.rename_retrying(tmp, source)
+    except OSError as exc:
+        _log.error("kept %s: it could not be moved back to %s: %s", tmp, source, exc)
 
 
 def _put_back(src: Path, dst: Path) -> bool:

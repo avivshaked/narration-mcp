@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -13,17 +14,23 @@ import pytest
 from narration.contracts import names
 from narration.contracts.interfaces import Store
 from narration.store import NarrationStore, StoreError, StoreIntegrityError, StorePathError
+from narration.store import db as store_db
 from narration.store import files as store_files
 
+from .conftest import FakeClock
 from .factories import (
     analysis_record,
     audio_bytes,
+    measurement_record,
     profile_record,
     render_record,
     scratch_file,
     sha,
     take_record,
 )
+from .txn_fakes import commit_fails, observing_rollback
+
+DAY = 86_400.0
 
 
 def publish_render(store: NarrationStore, text: str = "Before dawn, the reef belongs to the shrimp."):
@@ -263,3 +270,105 @@ def test_an_analysis_is_refused_if_its_take_goes_meanwhile(
         store.put_analysis(record)
     assert store.get_analysis(record.analysis_key) is None
     assert _temp_names(store) == []
+
+
+# ---------------------------------------------------------------- follow-ups: after the commit, and a failed COMMIT
+def test_a_publish_that_cannot_remove_the_replaced_copy_still_succeeds(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The row is committed, so the publish has succeeded: removing the replaced folder afterwards is best
+    # effort, logged if it fails, and gc removes the .trash- name later.
+    audio = sha(b"clip")
+    store.put_profile(profile_record(audio, pictures=False), None)
+    real = store_files.remove_tree
+
+    def refuse_trash(path: Path) -> None:
+        if path.name.startswith(".trash-"):
+            raise PermissionError(13, "a file in it is open", str(path))
+        real(path)
+
+    monkeypatch.setattr(store_files, "remove_tree", refuse_trash)
+    with caplog.at_level(logging.WARNING, logger="narration.store.store"):
+        newer = store.put_profile(profile_record(audio, version="profile-2", pictures=False), None)
+    monkeypatch.undo()
+    assert store.get_profile(audio, "profile-2") == newer
+    assert "left for gc" in caplog.text and "neither" not in caplog.text
+    trash = [p for p in store.profile_dir(audio).parent.iterdir() if p.name.startswith(".trash-")]
+    assert len(trash) == 1
+    clock.advance(2 * DAY)
+    report = store.gc(dry_run=False)
+    assert store.layout.rel(trash[0]) in report["leftovers"] and not trash[0].exists()
+    assert store.get_profile(audio, "profile-2") == newer
+
+
+def test_a_file_publish_that_cannot_remove_the_replaced_file_still_succeeds(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store.put_measurement(measurement_record())
+    real = store_files.remove_tree
+
+    def refuse_trash(path: Path) -> None:
+        if path.name.startswith(".trash-"):
+            raise PermissionError(13, "held open by a reader", str(path))
+        real(path)
+
+    monkeypatch.setattr(store_files, "remove_tree", refuse_trash)
+    newer = store.put_measurement(measurement_record(corpus_hex="c1" * 32))
+    assert store.get_measurement(newer.voice_hash, newer.engine_profile.id) == newer
+
+
+def test_a_failed_commit_gives_the_audio_back(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The COMMIT itself can fail after the folder was renamed into place: it goes back, and so does the audio.
+    record = render_record()
+    src = scratch_file(store, "raw.wav", audio_bytes("gpu output"))
+    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_render(record, src)
+    monkeypatch.undo()
+    assert src.read_bytes() == audio_bytes("gpu output") and not store_files.is_readonly(src)
+    assert store.get_render(record.render_key) is None
+    assert not store.render_dir(record.render_id).exists()
+    assert _temp_names(store) == []
+
+
+def test_a_failed_commit_keeps_the_published_profile(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    audio = sha(b"clip")
+    old = store.put_profile(profile_record(audio, pictures=False), None)
+    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_profile(profile_record(audio, version="profile-2", pictures=False), None)
+    monkeypatch.undo()
+    assert store.get_profile(audio, names.PROFILE_VERSION) == old
+    assert os.listdir(store.profile_dir(audio)) == ["profile.json"]
+    assert _temp_names(store) == []
+
+
+def test_a_failed_file_commit_keeps_the_published_file(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    old = store.put_measurement(measurement_record())
+    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_measurement(measurement_record(corpus_hex="c1" * 32))
+    monkeypatch.undo()
+    assert store.get_measurement(old.voice_hash, old.engine_profile.id) == old
+    assert store.verify()["mismatched"] == []
+    assert _temp_names(store) == []
+
+
+def test_a_failed_publish_is_undone_before_the_lock_is_released(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Undone inside the transaction: once the ROLLBACK makes the old row visible again, its folder is
+    # already back under its own name, so no reader can take the folder for missing and drop the row.
+    audio = sha(b"clip")
+    store.put_profile(profile_record(audio, pictures=False), None)
+    folder = store.profile_dir(audio)
+    seen: list[object] = []
+    monkeypatch.setattr(store_db, "write_txn", observing_rollback(lambda: os.listdir(folder), seen))
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("the database is full")
+
+    monkeypatch.setattr(store, "_index_files", fail)
+    with pytest.raises(RuntimeError):
+        store.put_profile(profile_record(audio, version="profile-2", pictures=False), None)
+    assert seen == [["profile.json"]]
