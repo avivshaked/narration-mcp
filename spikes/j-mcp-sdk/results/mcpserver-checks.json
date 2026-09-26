@@ -1,0 +1,75 @@
+{
+  "published inputSchema": {
+    "properties": {
+      "voice": {
+        "$ref": "#/$defs/Voice"
+      },
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "takes": {
+        "default": 1,
+        "title": "Takes",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "voice",
+      "text"
+    ],
+    "type": "object",
+    "$defs": {
+      "Voice": {
+        "additionalProperties": false,
+        "description": "The design's Voice fragment, as a pydantic model.",
+        "properties": {
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "transcript": {
+            "title": "Transcript",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "transcript"
+        ],
+        "title": "Voice",
+        "type": "object"
+      }
+    },
+    "title": "check_lineArguments"
+  },
+  "inputSchema contains $ref": true,
+  "inputSchema root additionalProperties": "absent",
+  "published outputSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "title": "check_lineDictOutput"
+  },
+  "unknown top-level field instruct": {
+    "is_error": false,
+    "structured_content": {
+      "spoken": "a line",
+      "takes": 1
+    }
+  },
+  "wrong type": {
+    "is_error": true,
+    "structured_content": null,
+    "text": "Error executing tool check_line: 1 validation error for check_lineArguments\ntakes\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='three', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing"
+  },
+  "unknown tool": {
+    "json_rpc_error": false,
+    "is_error": true,
+    "text": "Unknown tool: no_such_tool"
+  }
+}

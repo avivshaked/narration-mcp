@@ -1,0 +1,137 @@
+{
+  "packages": {
+    "mcp": {
+      "version": "2.2.0",
+      "license": "MIT"
+    },
+    "mcp-types": {
+      "version": "2.2.0",
+      "license": "MIT"
+    }
+  },
+  "mcp requires": [
+    "anyio>=4.10; python_version >= '3.14'",
+    "anyio>=4.9; python_version < '3.14'",
+    "httpx2>=2.5.0",
+    "jsonschema>=4.20.0",
+    "mcp-types==2.2.0",
+    "opentelemetry-api>=1.28.0",
+    "pydantic>=2.12.0",
+    "pyjwt[crypto]>=2.10.1",
+    "python-dotenv>=1.0.0; extra == 'cli'",
+    "python-multipart>=0.0.9",
+    "pywin32>=311; sys_platform == 'win32'",
+    "rich>=13.9.4; extra == 'rich'",
+    "sse-starlette>=3.0.0",
+    "starlette>=0.27; python_version < '3.14'",
+    "starlette>=0.48.0; python_version >= '3.14'",
+    "typer>=0.16.0; extra == 'cli'",
+    "typing-extensions>=4.13.0",
+    "typing-inspection>=0.4.1",
+    "uvicorn>=0.31.1; sys_platform != 'emscripten'"
+  ],
+  "protocol versions": {
+    "known": [
+      "2024-11-05",
+      "2025-03-26",
+      "2025-06-18",
+      "2025-11-25",
+      "2026-07-28"
+    ],
+    "handshake (initialize)": [
+      "2024-11-05",
+      "2025-03-26",
+      "2025-06-18",
+      "2025-11-25"
+    ],
+    "modern (per-request _meta envelope)": [
+      "2026-07-28"
+    ],
+    "latest handshake": "2025-11-25",
+    "latest modern": "2026-07-28"
+  },
+  "client requests": {
+    "2025-11-25": [
+      "completion/complete",
+      "initialize",
+      "logging/setLevel",
+      "ping",
+      "prompts/get",
+      "prompts/list",
+      "resources/list",
+      "resources/read",
+      "resources/subscribe",
+      "resources/templates/list",
+      "resources/unsubscribe",
+      "tools/call",
+      "tools/list"
+    ],
+    "2026-07-28": [
+      "completion/complete",
+      "prompts/get",
+      "prompts/list",
+      "resources/list",
+      "resources/read",
+      "resources/templates/list",
+      "server/discover",
+      "subscriptions/listen",
+      "tools/call",
+      "tools/list"
+    ]
+  },
+  "client notifications": {
+    "2025-11-25": [
+      "notifications/cancelled",
+      "notifications/initialized",
+      "notifications/progress",
+      "notifications/roots/list_changed"
+    ],
+    "2026-07-28": [
+      "notifications/cancelled"
+    ]
+  },
+  "server notifications": {
+    "2025-11-25": [
+      "notifications/cancelled",
+      "notifications/elicitation/complete",
+      "notifications/message",
+      "notifications/progress",
+      "notifications/prompts/list_changed",
+      "notifications/resources/list_changed",
+      "notifications/resources/updated",
+      "notifications/tools/list_changed"
+    ],
+    "2026-07-28": [
+      "notifications/cancelled",
+      "notifications/message",
+      "notifications/progress",
+      "notifications/prompts/list_changed",
+      "notifications/resources/list_changed",
+      "notifications/resources/updated",
+      "notifications/subscriptions/acknowledged",
+      "notifications/tools/list_changed"
+    ]
+  },
+  "server requests": {
+    "2025-11-25": [
+      "elicitation/create",
+      "ping",
+      "roots/list",
+      "sampling/createMessage"
+    ],
+    "2026-07-28": []
+  },
+  "cacheable methods (ttlMs, cacheScope)": [
+    "prompts/list",
+    "resources/list",
+    "resources/read",
+    "resources/templates/list",
+    "server/discover",
+    "tools/list"
+  ],
+  "a bare low-level Server answers": [
+    "ping",
+    "server/discover"
+  ],
+  "MCPServer importable from mcp.server": "mcp.server.mcpserver.server"
+}
