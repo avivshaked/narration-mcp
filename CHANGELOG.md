@@ -103,3 +103,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   `ttlMs` and `cacheScope`, accepting a URI as written or as RFC 6570 expands it and refusing a malformed
   id before any lookup, and the four prompts, in both the 2026-07-28 protocol and the legacy `initialize`
   handshake. The `narration-mcp` command is connected to the real backend in a later work package (WP36).
+- `narration.qa`: take QA as plain Python (design sections 8, 11.1, 11.3, 12): `wer_raw` and `wer_adj`
+  with the word-count rule, exact spans read by the number reader `@2` (Whisper's English normaliser,
+  vendored from openai/whisper, MIT, see `THIRD_PARTY_NOTICES`; read in phrases split at punctuation, with
+  the "nought" rule and curly apostrophes read as straight ones), hinted-term checks, head and end
+  insertions with reference bleed, speaker similarity and pace against the voice's measurement, signal
+  checks, the verdict and retake triggers, the suggestion tiers, the per-job consistency report,
+  `listen_first`, fit reporting, and the job report in Markdown and JSON.
