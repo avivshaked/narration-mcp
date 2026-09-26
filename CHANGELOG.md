@@ -26,3 +26,8 @@ are tracked here but no version is tagged; nothing described below is installabl
 - `.github/pull_request_template.md`: a pre-submission checklist for pull requests.
 - `narration.example.toml`: the shipped configuration file, with every key and default of the design's
   configuration section and no personal or machine-specific values.
+- `material/`: the service's own text material, in draft until the owner has listened to sample renders
+  (gate H1): the calibration corpus and length-ladder paragraphs (`narration-en.v1`), the alignment
+  benchmark (`alignment-en.v1`), the canary's description, text and seeds (`canary.v1`), the Phase 4 demo
+  script (`demo-en.v1`), and the text and QA fixtures (`text-v1`, `qa-faults-v1`), each set with a
+  manifest of its files' sha256 hashes.
