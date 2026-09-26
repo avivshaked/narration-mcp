@@ -33,6 +33,7 @@ class NoGuard:
     """The guard until WP32: no fingerprint check and no canary (``not_run``)."""
 
     def after_load(self, host: RunnerHost, profile: EngineProfile, hello: HelloReply | None) -> CanaryStatus:
+        """Check nothing: the renders record ``not_run``."""
         return "not_run"
 
 

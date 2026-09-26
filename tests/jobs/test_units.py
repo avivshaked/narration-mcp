@@ -14,7 +14,7 @@ import pytest
 from narration.config import Config, DefaultsConfig, GpuConfig
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
-from narration.contracts.models import DaemonStatus, GpuStatus, Hint, JobRecord, Progress, SegmentIn
+from narration.contracts.models import DaemonStatus, GpuStatus, Hint, JobRecord, Progress, ProvenanceEntry, SegmentIn
 from narration.contracts.names import GpuHolder, JobPhase
 from narration.jobs import admission
 from narration.jobs.gpu import GroupNeed, NoProbe, NvmlProbe, Residency
@@ -27,12 +27,13 @@ from narration.jobs.plan import (
     next_attempt,
     requested_attempts,
 )
-from narration.jobs.voice import clip_path, stage_clip
+from narration.jobs.voice import clip_path, require_synthetic, stage_clip
 from narration.store import NarrationStore
 from narration.text import TextPipeline
 from tests.store.standin import StandInPlatform
 
 from .support import (
+    DESIGN_ID,
     GENERATION,
     KETTLE,
     LAMPS,
@@ -458,3 +459,13 @@ def test_a_clip_that_is_not_the_one_sent_is_voice_file_mismatch_s17(store: Narra
     with pytest.raises(NarrationError) as missing:
         stage_clip(store, gone.voice)
     assert missing.value.code == codes.VOICE_FILE_MISMATCH and missing.value.field == "voice.path"
+
+
+def test_only_a_designed_or_allowed_clip_may_be_cloned_s17_4(store: NarrationStore) -> None:
+    designed, allowed, other = "a" * 64, "b" * 64, "c" * 64
+    store.add_provenance(ProvenanceEntry(clip_sha256=designed, design_id=DESIGN_ID, date="2026-01-01T00:00:00.000Z"))
+    require_synthetic(store, (allowed,), designed)
+    require_synthetic(store, (allowed,), allowed)
+    with pytest.raises(NarrationError) as caught:
+        require_synthetic(store, (allowed,), other, field="clip_sha256")
+    assert caught.value.code == codes.VOICE_NOT_SYNTHETIC and caught.value.field == "clip_sha256"

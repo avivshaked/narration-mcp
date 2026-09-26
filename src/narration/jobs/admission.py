@@ -82,6 +82,7 @@ class Throughput:
 
     @property
     def wall_per_audio_s(self) -> float:
+        """The current estimate: wall seconds per second of audio made."""
         return self._rate
 
     def record(self, wall_s: float, audio_s: float) -> None:

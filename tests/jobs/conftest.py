@@ -15,7 +15,8 @@ import pytest
 from narration.config import Config
 from narration.contracts.models import JobRecord, ProvenanceEntry
 from narration.contracts.names import JobKind
-from narration.jobs.engine import EngineParts, JobEngine
+from narration.jobs.core import EngineParts
+from narration.jobs.engine import JobEngine
 from narration.jobs.gpu import VramProbe
 from narration.jobs.runner import EngineRunner
 from narration.post import DeliveryPipeline

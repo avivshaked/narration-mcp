@@ -45,11 +45,13 @@ from narration.qa import Scorer
 from narration.text import TextPipeline
 
 from .admission import WALL_PER_AUDIO_S, est_drain_s
-from .engine import EngineParts, JobEngine, JobRun
+from .core import EngineParts
+from .engine import JobEngine
 from .gpu import NoProbe, NvmlProbe, VramProbe
 from .hooks import EngineGuard, NoGuard
 from .host import RunnerHost, ShutdownReason, return_job
 from .pins import QaPins
+from .state import JobRun
 from .voice import PathCheck
 
 log = logging.getLogger(__name__)

@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Final
 
@@ -33,6 +33,24 @@ PathCheck = Callable[[str], Path]
 def clip_path(store: Store, clip_sha256: str) -> Path:
     """Where the working copy of a clip lives: ``scratch/voices/<sha256>.wav``."""
     return store.scratch_path(VOICES_DIR, f"{clip_sha256}.wav")
+
+
+def require_synthetic(
+    store: Store, allow_sha256: Collection[str], clip_sha256: str, *, field: str = "voice.sha256"
+) -> None:
+    """Section 17.4: a clip is cloned only if the service designed it (its provenance list) or the owner
+    allowed it (``[voices] allow_sha256``). Raises ``NarrationError`` (``VOICE_NOT_SYNTHETIC``) otherwise.
+
+    Every path that clones a clip or measures a voice for cloning checks it, wherever the request came from:
+    the front-end at submit, and the job engine again before a worker sees the clip.
+    """
+    if store.is_provenance(clip_sha256) or clip_sha256 in allow_sha256:
+        return
+    raise NarrationError(
+        codes.VOICE_NOT_SYNTHETIC,
+        f"the clip {clip_sha256} is neither one this service designed nor one the owner allowed",
+        field=field,
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -74,4 +92,4 @@ def stage_clip(store: Store, voice: VoiceSpec, *, check_path: PathCheck | None =
     return target
 
 
-__all__ = ["VOICES_DIR", "PathCheck", "clip_path", "stage_clip"]
+__all__ = ["VOICES_DIR", "PathCheck", "clip_path", "require_synthetic", "stage_clip"]

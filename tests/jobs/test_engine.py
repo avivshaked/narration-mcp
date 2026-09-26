@@ -17,7 +17,7 @@ from narration.config import VoicesConfig
 from narration.contracts import codes
 from narration.contracts.models import Progress, ProvenanceEntry
 from narration.jobs.admission import GPU_RECHECK_S, GPU_UNAVAILABLE_RETRY_S
-from narration.jobs.engine import OOM_WAIT_S
+from narration.jobs.failures import OOM_WAIT_S
 from narration.jobs.pins import call_cap
 
 from .conftest import World

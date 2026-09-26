@@ -5,6 +5,9 @@ It claims jobs and runs each through ``JobEngine`` (``engine``): per round, rend
 the CPU, score on the QA group, then retakes of the take slots that failed QA, up to ``max_retakes``. Every
 layer is looked up in the cache first and produced at most once, under a lease (section 4 item 6).
 
+- ``engine``: planning and advancing a job; ``state`` (the job's state), ``stages`` (render, post-process,
+  score), ``failures`` (a worker's failure turned into a retry, a flag or a job error), ``record`` (the job
+  record and the endings) and ``core`` (what they share).
 - ``host``: the daemon's seam, mirrored until WP30 merges.
 - ``gpu``: one resident model group, the free-VRAM check and the wait (section 4).
 - ``admission``: DC-2's numbers: ``poll_after_s``, ``retry_after_s``, ``est_drain_s``, ``admission``.
@@ -14,11 +17,13 @@ layer is looked up in the cache first and produced at most once, under a lease (
 
 from __future__ import annotations
 
-from .engine import EngineParts, JobEngine, JobRun
+from .core import EngineParts
+from .engine import JobEngine
 from .gpu import NoProbe, NvmlProbe, VramProbe, VramReading
 from .hooks import EngineGuard, NoGuard
 from .pins import ModelPin, QaPins
 from .runner import EngineRunner, build_runner, default_runner
+from .state import JobRun
 
 __all__ = [
     "EngineGuard",

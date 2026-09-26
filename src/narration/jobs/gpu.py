@@ -55,13 +55,16 @@ class VramReading:
 class VramProbe(Protocol):
     """Reads the GPU's memory; None when it cannot be read (no NVML, no driver, no such device)."""
 
-    def read(self) -> VramReading | None: ...
+    def read(self) -> VramReading | None:
+        """The device's memory now, or None when it cannot be read."""
+        ...
 
 
 class NoProbe:
     """A probe that never reads anything: no free-VRAM check is made (the fake workers, CPU-only work)."""
 
     def read(self) -> VramReading | None:
+        """Nothing: the memory is never known."""
         return None
 
 
@@ -79,6 +82,7 @@ class NvmlProbe:
         self._ready = False
 
     def read(self) -> VramReading | None:
+        """The device's name and memory totals from NVML, or None (see the class docstring)."""
         if self._index is None:
             return None
         try:
@@ -161,6 +165,7 @@ class Residency:
 
     @property
     def waiting(self) -> bool:
+        """Whether a job is waiting for free VRAM."""
         return self._wait is not None
 
     def reset_wait(self, host: RunnerHost | None = None) -> None:

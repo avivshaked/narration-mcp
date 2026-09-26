@@ -115,13 +115,19 @@ class RunnerHost(Protocol):
     """What the daemon gives the ``JobRunner`` (see the module docstring)."""
 
     @property
-    def store(self) -> Store: ...
+    def store(self) -> Store:
+        """The daemon's store."""
+        ...
 
     @property
-    def config(self) -> Config: ...
+    def config(self) -> Config:
+        """The daemon's config."""
+        ...
 
     @property
-    def workers(self) -> WorkerPool: ...
+    def workers(self) -> WorkerPool:
+        """The daemon's workers, one per model group."""
+        ...
 
     @property
     def holder(self) -> str:
@@ -141,22 +147,34 @@ class RunnerHost(Protocol):
         """Wait up to ``seconds``; False as soon as a stop is asked for, True if the time passed."""
         ...
 
-    def job_started(self, job: JobRecord) -> None: ...
+    def job_started(self, job: JobRecord) -> None:
+        """The runner now holds ``job``: the daemon is ``busy`` with it (``current_job``)."""
+        ...
 
-    def job_phase(self, phase: JobPhase | None) -> None: ...
+    def job_phase(self, phase: JobPhase | None) -> None:
+        """The held job's phase changed (``current_job.phase`` in ``run/daemon.json``)."""
+        ...
 
-    def job_finished(self) -> None: ...
+    def job_finished(self) -> None:
+        """The runner holds no job any more: it is terminal, or given back to the queue."""
+        ...
 
-    def set_gpu_facts(self, facts: GpuFacts) -> None: ...
+    def set_gpu_facts(self, facts: GpuFacts) -> None:
+        """Replace what ``run/daemon.json`` says of the GPU besides ``in_use``, ``holder``, ``unload_in_s``."""
+        ...
 
-    def set_est_drain(self, seconds: float | None) -> None: ...
+    def set_est_drain(self, seconds: float | None) -> None:
+        """The queue's drain estimate (``est_drain_s``), or None when unknown."""
+        ...
 
 
 @runtime_checkable
 class JobRunner(Protocol):
     """The job engine the daemon drives."""
 
-    def step(self, host: RunnerHost) -> bool: ...
+    def step(self, host: RunnerHost) -> bool:
+        """Do at most one segment's worth of work; True if some was done, False if there was none."""
+        ...
 
     def has_work(self, host: RunnerHost) -> bool:
         """Whether a ``step`` now would find work: the same test, with no side effect (nothing is claimed).
@@ -164,7 +182,9 @@ class JobRunner(Protocol):
         is not stranded."""
         ...
 
-    def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None: ...
+    def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
+        """After the last step: give back the job held, clean up its scratch files, release leases."""
+        ...
 
 
 def return_job(store: Store, job_id: str, *, reason: str) -> JobRecord | None:
