@@ -9,13 +9,14 @@ legacy ``initialize`` handshake and 2026-07-28's per-request ``_meta`` with ``se
   ``NarrationError`` and any other exception all come back as tool errors (``isError: true``), the last as
   ``INTERNAL``; only an unknown tool is a JSON-RPC error (-32602). Every result is checked against the
   tool's ``outputSchema`` before it is sent, because the SDK client checks it too.
-- Cancellation (``notifications/cancelled``) ends only a ``get_job`` wait, never the job: the SDK cancels
-  the handler, the cancellation reaches the backend's awaiting call, and nothing here catches it. Every
-  other tool's backend call runs shielded, so a cancelled ``submit_job`` still finishes what it started
-  (writing its job row); the SDK then drops the reply, as MCP requires.
+- Cancellation (``notifications/cancelled``, or the client going away) interrupts a read-only call at once,
+  so it ends a ``get_job`` wait but never the job; nothing here catches it. A tool that writes runs its
+  backend call shielded, up to ``WRITE_DEADLINE_S``: a cancelled ``submit_job`` still finishes what it
+  started (writing its job row), and the SDK drops the reply, as MCP requires. A write still running at the
+  deadline is cancelled and answered with ``INTERNAL``.
 - Resources are the ``narration://`` templates of section 7.7, read through the backend, each read with
   its ``ttlMs`` and ``cacheScope: "private"``. A missing resource, or a URI whose ids are malformed, is
-  JSON-RPC -32602; a malformed id never reaches the backend.
+  JSON-RPC -32602; a malformed id never reaches the backend, which always gets the canonical URI.
 - Prompts are the four of section 7.8.
 """
 
@@ -74,9 +75,16 @@ DESTRUCTIVE_TOOLS: Final = frozenset({"cancel_job"})
 """Tools whose effect is not additive (MCP ``destructiveHint``): cancelling stops work that was asked for."""
 RESOURCE_NOT_FOUND_CODES: Final = frozenset({codes.NOT_FOUND, codes.INVALID_ARGUMENT, codes.PATH_NOT_ALLOWED})
 """Backend errors on a resource read that mean "no such resource" (JSON-RPC -32602)."""
-INTERRUPTIBLE_TOOLS: Final = frozenset({"get_job"})
-"""Tools whose backend call a cancellation may interrupt: ``get_job``, whose wait is what cancellation ends
-(section 5). Every other tool's call runs shielded, so it is never cut off between two backend steps."""
+SHIELDED_TOOLS: Final = frozenset(name for name in TOOL_NAMES if not TOOLS_BY_NAME[name].read_only)
+"""The tools that write (to the store, or a command to the daemon): ``release_gpu``, ``cancel_job``,
+``design_voice``, ``profile_voice``, ``measure_voice``, ``audition_pronunciation`` and ``submit_job``. Their
+backend call is shielded from cancellation, so it is never cut off between two backend steps. A read-only
+call (``get_job``'s wait included) is interrupted at once."""
+WRITE_DEADLINE_S: Final = 30.0
+"""How long a shielded write may run, in seconds. **For WP36: every backend call of a tool in
+``SHIELDED_TOOLS`` must finish well inside it** (it is store work, never an open-ended wait). A call still
+running at the deadline is cancelled, and the tool answers ``INTERNAL`` ("the backend did not answer in
+time"). It also bounds how long a closing connection waits for a write in flight."""
 
 type Context = ServerRequestContext[Any, Any]
 type ToolCall = Callable[[Mapping[str, Any], Context], Awaitable[dict[str, Any]]]
@@ -150,29 +158,35 @@ def build_prompts() -> list[types.Prompt]:
     return prompts
 
 
-def match_resource(uri: str) -> ResourceTemplate | None:
-    """The section 7.7 resource a URI names, or None.
+def resolve_resource(uri: str) -> tuple[ResourceTemplate, str] | None:
+    """The section 7.7 resource a URI names, with its canonical URI; None when it names none.
 
     Every template variable must be a well-formed id of its kind (``names.is_id``: ``job_id``,
-    ``design_id``, ``take_id``, ``voice_hash``), and the URI must be exactly the template filled with those
-    ids: no percent-encoding, query or fragment. So an id that is malformed or smuggled in (``%2e%2e%2f``,
-    a drive path, a trailing newline) never reaches the backend.
+    ``design_id``, ``take_id``, ``voice_hash``). The URI must then be one of two spellings of those ids:
+    the template filled with them as they are (the canonical URI), or the template's RFC 6570 expansion,
+    which a conforming client builds and which percent-encodes the ``:`` of a ``voice_hash``. Any other
+    encoding, a query or a fragment is refused. So an id that is malformed or smuggled in (``%2e%2e%2f``, a
+    drive path, a trailing newline) never reaches the backend, and the backend always gets the canonical URI.
     """
     for resource in RESOURCES:
         if not _is_template(resource):
             if uri == resource.uri_template:
-                return resource
+                return resource, uri
             continue
-        variables = UriTemplate.parse(resource.uri_template).match(uri)
+        template = UriTemplate.parse(resource.uri_template)
+        variables = template.match(uri)
         if variables is None:
             continue
-        filled = resource.uri_template
+        ids: dict[str, str] = {}
         for name, value in variables.items():
             if name not in ID_PATTERNS or not is_id(cast(IdKind, name), value):
                 return None
-            filled = filled.replace("{" + name + "}", cast(str, value))
-        if filled == uri:
-            return resource
+            ids[name] = cast(str, value)
+        canonical = resource.uri_template
+        for name, value in ids.items():
+            canonical = canonical.replace("{" + name + "}", value)
+        if uri in (canonical, template.expand(ids)):
+            return resource, canonical
     return None
 
 
@@ -216,12 +230,14 @@ def build_front_end(
     log_path: Path | None = None,
     bus: SubscriptionBus | None = None,
     check_results: bool = True,
+    write_deadline_s: float = WRITE_DEADLINE_S,
 ) -> FrontEnd:
     """Build the MCP front-end over ``backend``.
 
     ``retention`` gives the periods the descriptions state (section 15). ``log_path`` is the log file an
     ``INTERNAL`` error points to. ``check_results`` checks every result against its tool's
     ``outputSchema`` and turns a mismatch into ``INTERNAL``, so that a client never rejects one.
+    ``write_deadline_s`` bounds a shielded write (``WRITE_DEADLINE_S``).
     """
     retention = retention if retention is not None else RetentionConfig()
     bus = bus if bus is not None else InMemorySubscriptionBus()
@@ -279,13 +295,18 @@ def build_front_end(
         try:
             validators[name].validate(arguments)
             structured: object = None
-            if name in INTERRUPTIBLE_TOOLS:
-                structured = await call(arguments, ctx)
-            else:
-                # A cancellation must not cut a call off between two backend steps (a job row written, its
-                # plan not); the SDK still drops the reply to a cancelled request.
-                with anyio.CancelScope(shield=True):
+            if name in SHIELDED_TOOLS:
+                # A cancellation must not cut a write off between two backend steps (a job row written, its
+                # plan not); the SDK still drops the reply to a cancelled request. The deadline keeps a
+                # stuck backend from holding the server open.
+                with anyio.move_on_after(write_deadline_s, shield=True) as deadline:
                     structured = await call(arguments, ctx)
+                if deadline.cancelled_caught:
+                    logger.error("%s: the backend did not answer within %s s", name, write_deadline_s)
+                    error = results.deadline_error(name, write_deadline_s, log_path=log_path)
+                    return checked(name, results.tool_error(error))
+            else:
+                structured = await call(arguments, ctx)
             if not isinstance(structured, dict):
                 raise TypeError(f"the backend returned {type(structured).__name__}, not an object")
             return checked(name, results.success(structured))
@@ -305,10 +326,12 @@ def build_front_end(
 
     async def read_resource(ctx: Context, params: types.ReadResourceRequestParams) -> types.ReadResourceResult:
         uri = str(params.uri)
-        if match_resource(uri) is None:
+        resolved = resolve_resource(uri)
+        if resolved is None:
             raise MCPError(code=types.INVALID_PARAMS, message="Resource not found", data={"uri": uri})
+        _, canonical = resolved
         try:
-            content = await backend.read_resource(uri)
+            content = await backend.read_resource(canonical)
         except NarrationError as exc:
             data = {"uri": uri, "error": to_json(exc.error)}
             if exc.code in RESOURCE_NOT_FOUND_CODES:

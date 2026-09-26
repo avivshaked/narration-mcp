@@ -145,6 +145,23 @@ def output_failures(validator: Validator, structured: Mapping[str, Any]) -> list
     return failures
 
 
+def deadline_error(tool: str, seconds: float, *, log_path: Path | None) -> Error:
+    """The ``INTERNAL`` error for a write the backend did not finish within the front-end's deadline."""
+    details: dict[str, Any] = {"tool": tool, "deadline_s": seconds}
+    if log_path is not None:
+        details["log"] = str(log_path)
+    return Error(
+        code=codes.INTERNAL,
+        message=f"{tool}: the backend did not answer in time (within {seconds:g} s)",
+        retryable=False,
+        hint=(
+            "The outcome is unknown: read get_server_status (and get_job for a job you expect) before you send "
+            "the request again. If it recurs, report it with the log path in 'details'."
+        ),
+        details=details,
+    )
+
+
 def output_mismatch_error(tool: str, failures: list[dict[str, str]], *, log_path: Path | None) -> Error:
     """The ``INTERNAL`` error for a backend result that does not match the tool's ``outputSchema``."""
     details: dict[str, Any] = {"tool": tool, "output_schema_failures": failures[:20]}
