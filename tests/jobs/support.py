@@ -54,7 +54,7 @@ from narration.contracts.models import (
 from narration.contracts.names import GpuHolder, JobKind, JobPhase, Priority
 from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 from narration.jobs.gpu import VramReading
-from narration.jobs.host import DAEMON_HOLDER, GpuFacts, StopMode, WorkerPool
+from narration.jobs.host import DAEMON_HOLDER, GpuFacts, ResidencyError, StopMode, WorkerPool
 from narration.jobs.pins import ModelPin, QaPins
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
@@ -135,7 +135,8 @@ class CountingClient:
 
 class FakePool:
     """The daemon's ``WorkerPool`` over fake workers: one process per model group, started on demand and again
-    after a crash, and one GPU group at a time (a second GPU load while one is loaded is a test failure)."""
+    after a crash, and one GPU group at a time (a second GPU load while one is loaded raises
+    ``ResidencyError``, as the daemon's pool does, and is counted in ``refused``)."""
 
     def __init__(self, config: Config, spec_path: Path) -> None:
         base = {k: v for k, v in os.environ.items() if k != SPEC_ENV}
@@ -150,6 +151,7 @@ class FakePool:
         self.loads: list[GpuHolder] = []
         self.unloads: list[GpuHolder] = []
         self.starts = 0
+        self.refused = 0
 
     @property
     def gpu_holder(self) -> GpuHolder | None:
@@ -181,7 +183,8 @@ class FakePool:
         cublas_workspace_config: str | None = None,
     ) -> dict[str, Any]:
         if gpu and self._gpu is not None and self._gpu != group:
-            raise AssertionError(f"{group} loaded on the GPU while {self._gpu} is there")
+            self.refused += 1
+            raise ResidencyError(f"{group} loaded on the GPU while {self._gpu} is there")
         client = self.client(group, cublas_workspace_config=cublas_workspace_config)
         try:
             reply = client.request("load", payload, timeout_s=timeout_s)
