@@ -774,3 +774,23 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
 - 2026-09-26: **Wave 1 fanned out as a git stack** on `wp/01-contracts` while a Fable review of the
   contracts runs: WP10, WP12, WP14, WP16 and WP19 (Opus 5.5 agents). They rebase onto `main` once WP01
   merges. WP17 resumes after WP01; WP13 and WP15 start as slots free; WP20 stays held.
+- 2026-09-26: **WP01 contract review.** A Fable review over four lenses, each verified by a skeptic,
+  confirmed 30 findings (5 rejected), all applied on `wp/01-contracts`:
+  - absent-versus-null serialisation, with a result view that matches the schemas;
+  - per-segment job items;
+  - the worker protocol moved into `narration_worker.protocol`;
+  - Store seams for engine profiles, the canary clip, the alignment benchmark, and the daemon's status
+    and commands (the store is the only channel between processes);
+  - typed key inputs;
+  - `MaterialLoader`, whose implementation is a WP18 follow-up.
+
+  Conformance tests now validate every record against its published schema.
+- 2026-09-26: **Two hard hangs of the machine (17:1x, 18:1x); cause found.** Avast's Auto-Sandbox took
+  full custody of a worktree venv's launcher `.exe` (`basedpyright.exe`, `pytest.exe`) 1 to 3 minutes
+  before each hang. That happened three times this month, all today, and never without a hang
+  following.
+  - Agents now run every tool as `python -m …` (`AGENTS.local.md`, the brief).
+  - The owner turned the shields off for the session.
+  - The durable fix (an exception, or Auto-Sandbox off) is the owner's.
+  - Nothing committed was lost. The Wave 1 agents were resumed from their worktrees.
+
