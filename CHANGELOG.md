@@ -127,3 +127,14 @@ are tracked here but no version is tagged; nothing described below is installabl
   `material/canary/canary.v1`) is a new text written for the service: "Good bread asks for patience: the
   dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp,
   a gentle warmth fills the whole kitchen." A clip keeps the transcript `design_voice` returned for it.
+- `narration.align`: cue alignment (design section 11.2). It spells each cue's spoken text in the
+  aligner's alphabet (hinted terms by `align_as`, whatever the hints' order), and aligns each run of words
+  it cannot spell (digits, symbols) as one wildcard token, so the speech they stand for no longer pulls
+  the words around them away. It refuses audio too short for its text with `ALIGNMENT_ERROR` instead of
+  crashing, snaps cue boundaries into pauses (`CUE_BOUNDARY_NO_PAUSE` when there is none), scores each
+  cue's confidence (`CUE_LOW_CONFIDENCE`, below `[alignment] low_confidence_below`), and leaves a cue it
+  cannot place without times (`CUE_UNALIGNED`, never interpolated), saying why in `details.reason`:
+  `no_alignable_words` (the cue's text has no word to place; not a retake trigger), `low_confidence`
+  (below `unplaced_below`) or `alignment_error`. It cross-checks boundaries against Whisper's words
+  (`CUE_ALIGNMENT_DISAGREE`, `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC
+  emissions on the CPU and runs the forced alignment.
