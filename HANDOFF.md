@@ -29,15 +29,24 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   - WP17 (the MCP front end) has spike (j) and ADR 0001 done on `wp/17-mcp`. It resumes after WP01 merges.
   - WP13 and WP15 start as slots free.
   - WP20 is held (see below).
-- **Incident, 2026-09-26 at about 17:14 local.** The machine froze hard or lost power (Kernel-Power 41).
-  There was no bugcheck and no dump, and nothing was logged in the minutes before.
-  - Our load at the time was light, and no model was on the GPU.
-  - The machine had an earlier blue screen (bugcheck 0x3B) on 2026-09-22, before this project began.
-  - After the restart: `git fsck` was clean, the model files re-hashed and matched, and nothing written
-    was lost except WP03's first attempt.
-  - **GPU work (WP20, and every GPU WP after it) is on hold** until the owner says the machine is fine to
-    load models on.
-  - Agents are asked to keep their load moderate: one test suite at a time, and no parallel pytest.
+- **Incidents on 2026-09-26: two hard hangs, cause found.** The first was at about 17:14 and the second at
+  about 18:16. Both were Kernel-Power 41 with no bugcheck and no dump.
+  - **The cause (KNOW, from the logs):** Avast's Auto-Sandbox took full custody of a venv launcher `.exe`
+    1 to 3 minutes before each hang: `basedpyright.exe` the first time, `basedpyright.exe` and
+    `pytest.exe` the second. It did that only three times all month.
+  - **The fix:**
+    - Agents run every tool as `uv run python -m pytest|basedpyright|ruff`, never through the launchers.
+      This is in `AGENTS.local.md` and `.dev\brief-common.md`.
+    - The owner turned Avast's shields off for the session. With them off, the same launchers ran
+      cleanly and Avast logged nothing.
+    - The durable fix is the owner's: an Auto-Sandbox exception for the projects folder, or
+      Auto-Sandbox off.
+  - Not the cause: memory (64 GB, no low-memory events), GPU load (we used none), and the 5-minute
+    Hyper-V VM cycle (a coincidence the first time; absent the second time). The machine's older display
+    watchdog dumps and GPU timeouts (August to 25 Sep) predate this project.
+  - After each restart, `git fsck` was clean. Uncommitted work in the worktrees survived on disk.
+  - **GPU work (WP20 and every GPU WP after it) is still on hold** until the owner says the machine is
+    fine to load models on.
 
 ## Decided (details in plan.md §1.4 and §1.5)
 
@@ -73,6 +82,21 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps
 
+0. **Resume point after the second hang (2026-09-26, 18:30).** Every agent was stopped mid-work, and their
+   work is on disk. Resume each one by `SendMessage` to its agent id; the transcripts are saved. Tell each
+   one to use `python -m` for every tool, and to re-read its worktree's `AGENTS.local.md`.
+
+   | WP | State | Agent id |
+   |---|---|---|
+   | WP10 | Uncommitted text, lint and tests. Its `material/` copy is untracked and identical to `main`: delete it before rebasing onto `main`. | `aa4257c5ade2b7a92` |
+   | WP12 | Keys committed (d53bcd9); store uncommitted. | `ae9960d6968fad493` |
+   | WP14 | QA code uncommitted. | `a8afe69ab845d6718` |
+   | WP16 | The whole worker package uncommitted. | `a66dcf85f3bbf472e` |
+   | WP17 | Phase 2 just started; ADR 0001 edit uncommitted. | `a7fc4e8bbedc32ede` |
+   | WP19 | Seam committed (e14dcb8); tests uncommitted. Its process and Job Object tests have **never run yet**. | `a5266d36bbeec76db` |
+   | WP01 | Its Fable records-keys review was interrupted. | `a332abe3753e402f0` (read-only, no file writes) |
+
+   Then merge WP01.
 1. Apply the review's confirmed findings to WP01. Merge it (PR), then tell the stacked agents to rebase.
 2. Resume WP17. Start WP13 and WP15 as agents finish.
 3. Review and merge each Wave 1 WP as it reaches `review` (plan.md §2.4).
