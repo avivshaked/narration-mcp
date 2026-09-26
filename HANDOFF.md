@@ -19,12 +19,15 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
     - The main checkout's gitignored `.dev/private-text.txt` and `.dev/private-terms.txt` configure it for
       every worktree.
   - **WP22** (QA worker): building; GPU runs in bounded slots under the lock.
-  - **WP30** (daemon): fixing its review's BLOCK and findings, with the seam changes WP31 needs.
+  - **WP30** (daemon): re-reviewed, the BLOCK is closed; fixing a takeover race and four small items,
+    then merging with design revision 5.10 (§4, §4.1, §17 item 9).
   - **WP31** (job engine): fixing its review's findings (F1 High), splitting `engine.py`, adding §4 item 3.
   - **Follow-ups:**
     - WP16's second set (`wp/16-worker-followups`): in review (contracts 1.6.3).
-  - **Gate H1:** the owner asked for the listening sample; it renders locally to `.dev/h1/` with a listening
-    sheet (`LISTEN.md`). After the owner's verdict, WP18 applies any text changes and freezes the manifests.
+  - **Gate H1:** the owner approved 8 of the 10 texts. In `ladder-080` and `align-03` the owner heard an
+    artefact near the start of the take. The lead is investigating (`.dev/h1/investigate/`, local): is it the
+    text or the sampling, and would the design's QA catch it? Then WP18 applies any text changes and freezes
+    the manifests.
 - **GPU:** the owner lifted the hold on 2026-09-26 evening. Agents take the GPU lock in bounded runs.
 - **Hangs and restarts:** the machine restarted three times on 2026-09-26.
   - The first two followed Avast's Auto-Sandbox taking custody of venv launcher `.exe`s, so agents run
@@ -62,8 +65,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **Gate H1:** listening to about 10 renders of the service's own texts before the corpus is frozen. The
-  suggested sample is in `status/WP18.md`. It needs the GPU.
+- **Gate H1:** the owner has listened and approved 8 of 10; the last two wait on the lead's investigation
+  of the artefact at the start of their takes.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
 - Later:
   - one run of the daemon under the owner's real MCP client: spike (g) modelled a session's job object,
