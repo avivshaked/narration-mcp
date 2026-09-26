@@ -111,3 +111,14 @@ class WorkerCrashed(Exception):
 
 class WorkerTimeout(Exception):
     """A request got no reply within its timeout; the client has stopped the worker."""
+
+
+class QaUnavailable(ValueError):
+    """A QA check the inputs call for cannot run (``QA_UNAVAILABLE``, a segment-level execution error, §14).
+
+    ``QaScorer.score`` raises it, for example, when an anchor or measurement is given but the take has no
+    embedding to compare. The job engine catches it and records the segment's ``QA_UNAVAILABLE``; the take
+    is never passed without the check.
+    """
+
+    code = "QA_UNAVAILABLE"

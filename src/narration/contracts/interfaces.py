@@ -540,7 +540,12 @@ class QaScorer(Protocol):
         The result is cached under the analysis key and reused by any request with the same key, so it must hold
         nothing the key does not cover: every flag has ``segment_id`` None, and each ``ExactResult`` carries
         its ``words``. The job assembler (WP36) stamps the current request's segment id on the flags and its
-        offsets on the exact results.
+        offsets on the exact results, and adds ``start``/``end`` to each ``EXACT_SPAN_MISMATCH`` flag's
+        ``details`` (the flag is cached with {cue, words, expected, heard, match}; §11.3 shows the caller
+        {cue, start, end, expected, heard}).
+
+        Raises ``errors.QaUnavailable`` when a check the inputs call for cannot run; never passes a take
+        without it.
         """
         ...
 
