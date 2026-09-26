@@ -55,3 +55,8 @@ are tracked here but no version is tagged; nothing described below is installabl
 - `narration.keys`: the cache keys of design section 10.2 (`voice_hash`, measurement, render, delivery and
   analysis keys) over RFC 8785 canonical JSON, the seed of section 10.3, the `rn_`/`tk_`/`an_` ids, and
   ULID job and design ids. Key values are pinned by golden tests: they name every take and never change.
+- `narration.store`: the local store of design section 15. SQLite in WAL mode with a recorded schema
+  version, content-addressed folders published whole (staged, then renamed), read-only immutable files,
+  leases so one process produces each key, idempotent job creation and a job queue, `gc` (a dry run unless
+  asked) and `verify`. Every path is confined to the store root, refusing `..`, absolute paths, links and
+  junctions that lead out, and reserved names.
