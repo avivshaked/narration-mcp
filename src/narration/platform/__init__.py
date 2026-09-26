@@ -14,11 +14,13 @@ This package is the only place allowed to import ``msvcrt``, ``ctypes.windll``/`
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Final
 
 from narration.contracts.interfaces import Platform
 
+from . import winpaths
 from ._unsupported import UnsupportedOsPlatform
 
 SUPPORTED_PLATFORMS: Final[tuple[str, ...]] = ("win32",)
@@ -43,4 +45,22 @@ def get_platform() -> Platform:
     return UnsupportedOsPlatform(sys.platform)
 
 
-__all__ = ["SUPPORTED_PLATFORMS", "UnsupportedOsPlatform", "get_platform", "is_supported"]
+def real_path(path: str | os.PathLike[str]) -> str:
+    r"""``os.path.realpath(path)``, without the ``\\?\`` prefix CPython can leave on it on Windows.
+
+    KNOW (WP30, spike g): ``ntpath.realpath`` resolves a path to its ``\\?\`` form, and drops the prefix only
+    after a second look at the plain path finds the same file. If the file is replaced between the two looks
+    (a new file renamed over it), that look fails and the prefix stays: ``\\?\D:\store\run\daemon.json`` for a
+    file inside ``D:\store``, which a comparison with the store root takes for a path outside it. The first
+    look had already resolved every link, so the plain path is the real one. ``\\?\UNC\server\share``
+    becomes ``\\server\share`` (``winpaths.strip_verbatim``).
+
+    This is string handling after the call, with no branch on the OS: a POSIX ``realpath`` never starts
+    with the prefix. The result is then ``os.path.normpath``-ed, so no ``..`` survives the stripping. Every
+    check that compares ``realpath``s (the store's confinement, section 17.2) goes through this, on both
+    sides.
+    """
+    return os.path.normpath(winpaths.strip_verbatim(os.path.realpath(path)))
+
+
+__all__ = ["SUPPORTED_PLATFORMS", "UnsupportedOsPlatform", "get_platform", "is_supported", "real_path"]

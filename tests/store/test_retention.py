@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,7 @@ from narration.contracts.models import ProvenanceEntry, RenderRecord, TakeRecord
 from narration.keys import Keys
 from narration.store import NarrationStore
 from narration.store import files as store_files
+from narration.store import store as store_module
 
 from .conftest import FakeClock
 from .factories import (
@@ -30,6 +33,7 @@ from .factories import (
     sha,
     take_record,
 )
+from .txn_fakes import scripted
 
 DAY = 86_400.0
 KEYS = Keys()
@@ -290,10 +294,10 @@ def test_gc_lists_what_it_cannot_move_aside_and_goes_on_s15(
     render_dir = store.render_dir(items["render"].render_id)
     real = store_files.rename_retrying
 
-    def refuse_the_render(src: Path, dst: Path) -> None:
+    def refuse_the_render(src: Path, dst: Path, *, attempts: int = store_files.REPLACE_ATTEMPTS) -> None:
         if Path(src) == render_dir:
             raise PermissionError(13, "a file in it is open", str(src))
-        real(src, dst)
+        real(src, dst, attempts=attempts)
 
     monkeypatch.setattr(store_files, "rename_retrying", refuse_the_render)
     report = store.gc(dry_run=False)
@@ -429,3 +433,269 @@ def test_a_gc_that_fails_midway_puts_every_folder_back_s15(
     assert store.get_take_by_id(items["take"].take_id) == items["take"]
     assert not [p for p in store.root.rglob("*") if p.name.startswith(".trash-")]
     assert store.verify()["missing"] == []
+
+
+# ---------------------------------------------------------------- follow-ups: gc never holds the write lock for long
+
+
+def _write_lock_is_free(store: NarrationStore) -> bool:
+    """Whether another connection can take the write lock at once, without waiting."""
+    conn = sqlite3.connect(str(store.root / "narration.sqlite"), timeout=0)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("ROLLBACK")
+        return True
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+
+
+def _old_renders(store: NarrationStore, clock: FakeClock, count: int) -> list[RenderRecord]:
+    renders = [
+        store.put_render(
+            render_record(f"Line {i} of an invented batch."), scratch_file(store, "raw.wav", audio_bytes(str(i)))
+        )
+        for i in range(count)
+    ]
+    clock.advance(31 * DAY)
+    return renders
+
+
+def _count_per_transaction(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """How many items each write transaction of the store collects, in order (0 for other transactions)."""
+    per_txn: list[int] = []
+    real_write, real_delete = store._write, store._delete_rows
+
+    def counting_write(**kwargs: Any) -> contextlib.AbstractContextManager[sqlite3.Connection]:
+        per_txn.append(0)
+        return real_write(**kwargs)
+
+    def counting_delete(conn: sqlite3.Connection, kind: str, ident: str) -> None:
+        per_txn[-1] += 1
+        real_delete(conn, kind, ident)
+
+    monkeypatch.setattr(store, "_write", counting_write)
+    monkeypatch.setattr(store, "_delete_rows", counting_delete)
+    return per_txn
+
+
+def _tried_per_transaction(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """How many items each write transaction of the store tried to rename to trash, in order."""
+    per_txn: list[int] = []
+    real_write, real_to_trash = store._write, store._to_trash
+
+    def counting_write(**kwargs: Any) -> contextlib.AbstractContextManager[sqlite3.Connection]:
+        per_txn.append(0)
+        return real_write(**kwargs)
+
+    def counting_to_trash(path: Path, renames: Any, errors: list[dict[str, str]]) -> bool:
+        per_txn[-1] += 1
+        return real_to_trash(path, renames, errors)
+
+    monkeypatch.setattr(store, "_write", counting_write)
+    monkeypatch.setattr(store, "_to_trash", counting_to_trash)
+    return per_txn
+
+
+def _refuse_renames(monkeypatch: pytest.MonkeyPatch, folders: set[Path]) -> None:
+    """Every rename of one of ``folders`` fails, as it does while a file in it is open."""
+    real_rename = os.rename
+
+    def rename(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        if Path(src) in folders:
+            raise PermissionError(13, "a file in it is open", os.fspath(src))
+        real_rename(src, dst)
+
+    monkeypatch.setattr(os, "rename", rename)
+
+
+@pytest.mark.parametrize(("seconds", "expected"), [(0.0, [1, 1, 1, 1, 1, 1]), (3600.0, [2, 2, 2])])
+def test_gc_bounds_a_transaction_by_the_items_it_tries_s15(
+    store: NarrationStore,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+    seconds: float,
+    expected: list[int],
+) -> None:
+    # Items that fail to rename close a transaction as surely as items collected. The review's experiment:
+    # with 2 items and 0 s per transaction, six refused renames all ran in one transaction.
+    renders = _old_renders(store, clock, 6)
+    _refuse_renames(monkeypatch, {store.render_dir(r.render_id) for r in renders})
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 2)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", seconds)
+    per_txn = _tried_per_transaction(store, monkeypatch)
+    report = store.gc(dry_run=False)
+    assert report["items"]["renders"] == [] and len(report["errors"]) == 6
+    assert [n for n in per_txn if n] == expected
+
+
+@pytest.mark.parametrize(("seconds", "expected"), [(0.0, [1, 1, 1]), (3600.0, [2, 1])])
+def test_gc_bounds_an_orphan_transaction_by_the_items_it_tries_s15(
+    store: NarrationStore,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+    seconds: float,
+    expected: list[int],
+) -> None:
+    # Folders the index does not know (a crash between the rename and the index row), none renameable.
+    months_ago = clock.now - 90 * DAY
+    orphans = {store.root / "renders" / "ab" / f"rn_{i:016x}" for i in range(3)}
+    for folder in orphans:
+        folder.mkdir(parents=True)
+        os.utime(folder, (months_ago, months_ago))
+    _refuse_renames(monkeypatch, orphans)
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 2)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", seconds)
+    per_txn = _tried_per_transaction(store, monkeypatch)
+    report = store.gc(dry_run=False)
+    assert report["orphans"] == [] and len(report["errors"]) == 3
+    assert [n for n in per_txn if n] == expected
+
+
+def test_gc_collects_in_bounded_transactions_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A first gc over thousands of folders must not hold the write lock past the busy timeout every other
+    # writer waits for: it commits every GC_BATCH_ITEMS items, and the lock is free while it removes trash.
+    renders = _old_renders(store, clock, 5)
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 2)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", 3600.0)  # only the count bounds it here
+    per_txn = _count_per_transaction(store, monkeypatch)
+    lock_free: list[bool] = []
+    real_remove = store._remove
+
+    def remove_and_probe(path: Path, shown_as: Path, errors: list[dict[str, str]]) -> bool:
+        lock_free.append(_write_lock_is_free(store))
+        return real_remove(path, shown_as, errors)
+
+    monkeypatch.setattr(store, "_remove", remove_and_probe)
+    report = store.gc(dry_run=False)
+    assert report["items"]["renders"] == sorted(r.render_id for r in renders)
+    assert [n for n in per_txn if n] == [2, 2, 1]
+    assert len(lock_free) >= 5 and all(lock_free)  # five renders' trash, then the old scratch folder
+
+
+def test_gc_commits_after_a_few_seconds_whatever_the_count_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _old_renders(store, clock, 3)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", 0.0)
+    per_txn = _count_per_transaction(store, monkeypatch)
+    report = store.gc(dry_run=False)
+    assert len(report["items"]["renders"]) == 3
+    assert [n for n in per_txn if n] == [1, 1, 1]  # each transaction still takes one item
+
+
+def test_gc_tries_a_folder_in_use_once_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Under the write lock, a folder in use is not waited for: tried once, listed, and kept for the next run.
+    renders = sorted(_old_renders(store, clock, 2), key=lambda r: r.render_id)
+    locked = store.render_dir(renders[0].render_id)
+    tries: list[str] = []
+    real_rename = os.rename
+
+    def rename(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        if Path(src) == locked:
+            tries.append(os.fspath(src))
+            raise PermissionError(13, "a file in it is open", os.fspath(src))
+        real_rename(src, dst)
+
+    def no_waiting(attempt: int) -> None:
+        raise AssertionError("gc waited for a folder in use")
+
+    monkeypatch.setattr(os, "rename", rename)
+    monkeypatch.setattr(store_files, "_retry_sleep", no_waiting)
+    report = store.gc(dry_run=False)
+    assert len(tries) == 1
+    assert report["items"]["renders"] == [renders[1].render_id]
+    assert [e["path"] for e in report["errors"]] == [store.layout.rel(locked)]
+    monkeypatch.undo()
+    assert store.get_render(renders[0].render_key) == renders[0]
+
+
+def test_an_item_used_while_gc_runs_is_kept_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each transaction checks its items against a plan made under its own lock.
+    first, second = sorted(_old_renders(store, clock, 2), key=lambda r: r.render_id)
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 1)
+    real_remove = store._remove
+
+    def use_the_second_meanwhile(path: Path, shown_as: Path, errors: list[dict[str, str]]) -> bool:
+        store.touch("render", second.render_id)
+        return real_remove(path, shown_as, errors)
+
+    monkeypatch.setattr(store, "_remove", use_the_second_meanwhile)
+    report = store.gc(dry_run=False)
+    assert report["items"]["renders"] == [first.render_id]
+    monkeypatch.undo()
+    assert store.get_render(second.render_key) == second
+
+
+def test_a_failed_gc_transaction_puts_folders_back_before_it_releases_the_lock_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The renames are undone inside the transaction: once the ROLLBACK makes the rows visible again, their
+    # folders are already back under their own names.
+    items = populate(store)
+    clock.advance(31 * DAY)
+    folders = [store.render_dir(items["render"].render_id), store.take_dir(items["take"].take_id)]
+    real_delete = store._delete_rows
+    calls = {"n": 0}
+
+    def fail_on_the_second(conn: sqlite3.Connection, kind: str, ident: str) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("the disk went away")
+        real_delete(conn, kind, ident)
+
+    seen = scripted(monkeypatch, store, look=lambda: [f.is_dir() for f in folders]).seen
+    monkeypatch.setattr(store, "_delete_rows", fail_on_the_second)
+    with pytest.raises(RuntimeError):
+        store.gc(dry_run=False)
+    assert seen == [[True, True]]
+
+
+# ---------------------------------------------------------------- follow-ups: a trash name's age is written in it
+
+
+def test_a_trash_name_carries_the_moment_of_the_rename_s15(tmp_path: Path) -> None:
+    trash = store_files.trash_name(tmp_path / "profile.json", 1_790_000_000.7)
+    assert trash.parent == tmp_path
+    assert re.fullmatch(r"\.trash-1790000000-[0-9a-f]{16}-profile\.json", trash.name)
+    assert store_files.trash_time(trash.name) == 1_790_000_000.0
+    # The older layout (.trash-<16 hex token>-<name>) and any other name carry no time.
+    assert store_files.trash_time(".trash-0123456789abcdef-profile.json") is None
+    assert store_files.trash_time(".trash-1234567890123456-profile.json") is None
+    assert store_files.trash_time(".tmp-0123456789abcdef-profile.json") is None
+    assert store_files.trash_time("profile.json") is None
+
+
+def test_gc_judges_a_trash_name_by_its_time_not_its_mtime_s15(store: NarrationStore, clock: FakeClock) -> None:
+    # A publisher renames a published folder, which may be months old, to a trash name, and renames it back
+    # if its commit fails. gc must not take that folder for an old leftover because of its old mtime.
+    months_ago = clock.now - 90 * DAY
+    shard = store.root / "profiles" / "ab"
+    shard.mkdir(parents=True)
+
+    def trash_folder(name: str, mtime: float) -> Path:
+        folder = shard / name
+        folder.mkdir()
+        (folder / "profile.json").write_bytes(b"{}")
+        for path in (folder / "profile.json", folder):
+            os.utime(path, (mtime, mtime))
+        return folder
+
+    just_made = trash_folder(store_files.trash_name(shard / ("ab" * 32), clock.now).name, months_ago)
+    token_and_name = just_made.name.split("-", 2)[2]
+    long_made = trash_folder(f".trash-{int(months_ago)}-{token_and_name}", clock.now)  # a recent mtime
+    legacy = trash_folder(".trash-0123456789abcdef-" + "ab" * 32, months_ago)  # no time: judged by mtime
+    report = store.gc(dry_run=False)
+    assert just_made.is_dir()
+    assert not long_made.exists() and not legacy.exists()
+    assert sorted(report["leftovers"]) == sorted(store.layout.rel(p) for p in (long_made, legacy))
+    clock.advance(2 * DAY)  # past the grace period since the rename
+    store.gc(dry_run=False)
+    assert not just_made.exists()

@@ -12,9 +12,10 @@ are relative to the store root.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -204,15 +205,42 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 @contextmanager
-def write_txn(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
-    """A write transaction that holds the database's write lock from its first statement."""
+def write_txn(conn: sqlite3.Connection, *, undo: Callable[[], None] | None = None) -> Iterator[sqlite3.Connection]:
+    """A write transaction that holds the database's write lock from its first statement.
+
+    If the transaction does not commit (its body fails, or the COMMIT itself does), it is rolled back
+    before the error is raised, so the write lock is never left held. ``undo`` puts back what the caller
+    changed outside the database (``store._Renames``), and runs while the write lock is held, just before
+    that ROLLBACK: no other writer ever sees the rows rolled back while the files are not yet put back. If
+    SQLite has already ended the transaction itself (it does after some I/O errors), the lock is taken
+    again for ``undo``; another writer may have run in between, so ``undo`` must put back only what is
+    still its own. If the lock cannot be taken again, ``undo`` runs anyway.
+    """
     conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn
     except BaseException:
-        conn.execute("ROLLBACK")
+        _abandon(conn, undo)
         raise
-    conn.execute("COMMIT")
+    try:
+        conn.execute("COMMIT")
+    except BaseException:
+        _abandon(conn, undo)
+        raise
+
+
+def _abandon(conn: sqlite3.Connection, undo: Callable[[], None] | None) -> None:
+    """Undo and roll back a write transaction that will not commit, holding the write lock throughout."""
+    try:
+        if undo is not None:
+            if not conn.in_transaction:
+                with contextlib.suppress(sqlite3.Error):
+                    conn.execute("BEGIN IMMEDIATE")
+            undo()
+    finally:
+        if conn.in_transaction:
+            with contextlib.suppress(sqlite3.Error):
+                conn.execute("ROLLBACK")
 
 
 @contextmanager

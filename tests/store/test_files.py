@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -61,6 +62,69 @@ def test_move_into_makes_the_moved_file_read_only(tmp_path: Path) -> None:
     dst = tmp_path / "raw.wav"
     files.move_into(src, dst, readonly=True)
     assert not src.exists() and dst.read_bytes() == b"audio" and files.is_readonly(dst)
+
+
+def test_move_into_stamps_the_moved_file_with_the_time_of_the_move_s15(tmp_path: Path) -> None:
+    # A rename keeps the file's old mtime, and gc judges a .tmp- name's age by its mtime.
+    src = tmp_path / "scratch.wav"
+    src.write_bytes(b"audio")
+    months_ago = time.time() - 90 * 86_400
+    os.utime(src, (months_ago, months_ago))
+    before = time.time()
+    dst = tmp_path / ".tmp-0123456789abcdef-canary.wav"
+    files.move_into(src, dst, readonly=True)
+    assert os.stat(dst).st_mtime >= before - 2  # a coarse file-system clock may round down a little
+
+
+def _refusing_reads(monkeypatch: pytest.MonkeyPatch, refusals: int) -> list[float]:
+    """Make the next ``refusals`` reads raise ``PermissionError``, as Windows does while a file is being
+    replaced; return the list the retry pauses are recorded in (none is actually slept)."""
+    original = Path.read_bytes
+    left = [refusals]
+
+    def read_bytes(self: Path) -> bytes:
+        if left[0] > 0:
+            left[0] -= 1
+            raise PermissionError(13, "Access is denied", str(self))
+        return original(self)
+
+    pauses: list[float] = []
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(files, "_retry_sleep", pauses.append)
+    return pauses
+
+
+def test_a_read_refused_while_the_file_is_replaced_is_tried_again_s15(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "daemon.json"
+    path.write_bytes(b"{}")
+    pauses = _refusing_reads(monkeypatch, 3)
+    assert files.read_retrying(path) == b"{}"
+    assert pauses == [0, 1, 2]
+
+
+def test_a_read_refused_every_time_fails_after_the_attempts_s15(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "daemon.json"
+    path.write_bytes(b"{}")
+    pauses = _refusing_reads(monkeypatch, files.REPLACE_ATTEMPTS)
+    with pytest.raises(PermissionError):
+        files.read_retrying(path)
+    assert len(pauses) == files.REPLACE_ATTEMPTS - 1
+    _refusing_reads(monkeypatch, 1)
+    with pytest.raises(PermissionError):
+        files.read_retrying(path, attempts=1)
+    with pytest.raises(ValueError):
+        files.read_retrying(path, attempts=0)
+
+
+def test_a_missing_file_is_not_read_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pauses = _refusing_reads(monkeypatch, 0)
+    with pytest.raises(FileNotFoundError):
+        files.read_retrying(tmp_path / "daemon.json")
+    assert pauses == []
 
 
 def test_remove_tree_removes_read_only_files(tmp_path: Path) -> None:
@@ -202,3 +266,25 @@ def test_remove_tree_is_quiet_about_entries_that_vanish(tmp_path: Path) -> None:
     files.remove_tree(tree)
     files.remove_tree(tree)
     assert not tree.exists()
+
+
+def test_a_rename_with_one_attempt_is_tried_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # gc renames under the write lock, so it does not wait for a folder in use.
+    src = tmp_path / "rn_1"
+    src.mkdir()
+    calls = {"n": 0}
+
+    def refuse(a: object, b: object) -> None:
+        calls["n"] += 1
+        raise PermissionError(13, "a file inside is open", str(a))
+
+    def no_waiting(attempt: int) -> None:
+        raise AssertionError("waited")
+
+    monkeypatch.setattr(os, "rename", refuse)
+    monkeypatch.setattr(files, "_retry_sleep", no_waiting)
+    with pytest.raises(PermissionError):
+        files.rename_retrying(src, tmp_path / ".trash-x-rn_1", attempts=1)
+    assert calls["n"] == 1 and src.is_dir()
+    with pytest.raises(ValueError):
+        files.rename_retrying(src, tmp_path / ".trash-x-rn_1", attempts=0)

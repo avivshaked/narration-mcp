@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +16,7 @@ import pytest
 
 from narration.config import Config
 from narration.contracts import names
-from narration.contracts.models import ProvenanceEntry
+from narration.contracts.models import EngineProfile, ProvenanceEntry
 from narration.keys import Keys
 from narration.store import (
     InvalidIdError,
@@ -25,6 +27,7 @@ from narration.store import (
 )
 from narration.store import files as store_files
 
+from .conftest import FakeClock
 from .factories import (
     CLIP_SHA,
     METHOD_ID,
@@ -41,6 +44,7 @@ from .factories import (
     sha,
 )
 from .standin import StandInPlatform
+from .txn_fakes import scripted
 
 DESIGN_ID = Keys().new_design_id()
 
@@ -254,6 +258,39 @@ def test_daemon_status_is_run_daemon_json_s15(store: NarrationStore) -> None:
     assert (store.root / "run" / "daemon.json").is_file()
 
 
+def test_the_daemon_status_reads_while_the_daemon_rewrites_it_s15(store: NarrationStore) -> None:
+    # The daemon renames a new run/daemon.json over the old one while the front-end reads it. On Windows a
+    # read that opens the file during the rename was refused (PermissionError), and the path check could see
+    # the file's realpath with a \\?\ prefix (StorePathError). Elsewhere this passes trivially.
+    store.put_daemon_status(daemon_status())
+    stop = threading.Event()
+    writes = 0
+    writer_errors: list[BaseException] = []
+
+    def rewrite() -> None:
+        nonlocal writes
+        try:
+            while not stop.is_set():
+                store.put_daemon_status(dataclasses.replace(daemon_status(), est_drain_s=float(writes)))
+                writes += 1
+        except BaseException as exc:
+            writer_errors.append(exc)
+
+    writer = threading.Thread(target=rewrite)
+    writer.start()
+    reads = 0
+    try:
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            status = store.get_daemon_status()
+            assert status is not None and status.pid == daemon_status().pid
+            reads += 1
+    finally:
+        stop.set()
+        writer.join(timeout=30)
+    assert writer_errors == [] and reads > 0 and writes > 0
+
+
 def test_commands_reach_the_daemon_through_the_store_s4(store: NarrationStore) -> None:
     posted = store.post_command("release_gpu")
     stop = store.post_command("stop")
@@ -306,3 +343,68 @@ def test_a_row_replaced_meanwhile_is_never_dropped_as_missing(store: NarrationSt
     store_files.discard(store.root / rel)
     store._drop("profile", audio, current[0], rel)  # the same row, its file still missing: dropped
     assert _profile_row(store, audio) is None
+
+
+# ---------------------------------------------------------------- follow-ups: a canary clip is never destroyed
+
+
+def test_a_refused_canary_clip_goes_back_to_scratch_dc_3(store: NarrationStore) -> None:
+    # The canary is designed on the GPU: a clip the store refuses goes back where the caller had it.
+    clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, scratch_file(store, "canary.wav", b"canary"))
+    store.put_engine_profile(dataclasses.replace(engine_profile(), canary=canary_pin(clip)))
+    other = scratch_file(store, "c3.wav", b"another canary")
+    with pytest.raises(StoreIntegrityError):
+        store.put_canary_clip(names.ENGINE_PROFILE_BASE, other)
+    assert other.read_bytes() == b"another canary" and not store_files.is_readonly(other)
+    assert Path(clip.path).read_bytes() == b"canary"
+    assert not [p for p in store.root.rglob("*") if p.name.startswith((".tmp-", ".trash-"))]
+
+
+def test_a_canary_clip_whose_commit_fails_goes_back_and_the_old_one_stays_dc_3(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, scratch_file(store, "canary.wav", b"canary"))
+    other = scratch_file(store, "c2.wav", b"a newer canary")
+    scripted(monkeypatch, store, fail_commit=True)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_canary_clip(names.ENGINE_PROFILE_BASE, other)
+    monkeypatch.undo()
+    assert other.read_bytes() == b"a newer canary" and not store_files.is_readonly(other)
+    assert Path(clip.path).read_bytes() == b"canary" and store_files.is_readonly(Path(clip.path))
+    assert store.verify()["mismatched"] == []
+    assert not [p for p in store.root.rglob("*") if p.name.startswith((".tmp-", ".trash-"))]
+
+
+def test_a_canary_clip_that_waited_in_scratch_survives_a_gc_during_its_publish_dc_3(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The clip is moved to a .tmp- name before its publish takes the write lock. A gc in between must not
+    # take it for an old leftover because it waited in scratch/ for months (a rename keeps the mtime).
+    src = scratch_file(store, "canary.wav", b"canary")
+    months_ago = clock.now - 90 * 86_400
+    os.utime(src, (months_ago, months_ago))
+    move_into = store_files.move_into
+
+    def move_then_gc(source: Path, dst: Path, *, readonly: bool) -> None:
+        move_into(source, dst, readonly=readonly)
+        store.gc(dry_run=False)  # between the move and the publish
+
+    monkeypatch.setattr(store_files, "move_into", move_then_gc)
+    clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, src)
+    assert Path(clip.path).read_bytes() == b"canary"
+
+
+def test_a_canary_clip_whose_profile_cannot_be_read_stays_in_scratch_dc_3(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The engine profile is read before the clip is moved, so a failure there cannot strand it under .tmp-.
+    src = scratch_file(store, "canary.wav", b"canary")
+
+    def unreadable(engine_profile_id: str) -> EngineProfile | None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(store, "get_engine_profile", unreadable)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_canary_clip(names.ENGINE_PROFILE_BASE, src)
+    assert src.read_bytes() == b"canary" and not store_files.is_readonly(src)
+    assert not [p for p in store.root.rglob("*") if p.name.startswith(".tmp-")]

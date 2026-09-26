@@ -10,6 +10,7 @@ import stat
 import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -288,6 +289,28 @@ def test_a_symlinked_file_inside_the_store_is_refused_s17_2(store: Path, tmp_pat
     with pytest.raises(NarrationError) as exc:
         get_platform().check_store_path(link, store)
     assert rule_of(exc) == "reparse_point"
+
+
+def test_a_store_path_whose_realpath_keeps_the_verbatim_prefix_is_inside_s17_2(
+    store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # KNOW (WP30, spike g): realpath of a file replaced during the call can come back as \\?\D:\...
+    target = store / "run" / "daemon.json"
+    outside = tmp_path / "outside.json"
+    original = os.path.realpath
+
+    def verbatim(path: Any, **kwargs: Any) -> str:
+        real = original(path, **kwargs)
+        return "\\\\?\\" + real if os.fspath(path) in (str(target), str(outside)) else real
+
+    platform = get_platform()
+    with monkeypatch.context() as patched:
+        patched.setattr(os.path, "realpath", verbatim)
+        checked = platform.check_store_path(target, store)
+        with pytest.raises(NarrationError) as exc:
+            platform.check_store_path(outside, store)
+    assert same(checked, target) and not str(checked).startswith("\\\\?\\")
+    assert rule_of(exc) == "outside_root"
 
 
 def test_the_store_root_may_be_reached_through_a_junction_s17_2(store: Path, tmp_path: Path, links: list[Path]) -> None:
