@@ -61,6 +61,39 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   - tab, LF and CR are whitespace, and the canonical form collapses them;
   - every other C0 and C1 control character is refused (`TEXT_REFUSED`).
 
+## Paused by the owner (2026-09-26, 23:50), resume here
+
+The owner needed the machine, so every agent was told to commit its work in progress, write its status
+file as a handoff (`blocked:paused by owner`), release the GPU lock and stop. Nothing was merged or pushed
+after `1814b3b`. Resume in this order:
+
+1. **Check the machine is clean**: `tools/gpu_lock.py status` is free (release it if WP22 left it held,
+   after checking no WP22 run is alive); no `-m narration.daemon` or `narration_worker` process is left.
+2. **WP16 follow-ups** (`wp/16-worker-followups`, b131baa): its reviewer's re-verification was cut short.
+   Re-run it, then merge first, with the lead's design note (§11.2 step 7, the four `CUE_UNALIGNED`
+   reasons; the lead's script bumps the revision). Contracts 1.6.3. Then tell WP22 the shared patterns
+   are on main.
+3. **WP30** (`wp/30-daemon`, c7e15c6 or later): the third review was merge with follow-ups. Three last
+   fixes were in progress (an answered stop from the future is not trusted; only `stopped: true` answers
+   stop a waiter; `[0-9]` in `_STORE_TIME`); see `status/WP30.md` for which are done. The lead checks
+   that diff, renumbers the contract to 1.6.4 on rebase, and merges with design text for §4, §4.1 and
+   §17 item 9 (the lead's drafted edit; next revision).
+4. **WP31** (`wp/31-jobs`, b98d4a5): fixed; its reviewer's re-verification was cut short (re-run it).
+   After WP30 merges: rebase, contracts 1.6.5, the seam re-export, `DEFAULT_RUNNER`, `host.platform`,
+   `CUDA_DEVICE_ORDER=PCI_BUS_ID`, one exported log name. The lead's decisions are in `status/WP31.md`:
+   one job at a time (priority, then first come; affinity keeps the resident group, never reorders);
+   `embed`'s `"cuda"` is the QA group's device; cross-job grouping in a round (§4 item 3) is put to the
+   owner as a scope question (about 2–3 days; saves one model swap per extra queued job per round).
+5. **WP22** (`wp/22-qa-worker`): building; paused mid-way. `status/WP22.md` has its next steps. Told:
+   accept `"English"` as the ASR language; embed on the loaded group's device; import the shared patterns
+   once WP16's follow-ups merge. Its GPU lock ran past the 30-minute bound; its status file says why.
+6. **Gate H1**: 8 of 10 approved. `ladder-080` and `align-03` had an artefact at the start of take 1 only;
+   the owner found both second takes clean, so it is most likely the sampling. The design already names
+   this failure (`HEAD_INSERTION`, reference bleed, §11 step 7). The investigation was stopped after its
+   measuring half; its scripts and outputs are in the local `.dev/h1/investigate/` (no conclusions were
+   returned). To finish: re-run the measure and research agents from those files, then the 8-seed
+   reproduction on the GPU, then recommend to the owner whether to approve both texts as written.
+
 ## Waiting on the owner
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
