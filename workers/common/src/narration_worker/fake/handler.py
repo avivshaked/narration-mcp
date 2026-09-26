@@ -5,10 +5,13 @@ keeps the contract the real workers keep (``handler.py``): model ops need ``load
 the snapshot directories it is given, paths stay in the store.
 
 - ``synthesize`` and ``design`` write a real float32 mono WAV at 24 kHz whose length follows the text
-  (``audio.py``), report ``new_tokens`` at Qwen's 12 per second, and record what they said
-  (``registry.py``). Each call's ``max_new_tokens`` (required, at most the loaded ceiling: ``load``'s
-  ``settings.generation.max_new_tokens``, 8192 when it gives none) cuts a take that would be longer, which
-  then reports ``hit_token_cap: true``. A take that ends under its cap is the same under any cap.
+  (``audio.py``) and record what they said (``registry.py``). They count tokens as the real worker does
+  (``protocol.AudioReply``): a take of F frames at 12.5 per second takes F + 1 talker steps, the last one
+  the end token. Under the call's ``max_new_tokens`` (2 to the loaded ceiling: ``load``'s
+  ``settings.generation.max_new_tokens``, 8192 when it gives none), a cap of F + 1 or more leaves the take
+  whole (``new_tokens`` F), and a cap C of F or less cuts it to C - 1 frames with ``hit_token_cap: true``.
+  The reply echoes the call's cap as ``max_new_tokens``. A take that ends under its cap is the same under
+  any cap.
 - ``transcribe`` hears the text back, with word times, from the take or from any post-processed copy of it.
 - ``embed`` gives a 512-dimension unit vector: the voice's direction plus a small per-take part, so takes of
   one voice (and the clip they clone) are about 0.99 similar and different voices are not.
@@ -54,9 +57,9 @@ from narration_worker.protocol import Controls, WorkerErrorCode
 
 from .audio import (
     SAMPLE_RATE,
+    SAMPLES_PER_FRAME,
     SEGMENT,
     SEGMENT_S,
-    TOKENS_PER_SECOND,
     Heard,
     decode,
     layout,
@@ -299,8 +302,9 @@ class FakeHandler(WorkerHandler):
         out: Path,
         field: str,
     ) -> dict[str, Any]:
-        """Render a take of ``text``, cut at ``cap`` tokens (the call's ``max_new_tokens``, or a lower
-        ``token_cap`` fault's) if it would be longer."""
+        """Render a take of ``text`` under ``cap``, the call's ``max_new_tokens`` (see the module docstring for
+        how the cap counts). A ``token_cap`` fault stops generation at its own cap if that is lower; the reply
+        still echoes the call's."""
         tokens = spoken_tokens(text)
         if not tokens:
             raise OpError("INVALID_REQUEST", f"{field} has no words to speak", {"field": field})
@@ -327,12 +331,14 @@ class FakeHandler(WorkerHandler):
                 cap_fault = fault
         bursts, total = layout([said for said, _, _ in entries])
         full = [b.segments for b in bursts]
-        natural = new_tokens(total)
+        natural = new_tokens(total)  # F frames: F + 1 talker steps, the last one the end token
+        call_cap = cap
         if cap_fault is not None:  # generation stops at the fault's cap, or the call's if that is lower
-            cap = min(cap, int(cap_fault.params.get("max_new_tokens", max(1, natural * 6 // 10))))
-        hit = natural >= cap
+            cap = min(cap, int(cap_fault.params.get("max_new_tokens", max(2, natural * 6 // 10))))
+        hit = cap <= natural  # the end token would come at step F + 1, past the cap
+        frames = cap - 1 if hit else natural
         if hit:
-            bursts, total = truncate(bursts, cap * SAMPLE_RATE // TOKENS_PER_SECOND)
+            bursts, total = truncate(bursts, frames * SAMPLES_PER_FRAME)
         identity = {
             "op": op,
             "voice_key": voice_key,
@@ -373,7 +379,8 @@ class FakeHandler(WorkerHandler):
             "samples": total,
             "gen_s": round(total / SAMPLE_RATE * _REAL_TIME_FACTOR, 3),
             "hit_token_cap": hit,
-            "new_tokens": cap if hit else natural,
+            "max_new_tokens": call_cap,
+            "new_tokens": frames,
         }
 
     def _content_faults(self, op: str, facts: Facts) -> list[Fault]:

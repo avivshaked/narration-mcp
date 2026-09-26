@@ -28,9 +28,11 @@ What the contract says, beyond the message shapes:
 - model ops reply ``NOT_LOADED`` before ``load`` (and after ``unload``), before reading any file;
 - ``load`` with a snapshot directory that does not exist replies ``BACKEND_NOT_INSTALLED``;
 - ``synthesize`` and ``design`` need their own ``max_new_tokens`` (design section 10.1, DC-4): missing, not
-  an integer, below 1 or above the loaded ceiling is ``INVALID_REQUEST`` for ``max_new_tokens``, before
-  ``VOICE_NOT_PREPARED``; a cap below the take's length cuts it and reports ``hit_token_cap: true``, and
-  the loaded ceiling does not cut a short take;
+  an integer, below 2 or above the loaded ceiling is ``INVALID_REQUEST`` for ``max_new_tokens``, before
+  ``VOICE_NOT_PREPARED``;
+- the reply echoes the cap and counts as ``protocol.AudioReply`` says: a cap below the take's length cuts it
+  and reports ``hit_token_cap: true`` with ``new_tokens`` = cap - 1; an end token exactly at the cap (a
+  cap of ``new_tokens`` + 1) is not a hit and changes nothing; the loaded ceiling does not cut a short take;
 - ``shutdown`` replies, then the process exits with code 0; so does the end of input, without a reply;
 - stdout carries protocol replies and nothing else.
 """
@@ -125,8 +127,8 @@ class WorkerContract:
     role: ClassVar[WorkerRole]
     timeout_s: ClassVar[float] = 120.0
     """How long any single reply may take (a real worker imports torch when it starts)."""
-    small_cap: ClassVar[int] = 1
-    """The ``max_new_tokens`` the call-cap test expects to cut the last of ``render_requests``."""
+    small_cap: ClassVar[int] = 2
+    """The ``max_new_tokens`` the call-cap test expects to cut the last of ``render_requests`` (at least 2)."""
 
     # ------------------------------------------------------------------ fixtures to override
     @pytest.fixture
@@ -273,18 +275,19 @@ class WorkerContract:
         missing = object()
         for op in ops:
             body = {k: v for k, v in samples[op].items() if k != "max_new_tokens"}
-            for bad in (missing, None, 0, -1, ceiling + 1, 1.5, True, "128"):
+            for bad in (missing, None, 1, 0, -1, ceiling + 1, 1.5, True, "128"):
                 payload = body if bad is missing else {**body, "max_new_tokens": bad}
                 reply = worker.request(op, timeout_s=self.timeout_s, **payload)
                 assert reply["ok"] is False and reply["error"]["code"] == "INVALID_REQUEST", (op, bad, reply)
                 assert reply["error"].get("details", {}).get("field") == "max_new_tokens", (op, bad, reply)
 
-    def test_a_call_cap_below_the_take_cuts_it_and_reports_hit_token_cap_s10_1(
+    def _render(
         self,
         worker: WorkerProcess,
         load_request: dict[str, Any] | None,
         render_requests: list[tuple[str, dict[str, Any]]] | None,
-    ) -> None:
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        """Load, send the set-up requests, and render the last call at the ceiling: (op, body, reply)."""
         if load_request is None or render_requests is None:
             pytest.skip(f"override load_request and render_requests to render with the {self.role} worker")
         *setup, (op, body) = render_requests
@@ -293,12 +296,43 @@ class WorkerContract:
         for setup_op, setup_body in setup:
             reply = worker.request(setup_op, timeout_s=self.timeout_s, **setup_body)
             assert reply["ok"] is True, (setup_op, reply)
-        full = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": loaded_ceiling(load_request)})
+        ceiling = loaded_ceiling(load_request)
+        full = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": ceiling})
         assert full["ok"] is True and full["hit_token_cap"] is False, full
+        assert full["max_new_tokens"] == ceiling, full
+        return op, body, full
+
+    def test_a_call_cap_below_the_take_cuts_it_and_reports_hit_token_cap_s10_1(
+        self,
+        worker: WorkerProcess,
+        load_request: dict[str, Any] | None,
+        render_requests: list[tuple[str, dict[str, Any]]] | None,
+    ) -> None:
+        op, body, full = self._render(worker, load_request, render_requests)
         cut = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": self.small_cap})
         assert cut["ok"] is True and cut["hit_token_cap"] is True, cut
-        assert cut.get("new_tokens", self.small_cap) == self.small_cap
+        assert cut["max_new_tokens"] == self.small_cap, cut
+        assert cut.get("new_tokens", self.small_cap - 1) == self.small_cap - 1, cut
         assert cut["samples"] < full["samples"]
+
+    def test_an_end_token_exactly_at_the_cap_is_not_a_hit_s10_1(
+        self,
+        worker: WorkerProcess,
+        load_request: dict[str, Any] | None,
+        render_requests: list[tuple[str, dict[str, Any]]] | None,
+    ) -> None:
+        """A render of F frames takes F + 1 steps, the last one the end token: a cap of F + 1 is not a hit and
+        changes nothing; a cap of F is a hit with F - 1 frames (``protocol.AudioReply``)."""
+        op, body, full = self._render(worker, load_request, render_requests)
+        assert "new_tokens" in full, "the worker must report new_tokens (the decoded frames) for this contract"
+        frames = full["new_tokens"]
+        assert frames >= 2, f"render_requests' last call must render at least 2 frames, not {frames}"
+        exact = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": frames + 1})
+        assert exact["ok"] is True and exact["hit_token_cap"] is False, exact
+        assert (exact["new_tokens"], exact["samples"]) == (frames, full["samples"]), exact
+        under = worker.request(op, timeout_s=self.timeout_s, **{**body, "max_new_tokens": frames})
+        assert under["ok"] is True and under["hit_token_cap"] is True, under
+        assert under["new_tokens"] == frames - 1, under
 
     def test_shutdown_replies_then_exits_zero_appA(self, worker: WorkerProcess) -> None:
         reply = worker.request("shutdown", timeout_s=self.timeout_s)

@@ -17,10 +17,11 @@ replies to it and calls ``shutdown()`` first). A method returns the reply's memb
 - ``load`` checks that each snapshot directory it is given exists before anything else, and replies
   ``BACKEND_NOT_INSTALLED`` for a missing one;
 - ``synthesize`` and ``design`` take a required ``max_new_tokens``, the call's own generation cap (design
-  section 10.1, DC-4), and check it with ``require_max_new_tokens``: an integer from 1 to the loaded ceiling
+  section 10.1, DC-4), and check it with ``require_max_new_tokens``: an integer from 2 to the loaded ceiling
   (``load``'s ``settings.generation.max_new_tokens``). A missing or out-of-range cap is ``INVALID_REQUEST``,
-  and like every argument error it comes before ``VOICE_NOT_PREPARED``. A render that reaches the call's
-  cap reports ``hit_token_cap: true``; the cap only truncates, so a render that ends under it is the same
+  and like every argument error it comes before ``VOICE_NOT_PREPARED``. The reply echoes the cap and
+  reports ``hit_token_cap`` and ``new_tokens`` exactly as ``protocol.AudioReply`` defines them (an end token
+  on the cap-th step is not a hit). The cap only truncates, so a render that ends under it is the same
   under any cap;
 - a worker returns raw outputs only; every verdict, threshold and flag is the server's (plan.md P1);
 - file paths in a request are absolute and inside ``<store_root>``; outputs are written only there.
@@ -38,7 +39,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 from .determinism import import_optional
 from .errors import OpError
@@ -259,17 +260,22 @@ def require_str_list(request: Request, name: str) -> list[str]:
     return list(value)
 
 
+MIN_MAX_NEW_TOKENS: Final = 2
+"""The smallest call cap: qwen-tts fixes ``min_new_tokens`` at 2, so a cap of 1 could not be honoured."""
+
+
 def require_max_new_tokens(request: Request, ceiling: int) -> int:
-    """The ``max_new_tokens`` of a ``synthesize`` or ``design`` call: required, an integer in 1..``ceiling``.
+    """The ``max_new_tokens`` of a ``synthesize`` or ``design`` call: required, an integer in 2..``ceiling``.
 
     It is the call's own generation cap (design section 10.1, DC-4). The daemon computes it from the text the
     call speaks, ``min(ceiling, max(floor, ceil(per_char * len(text))))`` with the engine profile's
     ``max_new_tokens_per_char`` and ``max_new_tokens_floor`` (``narration.contracts.names.max_new_tokens_for``),
     so a runaway render stops early. ``ceiling`` is the loaded ``settings.generation.max_new_tokens`` (8192,
-    the snapshots' value). A missing cap, or one above the ceiling, is ``INVALID_REQUEST`` with
-    ``details.field`` ``max_new_tokens``: an audio-changing setting is never left to a default.
+    the snapshots' value). A missing cap, one below ``MIN_MAX_NEW_TOKENS`` or one above the ceiling is
+    ``INVALID_REQUEST`` with ``details.field`` ``max_new_tokens``: an audio-changing setting is never left to a
+    default.
     """
-    cap = require_int(request, "max_new_tokens", minimum=1)
+    cap = require_int(request, "max_new_tokens", minimum=MIN_MAX_NEW_TOKENS)
     if cap > ceiling:
         raise OpError(
             "INVALID_REQUEST",

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from narration_worker.fake.audio import SAMPLE_RATE
+from narration_worker.fake.audio import SAMPLE_RATE, SAMPLES_PER_FRAME
 from narration_worker.fake.faults import SPEC_ENV
 from narration_worker.fake.handler import PROFILE_KEYS
 from narration_worker.fake.registry import RECORD_SCHEMA, Registry, fake_dir
@@ -157,7 +157,8 @@ def test_synthesize_writes_float32_mono_wav_whose_length_follows_the_text_appA(
     assert audio.sample_rate == reply["sample_rate"] == SAMPLE_RATE
     assert len(audio.samples) == reply["samples"]
     assert reply["hit_token_cap"] is False
-    assert reply["new_tokens"] == math.ceil(reply["samples"] * 12 / SAMPLE_RATE)
+    assert reply["new_tokens"] == math.ceil(reply["samples"] * 12.5 / SAMPLE_RATE)  # frames at 12.5 per second
+    assert reply["max_new_tokens"] == CEILING
     assert 4.0 < audio.duration_s < 8.0  # 14 words at about narration pace
     _, short = _say(worker, store, "short", text="Far below.")
     assert _ok(short)["samples"] < reply["samples"] / 4
@@ -307,8 +308,8 @@ def test_the_loaded_ceiling_bounds_every_calls_cap_s10_1(store: Path) -> None:
         wav, reply = _say(worker, store, "capped", cap=30)
         _ok(reply)
         assert reply["hit_token_cap"] is True
-        assert reply["new_tokens"] == 30
-        assert reply["samples"] <= 30 * SAMPLE_RATE // 12
+        assert (reply["max_new_tokens"], reply["new_tokens"]) == (30, 29)  # 30 steps: 29 frames, no end token
+        assert reply["samples"] <= 29 * SAMPLES_PER_FRAME
         heard = _ok(_transcribe(worker, wav))["text"].split()
         assert 0 < len(heard) < len(TEXT.split())
         assert heard == TEXT.split()[: len(heard)]
@@ -321,22 +322,23 @@ def test_the_calls_cap_cuts_the_take_and_the_fake_hears_the_words_before_the_cut
     _, full = _say(worker, store, "full")
     wav, cut = _say(worker, store, "cut", cap=20)
     assert _ok(full)["hit_token_cap"] is False and full["new_tokens"] > 20
-    assert _ok(cut)["hit_token_cap"] is True and cut["new_tokens"] == 20
-    assert cut["samples"] <= 20 * SAMPLE_RATE // 12
+    assert _ok(cut)["hit_token_cap"] is True and (cut["max_new_tokens"], cut["new_tokens"]) == (20, 19)
+    assert cut["samples"] <= 19 * SAMPLES_PER_FRAME
     heard = [w["text"] for w in _ok(_transcribe(worker, wav))["words"]]
     assert heard and heard == TEXT.split()[: len(heard)] and len(heard) < len(TEXT.split())
 
 
 def test_a_cap_the_take_ends_under_changes_nothing_s10_1(worker: WorkerProcess, store: Path) -> None:
-    """The cap only truncates (ADR 0003): the take is the same under any cap it ends under."""
+    """The cap only truncates (ADR 0003): the take is the same under any cap it ends under. A take of F frames
+    takes F + 1 steps, the last the end token, so a cap of F + 1 is not a hit and a cap of F is."""
     _voice(worker, store)
     at_ceiling, reply = _say(worker, store, "ceiling")
-    natural = _ok(reply)["new_tokens"]
-    just_over, over = _say(worker, store, "just-over", cap=natural + 1)
-    assert _ok(over) == {**reply, "id": over["id"]}
-    assert just_over.read_bytes() == at_ceiling.read_bytes()
-    _, exact = _say(worker, store, "exact", cap=natural)
-    assert _ok(exact)["hit_token_cap"] is True  # generation reached the cap: no room for the end token
+    frames = _ok(reply)["new_tokens"]
+    at_the_end_token, exact = _say(worker, store, "end-token-at-the-cap", cap=frames + 1)
+    assert _ok(exact) == {**reply, "id": exact["id"], "max_new_tokens": frames + 1}
+    assert at_the_end_token.read_bytes() == at_ceiling.read_bytes()
+    _, under = _say(worker, store, "one-under", cap=frames)
+    assert _ok(under)["hit_token_cap"] is True and under["new_tokens"] == frames - 1
 
 
 def test_unknown_audio_is_not_transcribed_unless_the_spec_names_it_s11_1(store: Path) -> None:
@@ -466,7 +468,7 @@ def test_planted_token_cap_hit_wp40(store: Path) -> None:
         _, second = _say(worker, store, "second")
     assert _ok(first)["hit_token_cap"] is True
     assert _ok(second)["hit_token_cap"] is False
-    assert first["new_tokens"] == second["new_tokens"] * 6 // 10
+    assert first["new_tokens"] == second["new_tokens"] * 6 // 10 - 1  # the fault's cap C: C - 1 frames
 
 
 def test_planted_token_cap_stops_at_the_calls_cap_when_that_is_lower_wp40(store: Path) -> None:
@@ -474,8 +476,10 @@ def test_planted_token_cap_stops_at_the_calls_cap_when_that_is_lower_wp40(store:
         _ready(worker, store)
         _, fault_cap = _say(worker, store, "fault-cap")
         _, call_cap = _say(worker, store, "call-cap", cap=25)
-    assert _ok(fault_cap)["hit_token_cap"] is True and fault_cap["new_tokens"] == 40
-    assert _ok(call_cap)["hit_token_cap"] is True and call_cap["new_tokens"] == 25
+    assert _ok(fault_cap)["hit_token_cap"] is True and fault_cap["new_tokens"] == 39
+    assert fault_cap["max_new_tokens"] == CEILING  # the reply echoes the call's cap, not the fault's
+    assert _ok(call_cap)["hit_token_cap"] is True and call_cap["new_tokens"] == 24
+    assert call_cap["max_new_tokens"] == 25
 
 
 def test_planted_gpu_oom_fires_as_many_times_as_asked_s4(store: Path) -> None:

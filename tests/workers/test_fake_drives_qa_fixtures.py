@@ -67,9 +67,10 @@ def test_the_fake_stages_the_qa_fault_fixture_s11_1(
         },
         timeout_s=TIMEOUT,
     )
-    if "max_new_tokens" in render:
+    if "max_new_tokens" in render:  # TOKEN_CAP_HIT is judged from hit_token_cap alone
         assert audio["hit_token_cap"] is True
-        assert audio["new_tokens"] == render["max_new_tokens"]
+        assert audio["max_new_tokens"] == render["max_new_tokens"]
+        assert audio["new_tokens"] == render["max_new_tokens"] - 1  # the steps less the one never decoded
     heard = client.request(
         "transcribe",
         {"wav": str(take), "language": "English", "word_timestamps": True, "long_form": True},
