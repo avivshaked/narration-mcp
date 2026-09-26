@@ -44,8 +44,10 @@ The worker (``narration_worker_qa.align``) returns one span of frames per token,
    for it.
 5. **Cross-check** (step 6, ``crosscheck``): ``CUE_ALIGNMENT_DISAGREE`` above ``disagree_above_s``;
    ``max_disagreement_s`` is reported.
-6. **Failure** (step 3). No reply (the worker reported ``ALIGNMENT_ERROR``), or a reply that does not fit
-   the transcript, makes every cue ``CUE_UNALIGNED`` and adds ``ALIGNMENT_ERROR`` (fail).
+6. **Failure** (step 3). No reply (the worker reported ``ALIGNMENT_ERROR``), an ``ALIGNMENT_ERROR`` reply,
+   or a reply that does not fit the transcript, makes every cue ``CUE_UNALIGNED`` and adds
+   ``ALIGNMENT_ERROR`` (fail). Any other ``ok: false`` reply (``INTERNAL``, ``GPU_OOM``, …) is no verdict on
+   the take: ``resolve`` raises ``WorkerFailure``, and the caller records ``QA_UNAVAILABLE``.
 
 The thresholds are starting values, ASSUME until the alignment benchmark (WP38) sets them. KNOW for what
 they separate on the bake-off's takes: ``spikes/b-forced-align-cpu/README.md``.
@@ -66,6 +68,7 @@ import rfc8785
 
 from narration.config import AlignmentConfig
 from narration.contracts import codes
+from narration.contracts.errors import WorkerFailure
 from narration.contracts.interfaces import AlignTranscript
 from narration.contracts.models import (
     Alignment,
@@ -270,7 +273,10 @@ class CtcAligner:
         """The take's alignment in delivery-file seconds (section 11.2 steps 4 to 8).
 
         ``reply`` None means the worker reported ``ALIGNMENT_ERROR`` (its ``details`` may be passed as
-        ``error``): every cue is unplaced, and the take gets ``ALIGNMENT_ERROR``. A transcript with no letter
+        ``error``), or the caller's own guard failed (pass ``guard_details`` as ``error``): every cue is
+        unplaced, and the take gets ``ALIGNMENT_ERROR``. Pass None for nothing else. An ``ok: false`` reply
+        with another code raises ``WorkerFailure`` (its code, message and details): it says nothing about
+        the take, so the caller records ``QA_UNAVAILABLE`` (section 14). A transcript with no letter
         places nothing and needs no reply: every cue is unplaced (``CUE_UNALIGNED``, reason
         ``no_alignable_words``), and no ``ALIGNMENT_ERROR`` is raised, since the text, not the take, is at
         fault.
@@ -652,10 +658,20 @@ def _choose(pauses: Sequence[Pause], rule: str) -> Pause | None:
 
 
 def _reply_problem(transcript: AlignTranscript, reply: AlignReply, model: str, revision: str) -> dict[str, Any] | None:
-    """Why a reply cannot be used for this transcript, or None. A reply that does not fit is a failure."""
+    """Why a reply cannot be used for this transcript, or None. A reply that does not fit is a failure.
+
+    An ``ok: false`` reply is a verdict only when its code is ``ALIGNMENT_ERROR`` (the guard, or
+    ``forced_align`` raising). Any other raises ``WorkerFailure``, as ``WorkerClient.request`` does: it says
+    nothing about the take, and the caller records ``QA_UNAVAILABLE`` (section 14).
+    """
     if not reply.get("ok", True):
-        error = reply.get("error") or {}
-        return {"reason": "worker_error", "code": error.get("code"), **dict(error.get("details") or {})}
+        error: Mapping[str, Any] = reply.get("error") or {}
+        code = error.get("code")
+        details = dict(error.get("details") or {})
+        if code != codes.ALIGNMENT_ERROR:  # the worker's code has the flag's name (Appendix A)
+            message = str(error.get("message") or "the aligner replied ok: false without an error")
+            raise WorkerFailure(code if isinstance(code, str) else "INTERNAL", message, details)
+        return {"reason": "worker_error", **details}
     if reply.get("model") != model or reply.get("revision") != revision:
         return {
             "reason": "model_mismatch",

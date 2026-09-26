@@ -7,6 +7,7 @@ word's letters where the test says (``_support.reply``). So every expected time 
 from __future__ import annotations
 
 import dataclasses
+from typing import cast
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -14,11 +15,13 @@ from jsonschema import Draft202012Validator
 from narration.align import AlignerParams, CtcAligner
 from narration.config import AlignmentConfig
 from narration.contracts import codes
+from narration.contracts.errors import WorkerFailure
 from narration.contracts.interfaces import AlignerCore
 from narration.contracts.models import Alignment, ErrorStats, Hint, MeasuredError
 from narration.contracts.names import ALIGNMENT_METHOD, MODEL_ALIGNER, MODEL_ASR
 from narration.contracts.schemas import record_schema
 from narration.contracts.serial import from_json, to_json
+from narration.contracts.worker import AlignReply
 
 from ._support import RATE, REVISION, audio, codes_of, cue_times, reply, segment
 
@@ -300,6 +303,32 @@ def test_reply_that_does_not_fit_is_an_alignment_error_s11_2(change, reason) -> 
     a = ALIGNER.resolve(t, r, TWO_AUDIO, RATE, [], None)
     assert a.flags[0].code == codes.ALIGNMENT_ERROR
     assert a.flags[0].details is not None and a.flags[0].details["reason"] == reason
+    assert cue_times(a) == [(None, None), (None, None)]
+
+
+@pytest.mark.parametrize("code", ["INTERNAL", "GPU_OOM", "NOT_LOADED", "UNSUPPORTED_AUDIO", None])
+def test_a_worker_failure_other_than_alignment_error_is_no_verdict_s11_2(code: str | None) -> None:
+    # Regression (review F2): any ok: false reply became ALIGNMENT_ERROR (fail, a retake trigger). Only the
+    # aligner's own ALIGNMENT_ERROR says anything about the take; anything else raises, as the worker client
+    # does, and the caller records QA_UNAVAILABLE (section 14).
+    t = ALIGNER.build_transcript(segment(*TWO_CUES), [])
+    error = {"message": "it broke", "details": {"type": "RuntimeError"}} | ({"code": code} if code else {})
+    r = cast(AlignReply, reply(t, TWO_WORDS, samples=TWO_AUDIO.shape[0]) | {"ok": False, "error": error})
+    with pytest.raises(WorkerFailure) as caught:
+        ALIGNER.resolve(t, r, TWO_AUDIO, RATE, [], None)
+    assert caught.value.code == (code or "INTERNAL")
+    if code:
+        assert (caught.value.message, caught.value.details) == ("it broke", {"type": "RuntimeError"})
+
+
+def test_the_workers_alignment_error_reply_is_the_verdict_with_its_details_s11_2() -> None:
+    t = ALIGNER.build_transcript(segment(*TWO_CUES), [])
+    details = {"reason": "too_short", "frames": 4, "tokens": len(t.tokens), "repeats": 0}
+    error = {"code": "ALIGNMENT_ERROR", "message": "too short", "details": details}
+    r = cast(AlignReply, reply(t, TWO_WORDS, samples=TWO_AUDIO.shape[0]) | {"ok": False, "error": error})
+    a = ALIGNER.resolve(t, r, TWO_AUDIO, RATE, [], None)
+    assert (a.flags[0].code, a.flags[0].severity, a.flags[0].retake_trigger) == (codes.ALIGNMENT_ERROR, "fail", True)
+    assert a.flags[0].details == details
     assert cue_times(a) == [(None, None), (None, None)]
 
 
