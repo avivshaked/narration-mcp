@@ -21,6 +21,7 @@ import pytest
 from narration_worker.fake.audio import SAMPLE_RATE
 from narration_worker.fake.faults import SPEC_ENV
 from narration_worker.fake.handler import PROFILE_KEYS
+from narration_worker.fake.registry import RECORD_SCHEMA, Registry, fake_dir
 from narration_worker.fake.wav import read_wav
 from narration_worker.testing.client import WorkerProcess, check_reply
 
@@ -180,6 +181,42 @@ def test_the_fake_voice_is_pinned_to_the_byte_on_every_platform_appA(worker: Wor
     """Integer synthesis: this hash holds on Windows and Linux alike. Change it only on purpose."""
     clip = _design(worker, store, "golden")
     assert hashlib.sha256(clip.read_bytes()).hexdigest() == GOLDEN_DESIGN_SHA256
+
+
+def test_an_utterance_id_clash_steps_to_the_next_id_appA(worker: WorkerProcess, store: Path) -> None:
+    """Utterance ids are 32 bits, so two utterances can share one: the second steps on and is still heard."""
+    _voice(worker, store)
+    _ok(_say(worker, store, "first")[1])
+    records = fake_dir(store) / "utterances"
+    mine = next(p for p in records.glob("*.json") if json.loads(p.read_text(encoding="utf-8"))["text"] == TEXT)
+    foreign = json.loads(mine.read_text(encoding="utf-8"))
+    foreign["text"] = "Another utterance entirely."
+    mine.write_text(json.dumps(foreign), encoding="utf-8")  # another utterance now holds this one's id
+    second, reply = _say(worker, store, "second")
+    _ok(reply)
+    stepped = records / f"{(int(mine.stem, 16) + 1) % 2**32:08x}.json"
+    assert json.loads(stepped.read_text(encoding="utf-8"))["id"] == stepped.stem
+    assert json.loads(mine.read_text(encoding="utf-8"))["text"] == "Another utterance entirely."
+    assert _ok(_transcribe(worker, second))["text"] == TEXT
+    third, _ = _say(worker, store, "third")
+    assert third.read_bytes() == second.read_bytes()  # the same utterance finds its record at the stepped id
+
+
+def test_utterance_ids_step_past_a_clash_and_wrap_around_appA(tmp_path: Path) -> None:
+    registry = Registry(tmp_path)
+    top = 2**32 - 1
+
+    def record(text: str) -> dict[str, Any]:
+        return {"schema": RECORD_SCHEMA, "text": text}
+
+    assert registry.claim(top, record("a")) == top
+    assert registry.claim(top, record("b")) == 0
+    assert registry.claim(top, record("b")) == 0
+    assert registry.claim(top, record("a")) == top
+    third = record("c")
+    assert registry.claim(top, third) == 1 and third["id"] == "00000001"
+    assert [(registry.get(i) or {}).get("text") for i in (top, 0, 1)] == ["a", "b", "c"]
+    assert not list(registry.root.glob(".*.tmp"))
 
 
 def test_different_seeds_give_different_takes_s10_3(worker: WorkerProcess, store: Path) -> None:

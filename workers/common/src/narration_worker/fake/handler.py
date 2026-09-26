@@ -337,7 +337,7 @@ class FakeHandler(WorkerHandler):
             "planted": planted,
         }
         digest = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode("utf-8")).digest()
-        utterance_id = int.from_bytes(digest[:4], "big")
+        preferred_id = int.from_bytes(digest[:4], "big")
         whole = [i for i in range(len(bursts)) if bursts[i].segments == full[i]]
         if heard_text is None:
             words = [_heard_word(entries[i][0], i, i, 0, 1, entries[i][2]) for i in whole]
@@ -345,7 +345,6 @@ class FakeHandler(WorkerHandler):
             words = _map_heard(heard_text.split(), whole, {w.lower() for w, _, _ in entries})
         record = {
             "schema": RECORD_SCHEMA,
-            "id": f"{utterance_id:08x}",
             "kind": op,
             "voice_key": voice_key,
             "voice_hash": voice_hash,
@@ -360,7 +359,7 @@ class FakeHandler(WorkerHandler):
             "planted": planted,
             "hit_token_cap": hit,
         }
-        self.registry.put(utterance_id, record)
+        utterance_id = self.registry.claim(preferred_id, record)  # the next free id if another utterance has it
         write_float32_mono(out, render(bursts, total, utterance_id), SAMPLE_RATE)
         return {
             "sample_rate": SAMPLE_RATE,
