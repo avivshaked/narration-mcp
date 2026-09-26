@@ -8,10 +8,24 @@ replies to it and calls ``shutdown()`` first). A method returns the reply's memb
 
 **Contract every role keeps** (the shared contract tests check it):
 
+- the constructor (``__init__``) is cheap and must not touch the GPU: no CUDA, no model, no torch import
+  (``self.torch()`` imports torch on first use; models load in ``load``). An ``ImportError`` from it (a
+  missing dependency) stops the worker with ``EXIT_START_FAILED``, which the daemon reports as
+  ``BACKEND_NOT_INSTALLED`` and does not retry. So is an ``ImportError`` from a bug in the handler's own
+  code (a misspelt import): the worker cannot tell the two apart, and the stderr tail names the module.
+  A transient load failure (``errors.is_transient_load_error``: a DLL another process holds) and any other
+  exception crash the worker like any other crash, which the daemon may retry;
 - an op that needs a model replies ``NOT_LOADED`` before ``load``, and after ``unload``, before it reads
   any file or checks its other fields;
 - ``load`` checks that each snapshot directory it is given exists before anything else, and replies
   ``BACKEND_NOT_INSTALLED`` for a missing one;
+- ``synthesize`` and ``design`` take a required ``max_new_tokens``, the call's own generation cap (design
+  section 10.1, DC-4), and check it with ``require_max_new_tokens``: an integer from 2 to the loaded ceiling
+  (``load``'s ``settings.generation.max_new_tokens``). A missing or out-of-range cap is ``INVALID_REQUEST``,
+  and like every argument error it comes before ``VOICE_NOT_PREPARED``. The reply echoes the cap and
+  reports ``hit_token_cap`` and ``new_tokens`` exactly as ``protocol.AudioReply`` defines them (an end token
+  on the cap-th step is not a hit). The cap only truncates, so a render that ends under it is the same
+  under any cap;
 - a worker returns raw outputs only; every verdict, threshold and flag is the server's (plan.md P1);
 - file paths in a request are absolute and inside ``<store_root>``; outputs are written only there.
 
@@ -24,17 +38,20 @@ render seeds with ``determinism.seed_everything(seed, torch=self.torch())`` (sec
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 from .determinism import import_optional
 from .errors import OpError
 from .fingerprint import collect
 from .protocol import OPS_BY_ROLE, PROTOCOL_VERSION, Capabilities, Controls, Fingerprint, WorkerRole
 from .threads import cap_torch_threads
+
+log = logging.getLogger(__name__)
 
 Request = Mapping[str, Any]
 """A decoded request: ``id``, ``op`` and the op's members."""
@@ -142,8 +159,18 @@ class WorkerHandler:
         }
 
     def fingerprint(self) -> Fingerprint:
-        """The fingerprint (``fingerprint.collect``), with torch and NVML facts when ``uses_torch``."""
-        nvml = import_optional("pynvml") if self.uses_torch else None
+        """The fingerprint (``fingerprint.collect``), with torch and NVML facts when ``uses_torch``.
+
+        NVML is optional: if its binding is installed but cannot be loaded, the GPU name and driver are
+        reported as unknown (null), like any fact that cannot be read. A torch that cannot be loaded still
+        fails ``hello`` (``BACKEND_NOT_INSTALLED``).
+        """
+        nvml: Any | None = None
+        if self.uses_torch:
+            try:
+                nvml = import_optional("pynvml")
+            except OpError as exc:
+                log.warning("NVML cannot be loaded, so the GPU name and driver are unknown: %s", exc.message)
         return collect(
             cpu_threads=self.context.cpu_threads, packages=self.fingerprint_packages, torch=self.torch(), nvml=nvml
         )
@@ -247,6 +274,31 @@ def require_str_list(request: Request, name: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise _wrong(name, "a list of strings")
     return list(value)
+
+
+MIN_MAX_NEW_TOKENS: Final = 2
+"""The smallest call cap: qwen-tts fixes ``min_new_tokens`` at 2, so a cap of 1 could not be honoured."""
+
+
+def require_max_new_tokens(request: Request, ceiling: int) -> int:
+    """The ``max_new_tokens`` of a ``synthesize`` or ``design`` call: required, an integer in 2..``ceiling``.
+
+    It is the call's own generation cap (design section 10.1, DC-4). The daemon computes it from the text the
+    call speaks, ``min(ceiling, max(floor, ceil(per_char * len(text))))`` with the engine profile's
+    ``max_new_tokens_per_char`` and ``max_new_tokens_floor`` (``narration.contracts.names.max_new_tokens_for``),
+    so a runaway render stops early. ``ceiling`` is the loaded ``settings.generation.max_new_tokens`` (8192,
+    the snapshots' value). A missing cap, one below ``MIN_MAX_NEW_TOKENS`` or one above the ceiling is
+    ``INVALID_REQUEST`` with ``details.field`` ``max_new_tokens``: an audio-changing setting is never left to a
+    default.
+    """
+    cap = require_int(request, "max_new_tokens", minimum=MIN_MAX_NEW_TOKENS)
+    if cap > ceiling:
+        raise OpError(
+            "INVALID_REQUEST",
+            f"max_new_tokens ({cap}) is above the loaded ceiling ({ceiling}); the daemon's cap is at most that",
+            {"field": "max_new_tokens", "ceiling": ceiling},
+        )
+    return cap
 
 
 def require_one_of(request: Request, name: str, choices: tuple[str, ...]) -> str:

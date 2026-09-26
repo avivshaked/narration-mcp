@@ -5,8 +5,13 @@ keeps the contract the real workers keep (``handler.py``): model ops need ``load
 the snapshot directories it is given, paths stay in the store.
 
 - ``synthesize`` and ``design`` write a real float32 mono WAV at 24 kHz whose length follows the text
-  (``audio.py``), report ``new_tokens`` at Qwen's 12 per second and ``hit_token_cap`` against the loaded
-  ``max_new_tokens`` (8192 unless ``load`` says otherwise), and record what they said (``registry.py``).
+  (``audio.py``) and record what they said (``registry.py``). They count tokens as the real worker does
+  (``protocol.AudioReply``): a take of F frames at 12.5 per second takes F + 1 talker steps, the last one
+  the end token. Under the call's ``max_new_tokens`` (2 to the loaded ceiling: ``load``'s
+  ``settings.generation.max_new_tokens``, 8192 when it gives none), a cap of F + 1 or more leaves the take
+  whole (``new_tokens`` F), and a cap C of F or less cuts it to C - 1 frames with ``hit_token_cap: true``.
+  The reply echoes the cap it applied as ``max_new_tokens``. A take that ends under its cap is the same
+  under any cap. A ``token_cap`` fault renders the call as if it had the fault's cap, reply included.
 - ``transcribe`` hears the text back, with word times, from the take or from any post-processed copy of it.
 - ``embed`` gives a 512-dimension unit vector: the voice's direction plus a small per-take part, so takes of
   one voice (and the clip they clone) are about 0.99 similar and different voices are not.
@@ -42,6 +47,7 @@ from narration_worker.handler import (
     WorkerHandler,
     require_bool,
     require_int,
+    require_max_new_tokens,
     require_number,
     require_one_of,
     require_str,
@@ -51,9 +57,9 @@ from narration_worker.protocol import Controls, WorkerErrorCode
 
 from .audio import (
     SAMPLE_RATE,
+    SAMPLES_PER_FRAME,
     SEGMENT,
     SEGMENT_S,
-    TOKENS_PER_SECOND,
     Heard,
     decode,
     layout,
@@ -78,7 +84,7 @@ FAKE_ALIGNER_MODEL: Final = "narration-worker/fake-ctc"
 EMBEDDING_DIM: Final = 512
 """WavLM-base-plus-sv's x-vector size."""
 DEFAULT_MAX_NEW_TOKENS: Final = 8192
-"""The effective Qwen cap (plan.md 1.3 item 1)."""
+"""The ceiling when ``load`` gives none: the pinned Qwen snapshots' value (plan.md 1.3 item 1)."""
 ALIGN_FRAME_S: Final = 0.02
 """wav2vec2's frame: 320 samples at 16 kHz."""
 F0_HOP_S: Final = 0.01
@@ -114,7 +120,7 @@ class FakeHandler(WorkerHandler):
         self.registry = Registry(context.store_root)
         self.tally = Tally(context.store_root)
         self.spec_source = SpecSource()
-        self.spec_source.current()  # a broken spec stops the worker at start-up
+        self.spec_source.current()  # a broken spec crashes the worker at start-up (SpecError)
         self.loaded = False
         self.max_new_tokens = DEFAULT_MAX_NEW_TOKENS
         self.voices: dict[str, str] = {}
@@ -264,13 +270,14 @@ class FakeHandler(WorkerHandler):
         text = require_str(request, "engine_text")
         language = require_str(request, "language")
         seed = require_int(request, "seed", minimum=0, maximum=0xFFFFFFFF)
+        cap = require_max_new_tokens(request, self.max_new_tokens)
         out = self.output_file(request, "out_path")
         voice_key = self.voices.get(voice_hash)
         if voice_key is None:
             raise OpError(
                 "VOICE_NOT_PREPARED", "send prepare_voice for this voice_hash first", {"voice_hash": voice_hash}
             )
-        return self._speak("synthesize", text, language, seed, voice_hash, voice_key, out, "engine_text")
+        return self._speak("synthesize", text, language, seed, cap, voice_hash, voice_key, out, "engine_text")
 
     def op_design(self, request: Request) -> dict[str, Any]:
         self._need_loaded("design")
@@ -278,9 +285,10 @@ class FakeHandler(WorkerHandler):
         text = require_str(request, "design_text")
         language = require_str(request, "language")
         seed = require_int(request, "seed", minimum=0, maximum=0xFFFFFFFF)
+        cap = require_max_new_tokens(request, self.max_new_tokens)
         out = self.output_file(request, "out_path")
         voice_key = "design:" + hashlib.sha256(f"{description}\x00{seed}".encode()).hexdigest()[:16]
-        return self._speak("design", text, language, seed, None, voice_key, out, "design_text")
+        return self._speak("design", text, language, seed, cap, None, voice_key, out, "design_text")
 
     def _speak(
         self,
@@ -288,18 +296,21 @@ class FakeHandler(WorkerHandler):
         text: str,
         language: str,
         seed: int,
+        cap: int,
         voice_hash: str | None,
         voice_key: str,
         out: Path,
         field: str,
     ) -> dict[str, Any]:
+        """Render a take of ``text`` under ``cap``, the call's ``max_new_tokens`` (see the module docstring for
+        how the cap counts). A ``token_cap`` fault models the call having had the fault's cap, if that is
+        lower: the take is cut there and the reply echoes it, as a real worker's would."""
         tokens = spoken_tokens(text)
         if not tokens:
             raise OpError("INVALID_REQUEST", f"{field} has no words to speak", {"field": field})
         # one entry per word the take says: (the word, is it one of the text's words?, was it planted?)
         entries: list[tuple[str, bool, bool]] = [(token, True, False) for token in tokens]
         heard_text: str | None = None
-        cap = self.max_new_tokens
         cap_fault: Fault | None = None
         planted: list[dict[str, Any]] = []
         for fault in self._content_faults(op, Facts(text, seed, voice_hash)):
@@ -320,12 +331,13 @@ class FakeHandler(WorkerHandler):
                 cap_fault = fault
         bursts, total = layout([said for said, _, _ in entries])
         full = [b.segments for b in bursts]
-        natural = new_tokens(total)
-        if cap_fault is not None:
-            cap = int(cap_fault.params.get("max_new_tokens", max(1, natural * 6 // 10)))
-        hit = natural >= cap
+        natural = new_tokens(total)  # F frames: F + 1 talker steps, the last one the end token
+        if cap_fault is not None:  # the call is rendered as if its cap were the fault's, when that is lower
+            cap = min(cap, int(cap_fault.params.get("max_new_tokens", max(2, natural * 6 // 10))))
+        hit = cap <= natural  # the end token would come at step F + 1, past the cap
+        frames = cap - 1 if hit else natural
         if hit:
-            bursts, total = truncate(bursts, cap * SAMPLE_RATE // TOKENS_PER_SECOND)
+            bursts, total = truncate(bursts, frames * SAMPLES_PER_FRAME)
         identity = {
             "op": op,
             "voice_key": voice_key,
@@ -366,7 +378,8 @@ class FakeHandler(WorkerHandler):
             "samples": total,
             "gen_s": round(total / SAMPLE_RATE * _REAL_TIME_FACTOR, 3),
             "hit_token_cap": hit,
-            "new_tokens": cap if hit else natural,
+            "max_new_tokens": cap,
+            "new_tokens": frames,
         }
 
     def _content_faults(self, op: str, facts: Facts) -> list[Fault]:

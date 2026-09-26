@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -26,7 +27,7 @@ from narration.contracts.interfaces import WorkerClient
 from narration.contracts.worker import FAKE_OPS, PROTOCOL_VERSION
 from narration.workers import SubprocessWorkerClient, WorkerCommand, venv_python, worker_command, worker_env
 
-from .conftest import ClientFactory
+from .conftest import ClientFactory, call_cap
 
 TIMEOUT = 30.0
 VOICE = "sha256:" + "cd" * 32
@@ -41,6 +42,7 @@ def _voice(client: SubprocessWorkerClient, store: Path) -> None:
             "design_text": "Some of them thrive.",
             "language": "English",
             "seed": 3,
+            "max_new_tokens": call_cap("Some of them thrive.", design=True),
             "out_path": str(clip),
         },
         timeout_s=TIMEOUT,
@@ -62,6 +64,7 @@ def _synthesize(
             "engine_text": text,
             "language": "English",
             "seed": 11,
+            "max_new_tokens": call_cap(text),
             "out_path": str(store / "scratch" / f"{name}.wav"),
         },
         timeout_s=TIMEOUT,
@@ -170,6 +173,7 @@ def test_a_crash_is_reported_at_once_with_exit_code_and_stderr_tail_appA(
                 "engine_text": "Hello.",
                 "language": "English",
                 "seed": 1,
+                "max_new_tokens": call_cap("Hello."),
                 "out_path": str(store / "scratch" / "x.wav"),
             },
             timeout_s=120.0,
@@ -219,20 +223,162 @@ def test_the_stderr_tail_is_bounded_appA(make_client: ClientFactory, store: Path
     assert 0 < len(client.stderr_tail().encode()) <= 200
 
 
-def test_a_worker_that_cannot_start_is_backend_not_installed_with_its_stderr_s14(
-    make_client: ClientFactory,
+SHIM_HANDLERS = """\
+from narration_worker.fake import FakeHandler
+
+
+class NeedsAMissingDependency(FakeHandler):
+    def __init__(self, context):
+        import narration_no_such_dependency  # a dependency the venv lacks
+
+        super().__init__(context)
+
+
+class FailsAtStart(FakeHandler):
+    def __init__(self, context):
+        raise RuntimeError("the handler failed at start for a reason of its own")
+
+
+class UsesTorch(FakeHandler):
+    uses_torch = True  # hello's fingerprint imports torch
+
+
+class DllInUse(FakeHandler):
+    def __init__(self, context):
+        raise ImportError(
+            "DLL load failed while importing _C: "
+            "The process cannot access the file because it is being used by another process."
+        )
+"""
+
+DLL_FAILURE = (
+    "[WinError 126] The specified module could not be found. "
+    'Error loading "torch\\lib\\c10.dll" or one of its dependencies.'
+)
+DLL_IN_USE = (
+    "DLL load failed while importing _C: "
+    "The process cannot access the file because it is being used by another process."
+)
+
+
+def _shim_client(config: Config, tmp_path: Path, handler: str) -> SubprocessWorkerClient:
+    """A fake worker started with ``--handler shim:<handler>``, with a torch that fails to load as it would
+    on Windows when its DLLs cannot be found, and a module that fails the same way when imported."""
+    shim = tmp_path / "shim"
+    (shim / "torch").mkdir(parents=True)
+    (shim / "shim.py").write_text(SHIM_HANDLERS, encoding="utf-8")
+    (shim / "torch" / "__init__.py").write_text(f"raise OSError({DLL_FAILURE!r})\n", encoding="utf-8")
+    (shim / "unloadable.py").write_text(f"raise OSError({DLL_FAILURE!r})\n", encoding="utf-8")
+    (shim / "in_use.py").write_text(f"raise ImportError({DLL_IN_USE!r})\n", encoding="utf-8")
+    command = worker_command(config, "fake")
+    argv = (*command.argv, "--handler", handler if ":" in handler else f"shim:{handler}")
+    return SubprocessWorkerClient(
+        WorkerCommand(role="fake", argv=argv, env={**command.env, "PYTHONPATH": str(shim)}), hello_timeout_s=TIMEOUT
+    )
+
+
+def test_a_handler_missing_a_dependency_is_backend_not_installed_with_its_stderr_s14(
+    config: Config, tmp_path: Path
 ) -> None:
-    client = make_client({"faults": [{"kind": "no_such_kind"}]})
-    with pytest.raises(WorkerFailure) as caught:
-        client.start()
-    failure = caught.value
-    assert failure.code == "BACKEND_NOT_INSTALLED" and error_code(failure.code).retryable is False
-    assert failure.details["exit_code"] == EXIT_START_FAILED == 2
-    assert "faults[0].kind must be one of" in failure.details["stderr_tail"]
-    assert "faults[0].kind must be one of" in str(failure)  # its last stderr line says why
-    assert "sync the worker's venv (narration-admin install)" in str(failure)
-    assert isinstance(failure.__cause__, WorkerCrashed)
-    assert not client.is_alive() and client.exit_code == EXIT_START_FAILED
+    client = _shim_client(config, tmp_path, "NeedsAMissingDependency")
+    try:
+        with pytest.raises(WorkerFailure) as caught:
+            client.start()
+        failure = caught.value
+        assert failure.code == "BACKEND_NOT_INSTALLED" and error_code(failure.code).retryable is False
+        assert failure.details["exit_code"] == EXIT_START_FAILED == 2
+        assert "No module named 'narration_no_such_dependency'" in failure.details["stderr_tail"]
+        assert "narration_no_such_dependency" in str(failure)  # its last stderr line says why
+        assert "sync the worker's venv (narration-admin install)" in str(failure)
+        assert isinstance(failure.__cause__, WorkerCrashed)
+        assert not client.is_alive() and client.exit_code == EXIT_START_FAILED
+    finally:
+        client.close(timeout_s=5.0)
+
+
+@pytest.mark.parametrize("cause", ["handler", "fault spec"])
+def test_a_handler_that_fails_at_start_otherwise_is_a_crash_not_backend_not_installed_appA(
+    config: Config, tmp_path: Path, make_client: ClientFactory, cause: str
+) -> None:
+    """Only a missing env is ``BACKEND_NOT_INSTALLED`` (never retried); any other start-up error is a crash."""
+    if cause == "handler":
+        client = _shim_client(config, tmp_path, "FailsAtStart")
+        expected = "RuntimeError: the handler failed at start for a reason of its own"
+    else:
+        client = make_client({"faults": [{"kind": "no_such_kind"}]})
+        expected = "faults[0].kind must be one of"
+    try:
+        with pytest.raises(WorkerCrashed) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.exit_code == 1
+    assert expected in caught.value.stderr_tail
+
+
+def test_torch_that_cannot_load_is_backend_not_installed_not_internal_s14(config: Config, tmp_path: Path) -> None:
+    """On Windows a broken torch raises OSError (its DLLs), not ImportError; hello must still say why."""
+    client = _shim_client(config, tmp_path, "UsesTorch")
+    try:
+        with pytest.raises(WorkerFailure) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert caught.value.details["module"] == "torch"
+    assert caught.value.details["error"] == f"OSError: {DLL_FAILURE}"
+    assert "narration-admin install" in str(caught.value)
+
+
+@pytest.mark.parametrize("handler", ["DllInUse", "in_use:Handler"])
+def test_a_dll_another_process_holds_is_a_crash_to_retry_not_backend_not_installed_s14(
+    config: Config, tmp_path: Path, handler: str
+) -> None:
+    """An antivirus holding a DLL makes the load fail for a moment: in the handler's constructor or in its
+    module's import, that is a crash the daemon may retry, never the non-retryable BACKEND_NOT_INSTALLED."""
+    client = _shim_client(config, tmp_path, handler)
+    try:
+        with pytest.raises(WorkerCrashed) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.exit_code == 1
+    assert "being used by another process" in caught.value.stderr_tail
+
+
+def test_a_handler_module_that_cannot_load_is_backend_not_installed_s14(config: Config, tmp_path: Path) -> None:
+    client = _shim_client(config, tmp_path, "unloadable:Handler")
+    try:
+        with pytest.raises(WorkerFailure) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert caught.value.details["exit_code"] == EXIT_START_FAILED
+    assert "OSError: [WinError 126]" in caught.value.details["stderr_tail"]
+
+
+@pytest.mark.skipif(
+    os.name != "nt" or sys.prefix == sys.base_prefix,
+    reason="checks Windows' venv launcher, so needs Windows and a venv",
+)
+def test_a_venv_whose_base_python_is_gone_is_backend_not_installed_s14(config: Config, tmp_path: Path) -> None:
+    """KNOW: the launcher of a venv (stdlib's or uv's) whose base Python was removed exits 103, "No Python at"."""
+    venv = tmp_path / "venv"
+    (venv / "Scripts").mkdir(parents=True)
+    launcher = venv / "Scripts" / "python.exe"
+    shutil.copyfile(sys.executable, launcher)  # this venv's own launcher
+    (venv / "pyvenv.cfg").write_text(f"home = {tmp_path / 'gone'}\n", encoding="utf-8")
+    client = SubprocessWorkerClient(worker_command(config, "fake", python=launcher))
+    try:
+        with pytest.raises(WorkerFailure) as caught:
+            client.start()
+    finally:
+        client.close(timeout_s=5.0)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert 101 <= caught.value.details["exit_code"] <= 109
+    assert "No Python at" in caught.value.details["stderr_tail"]
+    assert "narration-admin install" in str(caught.value)
 
 
 def test_a_role_with_no_handler_installed_is_backend_not_installed_s14(config: Config) -> None:
@@ -357,6 +503,105 @@ def test_close_does_not_hang_on_a_pipe_a_grandchild_holds_appA(
         if pid_file.is_file():
             with contextlib.suppress(OSError, ValueError):
                 os.kill(int(pid_file.read_text(encoding="utf-8")), signal.SIGTERM)
+        client.close(timeout_s=5.0)
+
+
+@pytest.mark.parametrize("fault", ["crash", "hang"])
+def test_a_failed_worker_leaves_no_pipe_thread_behind_without_close_appA(
+    make_client: ClientFactory, fault: str
+) -> None:
+    """A daemon may drop a client whose worker crashed or timed out: its writer and stdin must not leak."""
+    client = make_client({"faults": [{"kind": fault, "op": "unload"}]})
+    client.start()
+    prefix = f"fake-{client.pid}-"
+
+    def pipe_threads() -> list[str]:
+        return [t.name for t in threading.enumerate() if t.name.startswith(prefix)]
+
+    assert f"{prefix}stdin" in pipe_threads()
+    with pytest.raises((WorkerCrashed, WorkerTimeout)):
+        client.request("unload", {}, timeout_s=1.0)
+    deadline = time.monotonic() + 10.0
+    while pipe_threads() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert pipe_threads() == []
+
+
+DEAF_WORKER = """\
+import json
+import os
+import sys
+import time
+
+request = json.loads(sys.stdin.readline())
+hello = {"role": "fake", "protocol": int(sys.argv[1]), "capabilities": {"controls": {}}, "fingerprint": {}}
+sys.stdout.write(json.dumps({"id": request["id"], "ok": True, **hello}) + "\\n")
+sys.stdout.flush()
+os.close(0)  # stops reading for good, and runs on
+print("stdin closed", file=sys.stderr, flush=True)
+time.sleep(60)
+"""
+
+
+SLOW_EXIT_WORKER = """\
+import json
+import os
+import sys
+import time
+
+request = json.loads(sys.stdin.readline())
+hello = {"role": "fake", "protocol": int(sys.argv[1]), "capabilities": {"controls": {}}, "fingerprint": {}}
+sys.stdout.write(json.dumps({"id": request["id"], "ok": True, **hello}) + "\\n")
+sys.stdout.flush()
+os.close(0)
+os.close(1)
+print("pipes closed", file=sys.stderr, flush=True)
+time.sleep(3)  # longer than the client's write-failure grace
+os._exit(5)
+"""
+
+
+def test_a_worker_that_closes_its_pipes_and_exits_slowly_is_reported_with_its_exit_code_appA(
+    config: Config, tmp_path: Path
+) -> None:
+    """A failed write must not preempt the reader: once stdout has ended, the exit is reported with its code."""
+    script = tmp_path / "slow_exit.py"
+    script.write_text(SLOW_EXIT_WORKER, encoding="utf-8")
+    python = getattr(sys, "_base_executable", sys.executable)  # no venv launcher holding the pipes open
+    argv = (python, str(script), str(PROTOCOL_VERSION))
+    client = SubprocessWorkerClient(WorkerCommand(role="fake", argv=argv, env=worker_command(config, "fake").env))
+    try:
+        client.start()
+        deadline = time.monotonic() + TIMEOUT
+        while "pipes closed" not in client.stderr_tail() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        with pytest.raises(WorkerCrashed) as caught:
+            client.request("unload", {}, timeout_s=TIMEOUT)
+        assert caught.value.exit_code == 5, caught.value
+        assert "exited with code 5" in str(caught.value)
+    finally:
+        client.close(timeout_s=5.0)
+
+
+def test_a_worker_that_stops_reading_is_stopped_at_once_not_at_the_timeout_appA(config: Config, tmp_path: Path) -> None:
+    script = tmp_path / "deaf.py"
+    script.write_text(DEAF_WORKER, encoding="utf-8")
+    # The base interpreter, not this venv's: on Windows a venv's python.exe is a launcher that runs the real
+    # Python as its child and keeps its own copy of stdin, so the pipe would never break (KNOW, this test).
+    python = getattr(sys, "_base_executable", sys.executable)
+    argv = (python, str(script), str(PROTOCOL_VERSION))
+    client = SubprocessWorkerClient(WorkerCommand(role="fake", argv=argv, env=worker_command(config, "fake").env))
+    try:
+        client.start()
+        deadline = time.monotonic() + TIMEOUT
+        while "stdin closed" not in client.stderr_tail() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        started = time.monotonic()
+        with pytest.raises(WorkerCrashed, match="could not be written to"):
+            client.request("unload", {}, timeout_s=10.0)
+        assert time.monotonic() - started < 5.0
+        assert not client.is_alive()
+    finally:
         client.close(timeout_s=5.0)
 
 

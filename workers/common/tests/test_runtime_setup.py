@@ -7,6 +7,7 @@ is that the right switches are set, not torch itself. The worker venvs' own test
 from __future__ import annotations
 
 import random
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,7 +15,7 @@ from typing import Any
 import pytest
 from narration_worker import determinism, fingerprint, threads
 from narration_worker import handler as handler_module
-from narration_worker.errors import OpError
+from narration_worker.errors import OpError, is_transient_load_error
 from narration_worker.handler import WorkerContext, WorkerHandler
 
 
@@ -111,6 +112,88 @@ def test_deterministic_algorithms_refuse_to_run_without_the_cublas_workspace_s10
     with pytest.raises(OpError) as caught:
         determinism.apply_determinism(determinism.parse_determinism(dict(SWITCHES)), _FakeTorch())
     assert caught.value.code == "INTERNAL"
+
+
+@pytest.fixture
+def broken_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Modules that are installed but cannot be loaded, the ways real ones fail."""
+    sources = {
+        "narration_test_dll_fails": "raise OSError('[WinError 126] The specified module could not be found')\n",
+        "narration_test_dependency_missing": "import narration_test_absent_dependency\n",
+        "narration_test_extension_fails": "raise ImportError('DLL load failed while importing _C')\n",
+    }
+    for name, source in sources.items():
+        (tmp_path / f"{name}.py").write_text(source, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+
+def test_a_file_another_process_holds_is_transient_not_backend_not_installed_s4(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    in_use = "The process cannot access the file because it is being used by another process"
+    (tmp_path / "narration_test_dll_in_use.py").write_text(
+        f"raise ImportError('DLL load failed while importing _C: {in_use}.')\n", encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    with pytest.raises(OpError) as caught:
+        determinism.import_optional("narration_test_dll_in_use")
+    assert caught.value.code == "INTERNAL"
+    assert caught.value.details is not None and caught.value.details["transient"] is True
+    assert is_transient_load_error(ImportError(f"DLL load failed while importing _C: {in_use}."))
+    assert is_transient_load_error(OSError(f"[WinError 32] {in_use}: 'c10.dll'"))
+    assert not is_transient_load_error(ImportError("DLL load failed while importing _C: not found"))
+    assert not is_transient_load_error(OSError("[WinError 126] The specified module could not be found"))
+
+
+def test_a_broken_nvml_binding_leaves_gpu_and_driver_unknown_not_a_failed_hello_s10_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NVML is optional: a binding that cannot load is an unreadable fact, not a broken worker."""
+    (tmp_path / "pynvml.py").write_text(
+        "raise OSError('[WinError 126] nvml.dll could not be found')\n", encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "pynvml", raising=False)
+    monkeypatch.setattr(handler_module, "import_optional", _only_nvml_is_real)
+
+    class _TorchQa(WorkerHandler):
+        role = "qa"
+
+    fingerprint = _TorchQa(WorkerContext(role="qa", store_root=tmp_path, cpu_threads=2)).fingerprint()
+    assert (fingerprint["gpu"], fingerprint["driver"]) == (None, None)
+    assert fingerprint["cuda"] == "12.8"  # torch's facts are still read
+
+
+def _only_nvml_is_real(name: str) -> Any:
+    """The real ``import_optional`` for NVML; a stand-in torch for torch (not installed here)."""
+    return determinism.import_optional(name) if name == "pynvml" else _FakeTorch()
+
+
+def test_a_module_that_is_not_installed_is_none_s4(broken_modules: None) -> None:
+    assert determinism.import_optional("narration_test_not_installed_at_all") is None
+    assert determinism.import_optional("narration_test_not_installed_at_all.sub") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "error"),
+    [
+        ("narration_test_dll_fails", "OSError: [WinError 126] The specified module could not be found"),
+        (
+            "narration_test_dependency_missing",
+            "ModuleNotFoundError: No module named 'narration_test_absent_dependency'",
+        ),
+        ("narration_test_extension_fails", "ImportError: DLL load failed while importing _C"),
+    ],
+)
+def test_a_module_installed_but_unloadable_is_backend_not_installed_s4(
+    broken_modules: None, name: str, error: str
+) -> None:
+    """torch's DLLs failing on Windows raise OSError: that is a broken env, not "no torch" and not INTERNAL."""
+    with pytest.raises(OpError) as caught:
+        determinism.import_optional(name)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert caught.value.details == {"module": name, "error": error}
+    assert "narration-admin install" in caught.value.message
 
 
 def test_without_torch_nothing_is_applied_s10_1(monkeypatch: pytest.MonkeyPatch) -> None:

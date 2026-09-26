@@ -46,8 +46,10 @@ TAIL: Final = 4800
 GAP: Final = 2400
 CLAUSE_GAP: Final = 6000
 SENTENCE_GAP: Final = 9600
-TOKENS_PER_SECOND: Final = 12
-"""Qwen3-TTS-12Hz: codec frames per second, used for ``new_tokens`` and the token cap."""
+FRAMES_PER_SECOND: Final = 12.5
+"""Qwen3-TTS-12Hz's codec: 12.5 frames per second of audio (KNOW, WP20), for ``new_tokens`` and the cap."""
+SAMPLES_PER_FRAME: Final = 1920
+"""One codec frame at 24 kHz: 24000 / 12.5."""
 
 _MASK: Final = 0xFFFFFFFF
 _SCALE: Final = 1.0 / 32768
@@ -167,8 +169,8 @@ def render(bursts: Sequence[Burst], total: int, utterance_id: int) -> array[floa
 
 
 def new_tokens(samples: int) -> int:
-    """The codec frames a render of ``samples`` would take."""
-    return -(-samples * TOKENS_PER_SECOND // SAMPLE_RATE)
+    """The codec frames a render of ``samples`` would take (the ``new_tokens`` of a take that is not cut)."""
+    return -(-samples // SAMPLES_PER_FRAME)
 
 
 # ---------------------------------------------------------------------- hearing
