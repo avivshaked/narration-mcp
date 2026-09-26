@@ -1,0 +1,348 @@
+{
+  "spike": "f (the Marufubens check, silence prepended)",
+  "design_sections": [
+    "1",
+    "20 (f)"
+  ],
+  "ran_at": "2026-09-26T18:36:30+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "transformers": "5.17.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "asr": {
+    "model": "openai/whisper-large-v3",
+    "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+    "method": "bakeoff eval/evaluate.py Scorer.transcribe"
+  },
+  "silences_s": [
+    0.0,
+    0.5,
+    1.0
+  ],
+  "onset_rule": "first 20 ms frame within 40 dB of the p95 frame level",
+  "name": "marufubens",
+  "edit_distance_rule": "Levenshtein distance in characters from the heard words, joined without spaces, to the written name (as Whisper's English normaliser writes both)",
+  "rows": [
+    {
+      "take": "d2-late-night_take1-seed1",
+      "segment": "n05",
+      "onset": {
+        "leading_silence_s": 0.08,
+        "first_20ms_rms_db": -92.5,
+        "threshold_db": -55.7,
+        "first_sample_abs": 0.0
+      },
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        },
+        "1.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        }
+      },
+      "heard_form_changed_by_silence": false
+    },
+    {
+      "take": "d2-late-night_take1-seed1",
+      "segment": "n04",
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 4
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 4
+        }
+      },
+      "heard_form_changed_by_silence": false
+    },
+    {
+      "take": "d2-late-night_take1-seed2",
+      "segment": "n05",
+      "onset": {
+        "leading_silence_s": 0.54,
+        "first_20ms_rms_db": -91.3,
+        "threshold_db": -55.5,
+        "first_sample_abs": 0.0
+      },
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 0
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 2
+        },
+        "1.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 2
+        }
+      },
+      "heard_form_changed_by_silence": true
+    },
+    {
+      "take": "d2-late-night_take1-seed2",
+      "segment": "n04",
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 2
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        }
+      },
+      "heard_form_changed_by_silence": true
+    },
+    {
+      "take": "d2-late-night_take1-seed3",
+      "segment": "n05",
+      "onset": {
+        "leading_silence_s": 0.02,
+        "first_20ms_rms_db": -79.1,
+        "threshold_db": -57.9,
+        "first_sample_abs": 0.0
+      },
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        },
+        "1.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        }
+      },
+      "heard_form_changed_by_silence": true
+    },
+    {
+      "take": "d2-late-night_take1-seed3",
+      "segment": "n04",
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        }
+      },
+      "heard_form_changed_by_silence": false
+    },
+    {
+      "take": "d4-radio-drama_take2-seed1",
+      "segment": "n05",
+      "onset": {
+        "leading_silence_s": 0.42,
+        "first_20ms_rms_db": -90.5,
+        "threshold_db": -54.7,
+        "first_sample_abs": 3e-05
+      },
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 1
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 1
+        },
+        "1.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 1
+        }
+      },
+      "heard_form_changed_by_silence": false
+    },
+    {
+      "take": "d4-radio-drama_take2-seed1",
+      "segment": "n04",
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 2
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 2
+        }
+      },
+      "heard_form_changed_by_silence": false
+    },
+    {
+      "take": "d4-radio-drama_take2-seed2",
+      "segment": "n05",
+      "onset": {
+        "leading_silence_s": 0.54,
+        "first_20ms_rms_db": -92.0,
+        "threshold_db": -54.5,
+        "first_sample_abs": 3e-05
+      },
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        },
+        "1.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        }
+      },
+      "heard_form_changed_by_silence": true
+    },
+    {
+      "take": "d4-radio-drama_take2-seed2",
+      "segment": "n04",
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        }
+      },
+      "heard_form_changed_by_silence": false
+    },
+    {
+      "take": "d4-radio-drama_take2-seed3",
+      "segment": "n05",
+      "onset": {
+        "leading_silence_s": 0.1,
+        "first_20ms_rms_db": -91.6,
+        "threshold_db": -54.5,
+        "first_sample_abs": 3e-05
+      },
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        },
+        "1.0s": {
+          "as_written": false,
+          "words": 2,
+          "edit_distance": 2
+        }
+      },
+      "heard_form_changed_by_silence": false
+    },
+    {
+      "take": "d4-radio-drama_take2-seed3",
+      "segment": "n04",
+      "heard": {
+        "0.0s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        },
+        "0.5s": {
+          "as_written": false,
+          "words": 1,
+          "edit_distance": 1
+        }
+      },
+      "heard_form_changed_by_silence": false
+    }
+  ],
+  "summary": {
+    "n05": {
+      "takes": 6,
+      "transcriptions": 18,
+      "heard_as_written": 0,
+      "heard_as_words": {
+        "1": 4,
+        "2": 14
+      },
+      "edit_distance_when_not_as_written": {
+        "min": 0,
+        "median": 2.0,
+        "max": 2
+      },
+      "takes_whose_heard_form_silence_changed": 3
+    },
+    "n04": {
+      "takes": 6,
+      "transcriptions": 12,
+      "heard_as_written": 0,
+      "heard_as_words": {
+        "1": 12
+      },
+      "edit_distance_when_not_as_written": {
+        "min": 1,
+        "median": 1.0,
+        "max": 4
+      },
+      "takes_whose_heard_form_silence_changed": 1
+    },
+    "n05_leading_silence_s": [
+      0.08,
+      0.54,
+      0.02,
+      0.42,
+      0.54,
+      0.1
+    ]
+  },
+  "network_attempts": []
+}
