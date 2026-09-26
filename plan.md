@@ -539,7 +539,12 @@ with the offline env, thread caps and below-normal priority); `run\daemon.json`;
 and exit after 15 min; `stop` (finish the in-flight segment) and `stop --now` (re-queue it); the status
 that `get_server_status` reports; `release_gpu`. Folds in **spike (g)**: a daemon started from an MCP
 session survives the client exiting. *Accept:* spike (g) saved; `stop --now` leaves no partial files;
-workers die with the daemon.
+workers die with the daemon. *From WP19's review (KNOW, measured there):* a venv's `python.exe` is a
+launcher whose child is the interpreter, so `spawn_detached` returns the launcher's pid. The daemon
+therefore records its own `os.getpid()` in `run\daemon.json`. Workers start with
+`BELOW_NORMAL_PRIORITY_CLASS` in their creation flags and go into the kill-on-close job (`add(pid)`) at
+once. Create the store root before taking the singleton, since its name hashes the root's `realpath`. The
+orphan sweep reads `daemon.json` and checks the pid: the singleton gives no "abandoned" signal.
 
 **WP31 Job engine.** Also computes DC-2's `retry_after_s`, `poll_after_s`, queue drain estimates and
 the `admission` facts. The claim loop; the GPU scheduler (NVML free-VRAM check with the 1 GB margin,
