@@ -299,7 +299,7 @@ dev = [
 requires-dist = [
     { name = "jiwer", specifier = "==4.0.0" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
-    { name = "mcp", specifier = ">=2.2,<3" },
+    { name = "mcp", specifier = "==2.2.0" },
     { name = "numpy", specifier = ">=2.3,<3" },
     { name = "nvidia-ml-py", specifier = ">=12,<14" },
     { name = "psutil", specifier = ">=7,<8" },
