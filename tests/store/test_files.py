@@ -110,3 +110,84 @@ def test_a_reader_holding_the_old_file_only_delays_a_replace(tmp_path: Path) -> 
         timer.join(timeout=10)
         reader.close()
     assert path.read_bytes() == b'{"state":"busy"}'
+
+
+def _refuse_replace(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(src: object, dst: object) -> None:
+        raise PermissionError(13, "held open by a reader", str(dst))
+
+    monkeypatch.setattr(os, "replace", refuse)
+    monkeypatch.setattr(files, "_retry_sleep", lambda attempt: None)
+
+
+def test_a_replace_that_gives_up_leaves_the_old_file_read_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An immutable file is never left writable because a publish failed.
+    path = tmp_path / "engine.json"
+    files.write_atomic(path, b"old", readonly=True)
+    _refuse_replace(monkeypatch)
+    with pytest.raises(PermissionError):
+        files.write_atomic(path, b"new", readonly=True)
+    assert path.read_bytes() == b"old" and files.is_readonly(path)
+    assert [p.name for p in tmp_path.iterdir()] == ["engine.json"]
+
+
+def test_a_writable_file_stays_writable_when_a_replace_gives_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "daemon.json"
+    files.write_atomic(path, b"old", readonly=False)
+    _refuse_replace(monkeypatch)
+    with pytest.raises(PermissionError):
+        files.write_atomic(path, b"new", readonly=False)
+    assert path.read_bytes() == b"old" and not files.is_readonly(path)
+
+
+def test_a_folder_rename_is_retried_while_it_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    src = tmp_path / ".staging-x"
+    src.mkdir()
+    real = os.rename
+    calls = {"n": 0}
+
+    def flaky(a: object, b: object) -> None:
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise PermissionError(13, "a file inside is open", str(a))
+        real(a, b)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(os, "rename", flaky)
+    monkeypatch.setattr(files, "_retry_sleep", lambda attempt: None)
+    files.rename_retrying(src, tmp_path / "rn_1")
+    assert calls["n"] == 4 and (tmp_path / "rn_1").is_dir()
+
+
+def test_a_folder_rename_gives_up_after_its_retries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    src = tmp_path / ".staging-x"
+    src.mkdir()
+    calls = {"n": 0}
+
+    def refuse(a: object, b: object) -> None:
+        calls["n"] += 1
+        raise PermissionError(13, "a file inside is open", str(a))
+
+    monkeypatch.setattr(os, "rename", refuse)
+    monkeypatch.setattr(files, "_retry_sleep", lambda attempt: None)
+    with pytest.raises(PermissionError):
+        files.rename_retrying(src, tmp_path / "rn_1")
+    assert calls["n"] == files.REPLACE_ATTEMPTS and src.is_dir()
+
+
+def test_a_rename_onto_an_existing_folder_is_not_retried(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    with pytest.raises(OSError):
+        files.rename_retrying(tmp_path / "a", tmp_path / "b")
+
+
+def test_remove_tree_is_quiet_about_entries_that_vanish(tmp_path: Path) -> None:
+    # Two gc runs may remove the same leftover at once.
+    files.remove_tree(tmp_path / "never-there")
+    tree = tmp_path / ".trash-x"
+    (tree / "a").mkdir(parents=True)
+    files.remove_tree(tree)
+    files.remove_tree(tree)
+    assert not tree.exists()

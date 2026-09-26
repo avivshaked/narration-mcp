@@ -102,13 +102,36 @@ def write_temp(
 
 
 REPLACE_ATTEMPTS: Final = 20
-"""How often a rename onto a file is tried. On Windows a reader that has the old file open makes the rename
-fail with "access denied" until it closes it (Python opens files without delete-sharing); readers of the
-store's files hold them for milliseconds, so a short retry rides that out."""
+"""How often a rename is tried before it fails. On Windows a rename is refused ("access denied") while
+another handle has the file, or any file inside the folder, open: a reader of the store (Python opens
+files without delete-sharing) or an antivirus scan. Those hold files for milliseconds, so a short retry
+(about a second in all) rides it out."""
+
+
+def _retry_sleep(attempt: int) -> None:
+    time.sleep(0.005 * (attempt + 1))
+
+
+def rename_retrying(src: Path, dst: Path) -> None:
+    """``os.rename`` (never replacing an existing ``dst``), retried while Windows refuses it because
+    something inside ``src`` is open. Any other error is raised at once."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            _retry_sleep(attempt)
 
 
 def publish_temp(tmp: Path, path: Path) -> None:
-    """Rename a finished temporary file into place, replacing a file already there (read-only or not)."""
+    """Rename a finished temporary file into place, replacing a file already there (read-only or not).
+
+    If the rename still fails after the retries, a replaced file that was read-only is made read-only
+    again, so an immutable file never stays writable because a publish failed.
+    """
+    was_readonly = os.path.lexists(path) and not os.path.islink(path) and is_readonly(path)
     for attempt in range(REPLACE_ATTEMPTS):
         try:
             if os.path.lexists(path):
@@ -117,8 +140,11 @@ def publish_temp(tmp: Path, path: Path) -> None:
             return
         except PermissionError:
             if attempt == REPLACE_ATTEMPTS - 1:
+                if was_readonly:
+                    with contextlib.suppress(OSError):
+                        make_readonly(path)
                 raise
-            time.sleep(0.005 * (attempt + 1))
+            _retry_sleep(attempt)
 
 
 def write_atomic(path: Path, data: bytes | Iterable[bytes], *, readonly: bool, durable: bool = True) -> tuple[str, int]:
@@ -165,26 +191,34 @@ def remove_tree(path: Path) -> None:
     """Remove a folder and everything in it, read-only files included.
 
     A symlink or junction inside it is removed as a link; what it points to is never touched, so a link
-    planted in the store cannot make a removal reach outside it.
+    planted in the store cannot make a removal reach outside it. An entry that disappears meanwhile (two
+    ``gc`` runs removing the same leftover) is not an error.
     """
     if not os.path.lexists(path):
         return
     if _is_link(path):
-        _remove_link(path)
+        with contextlib.suppress(FileNotFoundError):
+            _remove_link(path)
         return
     if not os.path.isdir(path):
         discard(path)
         return
-    with os.scandir(path) as entries:
-        for entry in list(entries):
-            child = Path(entry.path)
-            if entry.is_symlink() or entry.is_junction():
+    try:
+        with os.scandir(path) as entries:
+            children = list(entries)
+    except FileNotFoundError:
+        return
+    for entry in children:
+        child = Path(entry.path)
+        if entry.is_symlink() or entry.is_junction():
+            with contextlib.suppress(FileNotFoundError):
                 _remove_link(child)
-            elif entry.is_dir(follow_symlinks=False):
-                remove_tree(child)
-            else:
-                discard(child)
-    os.rmdir(path)
+        elif entry.is_dir(follow_symlinks=False):
+            remove_tree(child)
+        else:
+            discard(child)
+    with contextlib.suppress(FileNotFoundError):
+        os.rmdir(path)
 
 
 def _is_link(path: Path) -> bool:
