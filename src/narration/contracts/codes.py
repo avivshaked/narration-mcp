@@ -336,7 +336,8 @@ CUE_NOT_PLACED: Final = "not_placed"
 CUE_UNALIGNED_REASONS: Final = frozenset(
     {CUE_NO_ALIGNABLE_WORDS, CUE_UNPLACED_LOW_CONFIDENCE, CUE_UNPLACED_ALIGNMENT_ERROR, CUE_NOT_PLACED}
 )
-"""Every ``details.reason`` a ``CUE_UNALIGNED`` may carry; every ``CUE_UNALIGNED`` carries one (DC-12)."""
+"""Every ``details.reason`` a ``CUE_UNALIGNED`` may carry. That every ``CUE_UNALIGNED`` carries one of these
+is this module's rule, from contracts 1.6.3 on; DC-12 names only ``CUE_NO_ALIGNABLE_WORDS``."""
 
 
 def is_retake_trigger(code: str, severity: Severity, details: Mapping[str, object] | None = None) -> bool:
