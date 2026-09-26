@@ -5,10 +5,10 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
 
-- **Stage: Wave 1 is merged except WP15 and WP20; Wave 2 is under way.**
+- **Stage: Wave 1 is merged except WP15; Wave 2 is under way.**
   - Merged into `main` and pushed: WP00–WP03, WP01, WP10, WP12, WP13, WP14, WP16 (with follow-ups),
-    WP17, WP18 (draft), WP19, contracts 1.1–1.6.1, and the private-text guard. Design revision 5.6.
-    Main has 2631 tests passing.
+    WP17, WP18 (draft), WP19, WP20, contracts 1.1–1.6.1, and the private-text guard. Design revision
+    5.7. Main has 2631 tests passing, and the Qwen worker's own suite 152.
   - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before
     merge, and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
   - **Private text:** the bake-off's scripts and transcripts are the owner's private story, and the
@@ -17,8 +17,6 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
     - The lead runs it on every branch before pushing, and every reviewer runs it.
     - The main checkout's gitignored `.dev/private-text.txt` and `.dev/private-terms.txt` configure it for
       every worktree.
-  - **WP20** (Qwen worker): its fixes and DC-4 are done, and its history is rewritten. The lead added its
-    CI job (`worker-qwen3tts`). Its reviewer is re-verifying.
   - **WP15** (alignment): the review said merge with follow-ups. F1–F4 and the nits are being fixed.
   - **WP30** (daemon): built, in independent review. **WP31** (job engine): building against WP30's seam
     (`narration.daemon.seam.JobRunner`).
@@ -28,8 +26,15 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
     - WP18's (`wp/18-followups`): the service's own default design text and WP10's fixture changes, in
       review.
 - **GPU:** the owner lifted the hold on 2026-09-26 evening. Agents take the GPU lock in bounded runs.
-- **Hangs:** Avast's Auto-Sandbox took custody of venv launcher `.exe`s. Agents run every tool as
-  `uv run python -m …`. Avast was off for the session.
+- **Hangs and restarts:** the machine restarted three times on 2026-09-26.
+  - The first two followed Avast's Auto-Sandbox taking custody of venv launcher `.exe`s, so agents run
+    every tool as `uv run python -m …`.
+  - The third was a screen that would not wake, preceded only by a display-driver error. No agent was using
+    the GPU, and Avast logged nothing.
+  - Details are in the gitignored `AGENTS.local.md`. After a restart, check each worktree for uncommitted
+    files before resuming its agent.
+  - A main checkout's worker venv synced before a worker changed shape needs `uv sync --locked` again: the
+    main checkout's `workers/qwen3tts/.venv` lacked the new package after WP20 merged.
 - **Agents:** at most 6 at once. Opus 5.5 by default; Fable for the hardest problems.
 - A removed worktree can leave an empty folder that Windows reports busy (a shell's working directory).
   It is gitignored; delete it later.
@@ -71,13 +76,10 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 1. Merge as each branch comes back. Before any push, run
    `py -3.12 tools/check_private.py --commits main..<branch> --base main`; the pre-push hook runs it too.
    Then: full suite, PR, CI, `--no-ff`, remove the worktree.
-   - WP20 after its reviewer's re-verification.
    - WP15 after its fixes; its reviewer re-checks F1.
    - The WP12 and WP18 follow-ups, each after a quick review.
    - WP30 after its review. WP31 after WP30: it swaps the daemon's `DEFAULT_RUNNER` for the job engine's.
 2. The lead's edits at merge:
-   - WP20: design §10.1 for ADR 0002 (`bit_exact`; the encode exemption covers the whole
-     `create_voice_clone_prompt`); mark ADR 0003 accepted.
    - WP15: the proposed §11.2 wording (steps 1, 3 and 5) in `status/WP15.md`.
    - WP18: DC-13's row in plan.md §1.5, and design revision 5.7's header line (both proposed in
      `status/WP18.md`).

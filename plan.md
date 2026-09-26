@@ -2,7 +2,7 @@
 
 *Plan revision 2, 2026-09-26. Status: **H0 answered and the plan pushed; WP00 next.** Nothing is built yet.*
 
-**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.6**. It is the
+**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.7**. It is the
 bake-off's design copied into this repository, and differs only in two example paths and a header note.
 This plan cites it as "§n". Changes to it are proposed and approved in §1.5, and approved changes enter
 it as revision 5.2. Where this plan and the design disagree, the design wins, and the plan gets fixed.
@@ -658,7 +658,7 @@ Updated by the lead on `main` only.
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; follow-up in review on `wp/18-followups`: the service's own default design text (DC-13, proposed), WP10's fixture changes |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `review` | `wp/20-gpu-lane` | findings and DC-4 done, history rewritten; the worker's CI job added; its reviewer re-verifying |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `review` | `wp/30-daemon` | built, with spike (g); independent review |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `active` | `wp/31-jobs` | started 2026-09-26 night, against WP30's seam |
@@ -879,3 +879,13 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **WP18's follow-up** is in review: the service's own default design text, WP10's fixture changes, and
     the material tests through `narration.text`. The lead replaced the old text's last fragment in spike
     j's probes.
+- 2026-09-26, night, later:
+  - **WP20 merged (PR #20).** Its reviewer re-verified the branch: the private-text BLOCK is cleared and
+    every finding is fixed or answered. Design revision 5.7 records ADR 0002 in §10.1: the clone path is
+    `bit_exact` on the pinned stack, the voice prompt's encode is the one exemption from deterministic
+    algorithms, a worker writes its own WAV, and `engine pin` decides the tier where the service is
+    installed. The new CI job `worker-qwen3tts` passed on Windows and Linux.
+  - **The machine restarted a third time** (about 21:24). The screen could not be woken. The evidence points
+    at the display driver failing on wake: no agent was using the GPU and Avast logged nothing. Every
+    agent was interrupted. None lost committed work, and their uncommitted files survived. All were
+    resumed.
