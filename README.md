@@ -3,8 +3,18 @@
 A local [MCP](https://modelcontextprotocol.io) server that gives an AI agent narration in **one fixed
 voice**, and the time of every line within that audio.
 
-> **Status: design complete, implementation starting.** Nothing here runs yet. This README describes
-> what is being built; it will say plainly when a first version can be installed.
+> **Status: in development. It cannot be installed and used yet.** Many of the parts are built and tested
+> on their own, but not yet joined into a working service:
+> - the store and its keys;
+> - the text rules;
+> - the quality checks;
+> - the MCP front-end;
+> - the worker protocol;
+> - the Qwen3-TTS worker.
+>
+> The alignment, the background daemon and the job engine are in review. This README describes what is
+> being built, and it will say plainly when a first version can be installed. [plan.md](plan.md) §4 has
+> the current status of every part.
 
 ## What it does
 
@@ -43,10 +53,13 @@ cache when the work has already been done.
 
 ## Requirements (planned)
 
-- An NVIDIA GPU with CUDA. How much VRAM is needed will be measured and stated here.
+- An NVIDIA GPU with CUDA. The voice models need about 6 GB of VRAM while rendering: about 5.8 GB
+  was measured for a 30-second render ([spike h](spikes/h-i-qwen-load/README.md)). The checking
+  models are measured next, and the total will be stated here.
 - Python 3.12 and [uv](https://docs.astral.sh/uv/).
 - About 15 GB of disk for the models, plus a working store.
-- Platform support will be stated before the first release. Development happens on Windows 11.
+- Windows 11 is the first platform. The tests that need no GPU also run on Linux in CI. Supported
+  platforms will be stated before the first release.
 
 ## Models
 
@@ -62,8 +75,9 @@ every result. None of them is distributed with this repository.
 
 ## Project status, contributing and security
 
-The work is organised in [plan.md](plan.md). Issues are welcome, including a "Commercial licence" issue
-if you want to use this project commercially.
+The service is specified in [docs/design.md](docs/design.md), and the work is organised in
+[plan.md](plan.md). Decisions with their evidence are recorded in [docs/decisions/](docs/decisions/).
+Issues are welcome, including a "Commercial licence" issue if you want to use this project commercially.
 
 - **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md) for the environment setup, the test tiers,
   and the checks a change needs to pass. Everyone participating is expected to follow the
@@ -72,7 +86,7 @@ if you want to use this project commercially.
   and how to report a vulnerability.
 - **Changes:** notable changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 - **Configuration:** [narration.example.toml](narration.example.toml) shows every configuration key and
-  its default, once there is code to read it.
+  its default.
 
 ## Licence
 

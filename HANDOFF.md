@@ -7,8 +7,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **Stage: Wave 1 is merged except WP15; Wave 2 is under way.**
   - Merged into `main` and pushed: WP00–WP03, WP01, WP10, WP12, WP13, WP14, WP16 (with follow-ups),
-    WP17, WP18 (draft), WP19, WP20, contracts 1.1–1.6.1, and the private-text guard. Design revision
-    5.7. Main has 2631 tests passing, and the Qwen worker's own suite 152.
+    WP17, WP18 (draft, with its follow-ups), WP19, WP20, contracts 1.1–1.6.1, and the private-text
+    guard. Design revision 5.8. Main has 2602 tests passing, and the Qwen worker's own suite 152.
   - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before
     merge, and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
   - **Private text:** the bake-off's scripts and transcripts are the owner's private story, and the
@@ -17,14 +17,13 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
     - The lead runs it on every branch before pushing, and every reviewer runs it.
     - The main checkout's gitignored `.dev/private-text.txt` and `.dev/private-terms.txt` configure it for
       every worktree.
-  - **WP15** (alignment): the review said merge with follow-ups. F1–F4 and the nits are being fixed.
-  - **WP30** (daemon): built, in independent review. **WP31** (job engine): building against WP30's seam
-    (`narration.daemon.seam.JobRunner`).
+  - **WP15** (alignment): fixes re-verified; merging, with design revision 5.9 (§11.2) and contracts 1.6.2.
+  - **WP30** (daemon): fixing its review's BLOCK and findings, with the seam changes WP31 needs.
+  - **WP31** (job engine): built, in independent review.
   - **Follow-ups:**
-    - WP12's (`wp/12-followups`): items 1–5 and two races are done; WP30's two store races are being
-      added.
-    - WP18's (`wp/18-followups`): the service's own default design text and WP10's fixture changes, in
-      review.
+    - WP12's (`wp/12-followups`): reviewed; fixing gc's lock bound, a reader gap during a replace and a
+      mid-publish gc case.
+    - WP16's second set (`wp/16-worker-followups`): building.
 - **GPU:** the owner lifted the hold on 2026-09-26 evening. Agents take the GPU lock in bounded runs.
 - **Hangs and restarts:** the machine restarted three times on 2026-09-26.
   - The first two followed Avast's Auto-Sandbox taking custody of venv launcher `.exe`s, so agents run
@@ -76,22 +75,35 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 1. Merge as each branch comes back. Before any push, run
    `py -3.12 tools/check_private.py --commits main..<branch> --base main`; the pre-push hook runs it too.
    Then: full suite, PR, CI, `--no-ff`, remove the worktree.
-   - WP15 after its fixes; its reviewer re-checks F1.
-   - The WP12 and WP18 follow-ups, each after a quick review.
-   - WP30 after its review. WP31 after WP30: it swaps the daemon's `DEFAULT_RUNNER` for the job engine's.
+   - WP15 now.
+   - WP12's follow-ups after their fixes.
+   - WP30 after its fixes and its reviewer's re-verification (it had a BLOCK).
+   - WP31 after its review and after WP30. It then re-exports WP30's seam and swaps the daemon's
+     `DEFAULT_RUNNER` for `narration.jobs.runner:default_runner`.
+   - WP16's second set of follow-ups after a quick review.
 2. The lead's edits at merge:
-   - WP15: the proposed §11.2 wording (steps 1, 3 and 5) in `status/WP15.md`.
-   - WP18: DC-13's row in plan.md §1.5, and design revision 5.7's header line (both proposed in
-     `status/WP18.md`).
+   - WP15: §11.2 steps 1, 3, 4, 5 and 8 from `status/WP15.md` (revision 5.9); DC-11 met; contracts 1.6.2
+     in plan.md's WP01 row.
    - WP30: design §4.1 (the daemon runs as `pythonw.exe`), and §17 (workers start in their project folder,
-     with `NoDefaultCurrentDirectoryInExePath=1` on Windows and `PATH` kept).
+     with `NoDefaultCurrentDirectoryInExePath=1` on Windows and `PATH` kept, and `python -P`).
+   - WP31: contract changes it asked for (`hello` on `interfaces.WorkerClient`; `JobRecord.result`'s
+     docstring covers the job's suggestions and consistency report).
 3. Follow-ups not yet assigned:
    - **WP36 must restamp** cached QA results with the request's segment id and exact-span offsets, and turn
      `QaUnavailable` into the segment's `QA_UNAVAILABLE`. Its backend write calls must finish well inside
      the front-end's 30 s shield deadline (`server.WRITE_DEADLINE_S`). It passes `reply=None` to the
      aligner's `resolve` only for an `ALIGNMENT_ERROR` reply.
-   - **WP22**: package `workers/qa`; wire WP15's `AlignOp` into `QaHandler`; write any WAV with a
-     byte-reproducible writer (soundfile's float WAV has a time-stamped `PEAK` chunk).
+   - **WP22**:
+     - package `workers/qa`;
+     - wire WP15's `AlignOp` into `QaHandler`;
+     - write any WAV with the shared byte-reproducible writer (WP16's second follow-ups);
+     - accept the language as the job engine sends it ("English"), or map it;
+     - measure the aligner's memory beyond about 40 s of audio.
+
+     The aligner's `_is_broken_file` treats any non-memory `RuntimeError` as a damaged snapshot; narrow it.
+   - **WP32**: assemble the aligner and the QA model pins in the job engine's `installed_engine`.
+   - **WP38**: re-set the aligner's snap reaches (ASSUME) from a hand-marked boundary next to an unplaced
+     cue, and consider a separate reach for wildcard edges.
    - **WP37**: a worker's `BACKEND_NOT_INSTALLED` sticks for the daemon's lifetime, so after
      `narration-admin install` repairs a worker, the daemon must restart (or gain a `reset_workers` command).
    - **WP36** starts the daemon with `narration.daemon.ensure_daemon`.

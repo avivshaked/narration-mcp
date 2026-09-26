@@ -651,18 +651,18 @@ Updated by the lead on `main` only.
 | WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
 | WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
 | WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; follow-ups on `wp/12-followups`: items 1–5, the trash race, a canary-clip race, and WP30's two store races (building) |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PR #13 | 2026-09-26; follow-ups on `wp/12-followups` (items 1–9, WP30's two store races included): reviewed, merge with follow-ups; fixing gc's lock bound, a reader gap in a replace, and a mid-publish gc case |
 | WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
 | WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `active` | `wp/15-align` | DC-11's wildcard built; review: merge with follow-ups; fixing F1 (snapping next to an unplaced cue), F2–F4 and nits |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups a–e (DC-4's per-call cap; the fake matched to the real worker) |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `review` | `wp/15-align` | DC-11's wildcard built; F1–F4 fixed and re-verified (merge); merging with design revision 5.9 |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups a–e merged; follow-ups 2 building on `wp/16-worker-followups` (the fake's `load` matched to qwen3, one shared WAV writer, WP14's `CUE_UNALIGNED` reason) |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
-| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PR #3 | 2026-09-26; follow-up in review on `wp/18-followups`: the service's own default design text (DC-13, proposed), WP10's fixture changes |
+| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; the service's own default design text (DC-13, design 5.8); fixtures settled with WP10; H1 still to listen |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `todo` | – | DC-1 |
-| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `review` | `wp/30-daemon` | built, with spike (g); independent review |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `active` | `wp/31-jobs` | started 2026-09-26 night, against WP30's seam |
+| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `active` | `wp/30-daemon` | review: BLOCK (test clean-up could kill a reused pid); fixing it and the findings (an unreadable status file, a job stranded at idle exit, `-P`, the platform seam) |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `review` | `wp/31-jobs` | built; acceptance criteria tested; independent review |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
@@ -890,3 +890,26 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     at the display driver failing on wake: no agent was using the GPU and Avast logged nothing. Every
     agent was interrupted. None lost committed work, and their uncommitted files survived. All were
     resumed.
+- 2026-09-26, night, after the restart:
+  - **WP18's follow-ups merged (PR #21):** the service's own default design text (DC-13, design revision
+    5.8), the material judged by `narration.text`, and text-v1's open points settled. The review also found
+    a four-word fragment of the old text that WP20 had brought to main in the Qwen worker's tests; it was
+    replaced in the same PR. Once main no longer held the old text, `check_private` guards it.
+  - **Reviews in:**
+    - WP15's fixes were re-verified (merge).
+    - WP12's follow-ups: merge with follow-ups (gc's lock bound, a reader gap during a replace).
+    - WP30: BLOCK, because its test and spike clean-up could kill a process that reused a pid. The
+      daemon's own code only kills what it provably owns. Also: an unreadable status file after a hard
+      reset blocked every start, and a job queued as the daemon went idle could be stranded.
+    - WP31 (the job engine) is built and in review.
+  - **The lead's decisions for WP30:**
+    - the daemon runs as `pythonw.exe` (design §4.1 at merge);
+    - a `stop` applies to the service, so a daemon that takes over honours a pending one;
+    - the seam gains `JobRunner.has_work`, re-checked after `stopping` is published;
+    - WP37's `install` stops the daemon after repairing a worker.
+  - **The lead's decisions for WP31:**
+    - `max_retakes` is per failing take slot (§3, §8);
+    - assembling the aligner and QA pins in the engine goes to WP32;
+    - WP22's worker accepts the language as the engine sends it, or the engine maps it.
+  - **README:** the status now says what is built and that the service cannot be installed yet, and the
+    measured VRAM of the voice models is stated.
