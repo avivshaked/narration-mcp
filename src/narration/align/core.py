@@ -83,13 +83,17 @@ from narration.contracts.models import (
 from narration.contracts.names import ALIGNMENT_METHOD, MODEL_ALIGNER, MODEL_ASR, Severity
 from narration.contracts.worker import AlignReply, AsrWord
 
-from .alphabet import WILDCARD
+from .alphabet import WILDCARD, WILDCARD_COLUMN
 from .crosscheck import Boundary, cross_check
 from .snap import Pause, PauseParams, find_pauses
-from .transcript import build_transcript, guard, has_letters, repeats, wildcard_runs
+from .transcript import TRANSCRIPT_RULES, build_transcript, guard, has_letters, repeats, wildcard_runs
 
 METHOD_PREFIX: Final = "ctc-snap"
 """The method id's family (App. B: ``ctc-snap/<model>@<revision>``)."""
+RESOLVE_RULES: Final = "narration.align.resolve/1"
+"""The version of ``resolve``'s rules: placing words, confidence, unplaceable cues, which pause an edge snaps
+to (and the reach next to unaligned speech), and the cross-check. It is in the method id, so bump it with
+any change that can change a result for the same settings."""
 CTC_MODELS: Final = frozenset({MODEL_ALIGNER})
 """The models ``CtcAligner`` runs: wav2vec2 CTC models with the English character vocabulary, whose
 thresholds spike (b) measured. Another model (the Qwen forced aligner, say) is another method, not
@@ -238,14 +242,23 @@ class CtcAligner:
         return self._params
 
     def method_params(self) -> dict[str, Any]:
-        """The settings behind ``method_id``, as JSON (for the alignment benchmark's ``snap`` record)."""
-        return {"method": ALIGNMENT_METHOD, **asdict(self._params)}
+        """The settings behind ``method_id``, as JSON (for the alignment benchmark's ``snap`` record): the
+        method, the versions of the transcript's and ``resolve``'s rules, the worker's wildcard column, and
+        every ``AlignerParams`` field."""
+        return {
+            "method": ALIGNMENT_METHOD,
+            "transcript_rules": TRANSCRIPT_RULES,
+            "resolve_rules": RESOLVE_RULES,
+            "wildcard_column": WILDCARD_COLUMN,
+            **asdict(self._params),
+        }
 
     @property
     def method_id(self) -> str:
         """``ctc-snap/<model name>@<revision>+p<12 hex>``: the model, its revision and every setting.
 
-        The settings' hash covers the snap parameters and the confidence and cross-check thresholds. A
+        The settings' hash covers ``method_params``: the snap parameters, the confidence and cross-check
+        thresholds, the wildcard's column and the versions of the transcript's and ``resolve``'s rules. A
         threshold changes the flags and nulls of an analysis, so it must change the analysis key, and the
         method id is the key's only aligner input (``AnalysisKeyInputs.aligner_method_id``; design section
         11.2 step 8). A new id also needs the alignment benchmark run again for it (WP38).

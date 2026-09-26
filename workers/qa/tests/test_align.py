@@ -136,6 +136,12 @@ def test_wildcard_column_is_one_minus_the_blank_s11_2_dc11() -> None:
     )  # float32
 
 
+def test_wildcard_column_names_its_floor_s11_2_dc11() -> None:
+    # The server hashes WILDCARD_COLUMN into the aligner's method id (narration.align.WILDCARD_COLUMN).
+    name, floor = qa.WILDCARD_COLUMN.split("@")
+    assert (name, float(floor)) == ("log1m_blank", qa.WILDCARD_FLOOR)
+
+
 def test_wildcard_absorbs_speech_outside_the_alphabet_s11_2_dc11() -> None:
     # A at frame 10, then speech the targets cannot spell (class 5) at frames 20-29, then B at frame 40
     logits = torch.zeros(60, 6)

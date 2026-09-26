@@ -7,12 +7,14 @@ word's letters where the test says (``_support.reply``). So every expected time 
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
+from pathlib import Path
 from typing import cast
 
 import pytest
 from jsonschema import Draft202012Validator
 
-from narration.align import AlignerParams, CtcAligner
+from narration.align import ALPHABET, WILDCARD, WILDCARD_COLUMN, AlignerParams, CtcAligner, core
 from narration.config import AlignmentConfig
 from narration.contracts import codes
 from narration.contracts.errors import WorkerFailure
@@ -26,6 +28,7 @@ from narration.contracts.worker import AlignReply
 from ._support import RATE, REVISION, audio, codes_of, cue_times, reply, segment
 
 ALIGNER = CtcAligner(revision=REVISION)
+CHECKOUT = Path(__file__).resolve().parents[2]
 
 # Two cues with a pause: speech 0.20–1.40, pause 1.40–1.90, speech 1.90–2.80, silence to 3.00. The aligner's
 # letters end 60 ms before the first speech ends and start 60 ms after the second starts.
@@ -413,6 +416,26 @@ def test_method_id_names_the_model_revision_and_every_setting_s11_2() -> None:
     ids = {CtcAligner(revision=REVISION, params=p).method_id for p in changed}
     assert len(ids) == len(changed) and method not in ids
     assert CtcAligner(revision="0" * 40).method_id != method
+
+
+@pytest.mark.parametrize("constant", ["WILDCARD_COLUMN", "TRANSCRIPT_RULES", "RESOLVE_RULES"])
+def test_method_id_names_the_wildcard_and_the_rules_s11_2_dc11(monkeypatch: pytest.MonkeyPatch, constant: str) -> None:
+    # Regression (review F4): the id did not cover the wildcard's column or the rules that build the
+    # transcript and resolve the times, so changing either left a cached analysis looking current.
+    before = ALIGNER.method_id
+    assert ALIGNER.method_params()[constant.lower()] == getattr(core, constant)
+    monkeypatch.setattr(core, constant, getattr(core, constant) + "-changed")
+    assert ALIGNER.method_id != before
+
+
+def test_the_wildcard_column_and_the_alphabet_are_the_workers_s11_2_dc11() -> None:
+    # The server names the worker's wildcard column in the method id; the two must agree.
+    source = CHECKOUT / "workers" / "qa" / "src" / "narration_worker_qa" / "align.py"
+    spec = importlib.util.spec_from_file_location("_wp15_qa_align", source)
+    assert spec is not None and spec.loader is not None
+    worker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(worker)
+    assert (worker.WILDCARD_COLUMN, worker.WILDCARD, worker.ALPHABET) == (WILDCARD_COLUMN, WILDCARD, ALPHABET)
 
 
 @pytest.mark.parametrize("model", [MODEL_ALIGNER_ALTERNATIVE, "facebook/wav2vec2-base-960h", ""])

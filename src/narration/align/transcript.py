@@ -32,6 +32,10 @@ from narration.text import Word, canonical_form, words
 
 from .alphabet import WILDCARD, WORD_SEPARATOR, spell
 
+TRANSCRIPT_RULES: Final = "narration.align.transcript/1"
+"""The version of the rules that build the transcript: the alphabet and its folds (``alphabet``), the
+wildcard runs, and how ``align_as`` parts are shared out. It is in the aligner's method id, so bump it with
+any change that can change a transcript."""
 SAMPLE_RATE: Final = 16_000
 """The aligner's input rate: the worker resamples every take to it (section 11.2)."""
 FRAME_STRIDE: Final = 320

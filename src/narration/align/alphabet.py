@@ -30,6 +30,9 @@ ALPHABET: Final[frozenset[str]] = frozenset(LETTERS + APOSTROPHE + WORD_SEPARATO
 WILDCARD: Final = "*"
 """The token for a run of words outside the alphabet (plan.md DC-11). It is not the model's: the worker aligns
 it through an extra emission column that can absorb any speech but not silence."""
+WILDCARD_COLUMN: Final = "log1m_blank@1e-6"
+"""What the worker's wildcard column is, as the aligner's method id names it: log(1 − P(blank)) per frame,
+floored at 1e-6 (``narration_worker_qa.align.WILDCARD_COLUMN``). Change it with the worker's."""
 
 APOSTROPHES: Final[frozenset[str]] = frozenset("'’‘ʼ")
 """Spelled as the apostrophe token: ' ’ ‘ and ʼ (MODIFIER LETTER APOSTROPHE, a letter by category)."""
@@ -79,8 +82,8 @@ def spell(text: str) -> tuple[str, ...] | None:
 
     Letters and apostrophes become tokens; a run of hyphens or dashes between letters becomes one ``|``;
     silent punctuation and combining marks are dropped. Returns None when a character is outside the
-    alphabet (a digit, a symbol, a letter of another script), or when no letter is left: the word is then
-    left out of the transcript, and the words around it still align (section 11.2 step 1).
+    alphabet (a digit, a symbol, a letter of another script), or when no letter is left: the transcript
+    then puts the wildcard in place of the run of such words (section 11.2 step 1, plan.md DC-11).
     """
     tokens: list[str] = []
     for ch in text:

@@ -71,6 +71,9 @@ WILDCARD: Final = "*"
 """The token that stands for a run of words outside the model's alphabet (plan.md DC-11)."""
 WILDCARD_FLOOR: Final = 1e-6
 """The smallest 1 − P(blank) the wildcard's column takes, so its log-probability stays finite (-13.8)."""
+WILDCARD_COLUMN: Final = "log1m_blank@1e-6"
+"""The wildcard column's definition, as the server's ``narration.align.WILDCARD_COLUMN`` names it in the
+aligner's method id: log(1 − P(blank)), floored at ``WILDCARD_FLOOR``. Change the three together."""
 DEVICE: Final = "cpu"
 """The only device the aligner runs on (design section 11.2: the GPU path is untested and not needed)."""
 ALPHABET: Final = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ'|")
