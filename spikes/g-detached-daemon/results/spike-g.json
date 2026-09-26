@@ -1,0 +1,407 @@
+{
+ "environment": {
+  "date": "2026-09-26",
+  "python": "3.12.10",
+  "windows": "10.0.26200",
+  "psutil": "7.2.2"
+ },
+ "scenarios": [
+  {
+   "scenario": "plain",
+   "job": "none",
+   "how": "start_detached",
+   "via": "python",
+   "session_exit_code": 0,
+   "session_job_before": [
+    true,
+    true
+   ],
+   "session_job_after": [
+    true,
+    true
+   ],
+   "start_error": null,
+   "serving_before_session_exit_s": 0.23,
+   "daemon_served_before_session_exit": true,
+   "daemon_alive_after_session": true,
+   "daemon_is_launcher_child": true,
+   "daemon_name": "pythonw.exe",
+   "release_gpu_answered_after_session": true,
+   "release_gpu_answer_s": 0.11,
+   "job_completed_after_session": true,
+   "tree": [
+    {
+     "role": "daemon-launcher",
+     "name": "pythonw.exe",
+     "parent_role": "outside",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "daemon",
+     "name": "pythonw.exe",
+     "parent_role": "daemon-launcher",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker-launcher",
+     "name": "python.exe",
+     "parent_role": "daemon",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "console-of-worker-launcher",
+     "name": "conhost.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "0x4"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker",
+     "name": "python.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    }
+   ],
+   "stop_result": {
+    "stopped": true,
+    "requeued": []
+   },
+   "exited_after_stop": true,
+   "final_state": "stopped"
+  },
+  {
+   "scenario": "uv-run",
+   "job": "none",
+   "how": "start_detached",
+   "via": "uv",
+   "session_exit_code": 0,
+   "session_job_before": [
+    true,
+    true
+   ],
+   "session_job_after": [
+    true,
+    true
+   ],
+   "start_error": null,
+   "serving_before_session_exit_s": 0.24,
+   "daemon_served_before_session_exit": true,
+   "daemon_alive_after_session": true,
+   "daemon_is_launcher_child": true,
+   "daemon_name": "pythonw.exe",
+   "release_gpu_answered_after_session": true,
+   "release_gpu_answer_s": 0.016,
+   "job_completed_after_session": true,
+   "tree": [
+    {
+     "role": "daemon-launcher",
+     "name": "pythonw.exe",
+     "parent_role": "outside",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "daemon",
+     "name": "pythonw.exe",
+     "parent_role": "daemon-launcher",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker-launcher",
+     "name": "python.exe",
+     "parent_role": "daemon",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "console-of-worker-launcher",
+     "name": "conhost.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "0x4"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker",
+     "name": "python.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    }
+   ],
+   "stop_result": {
+    "stopped": true,
+    "requeued": []
+   },
+   "exited_after_stop": true,
+   "final_state": "stopped"
+  },
+  {
+   "scenario": "job-breakaway-ok",
+   "job": "breakaway",
+   "how": "start_detached",
+   "via": "python",
+   "session_exit_code": 0,
+   "session_job_before": [
+    true,
+    true
+   ],
+   "session_job_after": [
+    true,
+    true
+   ],
+   "start_error": null,
+   "serving_before_session_exit_s": 0.23,
+   "daemon_served_before_session_exit": true,
+   "daemon_alive_after_session": true,
+   "daemon_is_launcher_child": true,
+   "daemon_name": "pythonw.exe",
+   "release_gpu_answered_after_session": true,
+   "release_gpu_answer_s": 0.015,
+   "job_completed_after_session": true,
+   "tree": [
+    {
+     "role": "daemon-launcher",
+     "name": "pythonw.exe",
+     "parent_role": "outside",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "daemon",
+     "name": "pythonw.exe",
+     "parent_role": "daemon-launcher",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker-launcher",
+     "name": "python.exe",
+     "parent_role": "daemon",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "console-of-worker-launcher",
+     "name": "conhost.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "0x4"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker",
+     "name": "python.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    }
+   ],
+   "stop_result": {
+    "stopped": true,
+    "requeued": []
+   },
+   "exited_after_stop": true,
+   "final_state": "stopped"
+  },
+  {
+   "scenario": "job-no-breakaway",
+   "job": "no-breakaway",
+   "how": "start_detached",
+   "via": "python",
+   "session_exit_code": 0,
+   "session_job_before": [
+    true,
+    true
+   ],
+   "session_job_after": [
+    true,
+    false
+   ],
+   "start_error": {
+    "code": "DAEMON_UNAVAILABLE",
+    "retry_after_s": 60.0,
+    "details": {
+     "reason": "breakaway_refused",
+     "winerror": 5,
+     "in_job": true,
+     "job_allows_breakaway": false
+    }
+   },
+   "serving_before_session_exit_s": null,
+   "daemon_json_after": null
+  },
+  {
+   "scenario": "control-no-breakaway-flag",
+   "job": "breakaway",
+   "how": "no-breakaway-flag",
+   "via": "python",
+   "session_exit_code": 0,
+   "session_job_before": [
+    true,
+    true
+   ],
+   "session_job_after": [
+    true,
+    true
+   ],
+   "start_error": null,
+   "serving_before_session_exit_s": 0.32,
+   "daemon_served_before_session_exit": true,
+   "daemon_alive_after_session": false,
+   "launcher_alive_after_session": false,
+   "running_daemon_after": false
+  },
+  {
+   "scenario": "console-python",
+   "job": "none",
+   "how": "console-python",
+   "via": "python",
+   "session_exit_code": 0,
+   "session_job_before": [
+    true,
+    true
+   ],
+   "session_job_after": [
+    true,
+    true
+   ],
+   "start_error": null,
+   "serving_before_session_exit_s": 0.64,
+   "daemon_served_before_session_exit": true,
+   "daemon_alive_after_session": true,
+   "daemon_is_launcher_child": true,
+   "daemon_name": "python.exe",
+   "release_gpu_answered_after_session": true,
+   "release_gpu_answer_s": 0.032,
+   "job_completed_after_session": true,
+   "tree": [
+    {
+     "role": "daemon-launcher",
+     "name": "python.exe",
+     "parent_role": "outside",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "daemon",
+     "name": "python.exe",
+     "parent_role": "daemon-launcher",
+     "args": [
+      "-m",
+      "narration.daemon",
+      "--store"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "console-of-daemon",
+     "name": "conhost.exe",
+     "parent_role": "daemon",
+     "args": [
+      "0x4"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker-launcher",
+     "name": "python.exe",
+     "parent_role": "daemon",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "console-of-worker-launcher",
+     "name": "conhost.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "0x4"
+     ],
+     "has_window": false
+    },
+    {
+     "role": "worker",
+     "name": "python.exe",
+     "parent_role": "worker-launcher",
+     "args": [
+      "-m",
+      "narration_worker",
+      "--role"
+     ],
+     "has_window": false
+    }
+   ],
+   "stop_result": {
+    "stopped": true,
+    "requeued": []
+   },
+   "exited_after_stop": true,
+   "final_state": "stopped"
+  }
+ ]
+}
