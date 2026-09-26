@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in narration-mcp does not behave as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please do not use this template for a security
+        vulnerability — use GitHub's private vulnerability reporting for this repository instead (see
+        [SECURITY.md](../../SECURITY.md)).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug. Include the exact tool call or command, and the
+        exact response or error you got back.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      description: What the design or documentation led you to expect.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The package version, or the commit SHA if you are running from a clone.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, GPU (if relevant), and anything unusual about your setup. Please
+        do not include any local file paths, user names or machine names — describe them generically
+        (e.g. "a path under my home directory") if they matter to the report.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Logs, tracebacks or JSON responses. Please redact any local paths or personal
+        information before pasting.
+      render: shell

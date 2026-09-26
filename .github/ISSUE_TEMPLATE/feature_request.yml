@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest something narration-mcp does not do yet.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project follows a written design (`docs/design.md`) and an implementation plan (`plan.md`).
+        A feature request is most useful when it says what problem it solves for a caller, not just what
+        API shape you would like.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: What are you trying to do that the current tools and behaviour do not support?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you would like to see, as concretely as you can put it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other way you could get the same result with what already exists, and why it
+        falls short.
