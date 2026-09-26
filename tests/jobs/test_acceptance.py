@@ -197,6 +197,28 @@ def test_no_retake_when_max_retakes_is_zero_s8(world: World) -> None:
     assert world.pool.texts() == [LAMPS]
 
 
+def test_max_retakes_is_per_take_slot_s8(world: World) -> None:
+    world.faults({"kind": "token_cap", "when": {"text_contains": "lamplighter"}})
+    job = world.submit(LAMPS, takes=2, max_retakes=2)
+    world.run()
+    done = world.job(job.job_id)
+    item = done.items[0]
+    # Two slots, each retaken twice, on the next attempt numbers in slot order, a round at a time.
+    assert [(a.attempt, a.round) for a in item.attempts] == [(0, 0), (2, 1), (4, 2), (1, 0), (3, 1), (5, 2)]
+    assert item.retakes_used == 4 and done.round == 2
+    assert world.pool.calls[("qwen", "synthesize")] == 6
+
+
+def test_retakes_of_named_attempts_follow_every_attempt_so_far_s8(world: World) -> None:
+    world.faults({"kind": "token_cap", "when": {"text_contains": "lamplighter"}})
+    body = world.request(LAMPS, max_retakes=1)
+    body["segments"][0]["attempts"] = [5, 2]
+    job = world.submit_body(body)
+    world.run()
+    item = world.job(job.job_id).items[0]
+    assert [(a.attempt, a.round) for a in item.attempts] == [(5, 0), (6, 1), (2, 0), (7, 1)]
+
+
 # ======================================================================== the same request twice, from the cache
 
 
