@@ -15,13 +15,21 @@ from typing import Any
 import anyio
 import pytest
 from jsonschema import Draft202012Validator
+from mcp.shared.uri_template import UriTemplate
 
 from narration.config import RetentionConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
-from narration.contracts.names import PROMPTS, RESOURCE_CACHE_SCOPE, RESOURCES, SERVER_NAME, TOOL_NAMES
+from narration.contracts.names import (
+    ID_PATTERNS,
+    PROMPTS,
+    RESOURCE_CACHE_SCOPE,
+    RESOURCES,
+    SERVER_NAME,
+    TOOL_NAMES,
+)
 from narration.contracts.schemas import DIALECT, TOOLS_BY_NAME
-from narration.mcp import FrontEnd, build_front_end
+from narration.mcp import FrontEnd, build_front_end, results
 from narration.mcp.descriptions import (
     BACKOFF_RULE,
     LENGTH_IS_YOURS,
@@ -34,6 +42,8 @@ from tests.mcp.wire import ERAS, Era, Wire, open_wire
 
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
+OTHER_JOB_ID = "job_01JBXQ7Z3M8V4T2R9K6N5P0W1D"
+"""A well-formed job id the fake does not know."""
 
 
 @pytest.fixture
@@ -225,6 +235,86 @@ def test_missing_and_malformed_arguments_name_the_field_s14(backend: FakeBackend
     over_wire(build_front_end(backend), "modern", body)
 
 
+@pytest.mark.parametrize(
+    ("tool", "change", "field"),
+    [
+        ("design_voice", {"takes": 2.0}, "takes"),
+        ("submit_job", {"options": {"takes": 1.0}}, "options.takes"),
+        ("get_job", {"wait_s": float("nan")}, "wait_s"),
+        ("get_job", {"wait_s": float("inf")}, "wait_s"),
+        ("get_job", {"job_id": JOB_ID + "\n"}, "job_id"),
+        ("get_results", {"job_id": JOB_ID.lower()}, "job_id"),
+        ("measure_voice", {"voice": {**VOICE, "sha256": VOICE["sha256"] + "\n"}}, "voice.sha256"),
+        ("submit_job", {"segments": [{"segment_id": "p01", "text": "Hi.", "scene_seconds": float("nan")}]}, None),
+    ],
+)
+def test_integers_numbers_and_patterns_are_exact_s14(
+    backend: FakeBackend, tool: str, change: dict[str, Any], field: str | None
+) -> None:
+    """``2.0`` is not an integer, NaN and infinity are not numbers, and a pattern's ``$`` is the string's end."""
+    field = field or "segments[0].scene_seconds"
+
+    async def body(wire: Wire) -> None:
+        error = error_of(await wire.call(tool, {**VALID_ARGUMENTS[tool], **change}))
+        assert (error["code"], error["field"]) == (codes.INVALID_ARGUMENT, field)
+
+    over_wire(build_front_end(backend), "modern", body)
+    assert backend.calls == []
+
+
+def _segments(n: int) -> list[dict[str, Any]]:
+    return [{"segment_id": f"p{i:03d}", "cues": [{"text": "Before dawn."}]} for i in range(n)]
+
+
+@pytest.mark.parametrize(
+    ("tool", "change", "field"),
+    [
+        ("submit_job", {"segments": _segments(201)}, "segments"),
+        ("check_text", {"segments": _segments(201)}, "segments"),
+        ("submit_job", {"segments": [{"segment_id": "p01", "cues": [{"text": "a"}] * 41}]}, "segments[0].cues"),
+        (
+            "submit_job",
+            {"segments": [{"segment_id": "p01", "cues": [{"text": "a" * 601}]}]},
+            "segments[0].cues[0].text",
+        ),
+        ("check_text", {"segments": [{"segment_id": "p01", "text": "a" * 1201}]}, "segments[0].text"),
+        ("submit_job", {"hints": [{"term": "Ossavine"}] * 501}, "hints"),
+        ("check_text", {"hints": [{"term": "Ossavine"}] * 501}, "hints"),
+    ],
+)
+def test_a_request_size_bound_is_limit_exceeded_with_a_hint_to_split_s14(
+    backend: FakeBackend, tool: str, change: dict[str, Any], field: str
+) -> None:
+    async def body(wire: Wire) -> None:
+        error = error_of(await wire.call(tool, {**VALID_ARGUMENTS[tool], **change}))
+        assert (error["code"], error["field"], error["retryable"]) == (codes.LIMIT_EXCEEDED, field, False)
+        assert "split" in error["hint"].lower(), error["hint"]
+        assert field in error["hint"] or field == "hints", error["hint"]
+
+    over_wire(build_front_end(backend), "modern", body)
+    assert backend.calls == []
+
+
+@pytest.mark.parametrize(
+    ("tool", "change", "field"),
+    [
+        ("measure_voice", {"voice": {**VOICE, "transcript": "a" * 601}}, "voice.transcript"),
+        ("design_voice", {"description": "a" * 601}, "description"),
+        ("submit_job", {"label": "a" * 101}, "label"),
+        ("audition_pronunciation", {"variants": [{"label": "a", "respell": "b"}] * 5}, "variants"),
+        ("submit_job", {"segments": [{"segment_id": "p01", "text": "Hi.", "attempts": [0, 1, 2, 3]}]}, None),
+    ],
+)
+def test_other_size_bounds_stay_invalid_argument_s14(
+    backend: FakeBackend, tool: str, change: dict[str, Any], field: str | None
+) -> None:
+    async def body(wire: Wire) -> None:
+        error = error_of(await wire.call(tool, {**VALID_ARGUMENTS[tool], **change}))
+        assert (error["code"], error["field"]) == (codes.INVALID_ARGUMENT, field or "segments[0].attempts")
+
+    over_wire(build_front_end(backend), "modern", body)
+
+
 def test_a_long_segment_is_not_refused_by_the_front_end_s3_2(backend: FakeBackend) -> None:
     """Length is the caller's decision: nothing but the schema's own bounds is checked here."""
     text = "word " * 230
@@ -289,6 +379,38 @@ def test_a_result_off_its_output_schema_is_an_internal_tool_error_s14(backend: F
     over_wire(build_front_end(backend), "modern", body)
 
 
+def test_a_non_finite_number_in_a_result_is_an_internal_tool_error_s14(backend: FakeBackend) -> None:
+    """JSON has no NaN or infinity: a result holding one becomes INTERNAL naming the path, never the value."""
+    backend.result_for["get_job"] = {**backend.job_json(), "eta_s": float("nan")}
+    backend.result_for["get_results"] = {"licence": {"generation_model": float("inf")}}
+    backend.raise_for["release_gpu"] = NarrationError(codes.GPU_UNAVAILABLE, "busy", retry_after_s=float("inf"))
+    backend.raise_for["cancel_job"] = NarrationError(
+        codes.STORE_FULL, "disk", retry_after_s=5.0, details={"free_gb": float("-inf")}
+    )
+    expected = {
+        "get_job": {"path": "eta_s", "rule": "type"},
+        "get_results": {"path": "licence.generation_model", "rule": "finite"},
+        "release_gpu": {"path": "error.retry_after_s", "rule": "type"},
+        "cancel_job": {"path": "error.details.free_gb", "rule": "finite"},
+    }
+
+    async def body(wire: Wire) -> None:
+        for tool, failure in expected.items():
+            reply = await wire.call(tool, VALID_ARGUMENTS[tool])
+            error = error_of(reply)
+            assert error["code"] == codes.INTERNAL, tool
+            assert failure in error["details"]["output_schema_failures"], (tool, error)
+            assert "NaN" not in json.dumps(reply) and "Infinity" not in json.dumps(reply)
+
+    over_wire(build_front_end(backend), "modern", body)
+
+
+def test_non_finite_paths_finds_every_nan_and_infinity_s14() -> None:
+    value = {"a": [1.0, float("nan")], "b": {"c": float("-inf"), "d": 2}, "e": "NaN", "f": True}
+    assert results.non_finite_paths(value) == ["a[1]", "b.c"]
+    assert results.non_finite_paths(float("inf")) == ["$"]
+
+
 @pytest.mark.parametrize("era", ERAS)
 def test_a_narration_error_is_a_tool_error_with_its_hint_s14(backend: FakeBackend, era: Era) -> None:
     backend.raise_for["submit_job"] = NarrationError(codes.VOICE_NOT_MEASURED, "no measurement for this voice")
@@ -305,6 +427,24 @@ def test_a_narration_error_is_a_tool_error_with_its_hint_s14(backend: FakeBacken
         assert (full["code"], full["retryable"], full["retry_after_s"]) == (codes.QUEUE_FULL, True, 42.0)
 
     over_wire(build_front_end(backend), era, body)
+
+
+def test_a_reused_idempotency_key_is_the_backends_invalid_argument_s7_3(backend: FakeBackend) -> None:
+    """DC-6: the backend refuses a key reused for a different request; the front-end passes it on as is."""
+    backend.raise_for["submit_job"] = NarrationError(
+        codes.INVALID_ARGUMENT,
+        "idempotency_key is in use by a different request",
+        field="idempotency_key",
+        hint="use a new key for a different request",
+    )
+    arguments = {**VALID_ARGUMENTS["submit_job"], "options": {"idempotency_key": "draft-4"}}
+
+    async def body(wire: Wire) -> None:
+        error = error_of(await wire.call("submit_job", arguments))
+        assert (error["code"], error["field"], error["retryable"]) == (codes.INVALID_ARGUMENT, "idempotency_key", False)
+        assert error["hint"] == "use a new key for a different request"
+
+    over_wire(build_front_end(backend), "modern", body)
 
 
 def test_unsupported_platform_is_surfaced_like_any_narration_error_s14(backend: FakeBackend) -> None:
@@ -465,6 +605,31 @@ def test_cancelling_get_job_ends_only_the_wait_s5(backend: FakeBackend, era: Era
     assert [name for name, _ in backend.calls] == ["get_job", "get_server_status"], "the job is not cancelled"
 
 
+@pytest.mark.parametrize("era", ERAS)
+@pytest.mark.parametrize("tool", ["submit_job", "cancel_job", "design_voice"])
+def test_a_cancelled_call_still_finishes_its_backend_work_s5(backend: FakeBackend, era: Era, tool: str) -> None:
+    """``notifications/cancelled`` must not cut a call off between backend steps; only the reply is dropped."""
+    backend.gated = {tool}
+
+    async def body(wire: Wire) -> None:
+        request_id = await wire.send("tools/call", {"name": tool, "arguments": VALID_ARGUMENTS[tool]})
+        with anyio.fail_after(5):
+            await backend.gate_reached.wait()
+        await wire.notify("notifications/cancelled", {"requestId": request_id, "reason": "user"})
+        # A round trip after the notification: the server has read it, and so has cancelled the handler.
+        assert tool_result(await wire.call("get_server_status"))["isError"] is False
+        backend.gate.set()
+        with anyio.fail_after(5):
+            while tool not in backend.passed_gate:
+                await anyio.sleep(0.01)
+        assert tool_result(await wire.call("get_server_status"))["isError"] is False
+        assert request_id not in wire.replies, "a cancelled request is never answered"
+
+    over_wire(build_front_end(backend), era, body)
+    if tool == "submit_job":
+        assert backend.finished == ["submit_job"], "the backend saw the whole call"
+
+
 # ---------------------------------------------------------------- resources (section 7.7)
 
 
@@ -517,13 +682,48 @@ def test_a_running_jobs_resource_is_fresh_for_two_seconds_s7_7(backend: FakeBack
 
 @pytest.mark.parametrize("era", ERAS)
 def test_a_missing_resource_is_json_rpc_invalid_params_s14(backend: FakeBackend, era: Era) -> None:
+    unknown_job = f"narration://jobs/{OTHER_JOB_ID}"
+
     async def body(wire: Wire) -> None:
-        for uri in ("narration://nothing", "narration://jobs/", "https://example.com/", "narration://jobs/job_x"):
+        for uri in ("narration://nothing", "narration://jobs/", "https://example.com/", unknown_job):
             reply = await wire.request("resources/read", {"uri": uri})
             assert reply["error"]["code"] == INVALID_PARAMS, uri
 
     over_wire(build_front_end(backend), era, body)
-    assert backend.resource_reads == ["narration://jobs/job_x"], "a URI that matches no template never reaches it"
+    assert backend.resource_reads == [unknown_job], "a URI that matches no template never reaches the backend"
+
+
+@pytest.mark.parametrize("era", ERAS)
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "narration://takes/%2e%2e%2f%2e%2e",
+        "narration://takes/C:%5CWindows",
+        f"narration://takes/{TAKE_ID}\n",
+        f"narration://takes/{TAKE_ID}%0A",
+        "narration://takes/tk_%38c41d2e07a9b3f55",
+        f"narration://takes/{TAKE_ID.upper()}",
+        "narration://jobs/job_01jbxq7z3m8v4t2r9k6n5p0w1c",
+        f"narration://jobs/{JOB_ID}?x=1",
+        "narration://designs/..",
+        "narration://measurements/sha256:" + "3F" * 32,
+    ],
+)
+def test_a_malformed_resource_id_is_invalid_params_before_the_backend_s7_7(
+    backend: FakeBackend, era: Era, uri: str
+) -> None:
+    async def body(wire: Wire) -> None:
+        reply = await wire.request("resources/read", {"uri": uri})
+        assert reply["error"]["code"] == INVALID_PARAMS
+
+    over_wire(build_front_end(backend), era, body)
+    assert backend.resource_reads == [], "an id that is not well formed never reaches the backend"
+
+
+def test_every_resource_template_variable_is_an_id_kind_s7_7() -> None:
+    names = {v for r in RESOURCES for v in UriTemplate.parse(r.uri_template).variable_names}
+    assert names == {"design_id", "voice_hash", "job_id", "take_id"}
+    assert names <= set(ID_PATTERNS)
 
 
 def test_a_resource_read_failure_is_json_rpc_internal_error_s14(backend: FakeBackend) -> None:

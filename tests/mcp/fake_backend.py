@@ -7,7 +7,9 @@ fake touches no disk.
 
 Knobs: ``raise_for`` (tool -> exception), ``result_for`` (tool -> a result to return instead),
 ``job_status`` (``completed``, ``failed`` or ``running``), ``progress_steps`` (what ``get_job`` reports
-while it waits), and ``block_get_job`` (``get_job`` waits until cancelled). ``calls`` records every call.
+while it waits), ``block_get_job`` (``get_job`` waits until cancelled), and ``gated`` (tools that wait at
+``gate`` before they answer). ``calls`` records every call, ``passed_gate`` every gated call that went on
+past the gate, and ``finished`` every ``submit_job`` that ran to its end.
 """
 
 from __future__ import annotations
@@ -35,8 +37,8 @@ from narration.contracts.names import (
 )
 from narration.contracts.serial import to_json
 
-JOB_ID = "job_01jbxq7z3m8v4t2r9k6n5p0w1c"
-DESIGN_ID = "01jby0000000000000000000aa"
+JOB_ID = "job_01JBXQ7Z3M8V4T2R9K6N5P0W1C"
+DESIGN_ID = "01JBY7Z3M8V4T2R9K6N5P0W1DA"
 TAKE_ID = "tk_8c41d2e07a9b3f55"
 VOICE_HASH = "sha256:" + "3f" * 32
 ENGINE = models.EngineRef(id=ENGINE_PROFILE_BASE, hash="sha256:" + "9e" * 32)
@@ -105,6 +107,11 @@ class FakeBackend:
         self.wait_cancelled = anyio.Event()
         self.wait_started = anyio.Event()
         self.resource_reads: list[str] = []
+        self.gated: set[str] = set()
+        self.gate = anyio.Event()
+        self.gate_reached = anyio.Event()
+        self.passed_gate: list[str] = []
+        self.finished: list[str] = []
 
     # ------------------------------------------------------------ helpers
 
@@ -112,10 +119,14 @@ class FakeBackend:
         """An absolute path under the store root, as the store reports it."""
         return str(self.store_root.joinpath(*parts))
 
-    def _enter(self, tool: str, args: Mapping[str, Any]) -> Any:
+    async def _enter(self, tool: str, args: Mapping[str, Any]) -> Any:
         self.calls.append((tool, dict(args)))
         if tool in self.raise_for:
             raise self.raise_for[tool]
+        if tool in self.gated:
+            self.gate_reached.set()
+            await self.gate.wait()
+            self.passed_gate.append(tool)
         return self.result_for.get(tool)
 
     def job_error(self) -> models.Error:
@@ -172,7 +183,7 @@ class FakeBackend:
     # ------------------------------------------------------------ the Backend protocol
 
     async def get_server_status(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("get_server_status", args)) is not None:
+        if (override := await self._enter("get_server_status", args)) is not None:
             return override
         gpu = models.GpuStatus(name=None, total_mb=24_564, free_mb=19_000, in_use=False, holder=None, unload_in_s=None)
         return {
@@ -209,13 +220,13 @@ class FakeBackend:
         }
 
     async def release_gpu(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("release_gpu", args)) is not None:
+        if (override := await self._enter("release_gpu", args)) is not None:
             return override
         return {"released": True, "holder_before": "qwen", "busy_job": None}
 
     async def get_job(self, args: Mapping[str, Any], progress: ProgressCallback | None) -> dict[str, Any]:
         self.get_job_progress.append(progress)
-        if (override := self._enter("get_job", args)) is not None:
+        if (override := await self._enter("get_job", args)) is not None:
             return override
         if progress is not None:
             for step in self.progress_steps:
@@ -229,7 +240,7 @@ class FakeBackend:
         return self.job_json()
 
     async def get_results(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("get_results", args)) is not None:
+        if (override := await self._enter("get_results", args)) is not None:
             return override
         segment = record(
             models.SegmentResult,
@@ -265,12 +276,12 @@ class FakeBackend:
         }
 
     async def cancel_job(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("cancel_job", args)) is not None:
+        if (override := await self._enter("cancel_job", args)) is not None:
             return override
         return {"status": "cancelling", "completed": False}
 
     async def design_voice(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("design_voice", args)) is not None:
+        if (override := await self._enter("design_voice", args)) is not None:
             return override
         lint = models.LintResult(
             policy="warn",
@@ -286,12 +297,12 @@ class FakeBackend:
         }
 
     async def profile_voice(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("profile_voice", args)) is not None:
+        if (override := await self._enter("profile_voice", args)) is not None:
             return override
         return {"job_id": JOB_ID, "status": "queued", "poll_after_s": 1.0}
 
     async def measure_voice(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("measure_voice", args)) is not None:
+        if (override := await self._enter("measure_voice", args)) is not None:
             return override
         measurement = record(models.MeasurementRecord, voice_hash=VOICE_HASH, engine_profile=ENGINE)
         return {
@@ -303,7 +314,7 @@ class FakeBackend:
         }
 
     async def check_text(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("check_text", args)) is not None:
+        if (override := await self._enter("check_text", args)) is not None:
             return override
         segments: list[dict[str, Any]] = []
         for segment in args["segments"]:
@@ -335,12 +346,12 @@ class FakeBackend:
         }
 
     async def audition_pronunciation(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("audition_pronunciation", args)) is not None:
+        if (override := await self._enter("audition_pronunciation", args)) is not None:
             return override
         return {"job_id": JOB_ID, "status": "queued", "poll_after_s": 2.0}
 
     async def submit_job(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        if (override := self._enter("submit_job", args)) is not None:
+        if (override := await self._enter("submit_job", args)) is not None:
             return override
         dry_run = bool(args.get("options", {}).get("dry_run", False))
         warning = models.Flag(
@@ -349,6 +360,7 @@ class FakeBackend:
             message="the segment is longer than the voice's reliable length; it is still rendered",
             segment_id=args["segments"][0]["segment_id"],
         )
+        self.finished.append("submit_job")
         return {
             "job_id": None if dry_run else JOB_ID,
             "status": "planned" if dry_run else "queued",
