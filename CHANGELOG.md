@@ -94,6 +94,10 @@ are tracked here but no version is tagged; nothing described below is installabl
     `realpath` comes back with a `\\?\` prefix, because the file was replaced during the call, is no longer
     refused as outside the store: `narration.platform.real_path` drops that prefix, and both the store's
     path check and the platform's compare paths through it.
+  - A reader never reports a measurement or a profile missing while a publish replaces it: it reads again
+    once the publish has finished. A new measurement is no longer lost when `gc` collects the one it
+    replaces at the same moment. `gc` bounds each transaction by the items it tries, so folders it cannot
+    rename no longer keep one transaction open.
 - `narration.post`: delivery post-processing (design section 13). A raw take becomes a 48 kHz PCM_24 mono
   WAV through the relative trim, a pinned resampler, static gain to -16 LUFS (BS.1770-4) with the
   -1.0 dBTP true-peak ceiling winning, and 10 ms fades. Each delivery reports its trim and loudness
