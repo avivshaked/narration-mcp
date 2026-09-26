@@ -7,14 +7,17 @@ import json
 import logging
 import os
 import sqlite3
+import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from narration.contracts import names
 from narration.contracts.interfaces import Store
+from narration.contracts.models import MeasurementRecord
 from narration.store import NarrationStore, StoreError, StoreIntegrityError, StorePathError
-from narration.store import db as store_db
 from narration.store import files as store_files
 
 from .conftest import FakeClock
@@ -28,7 +31,7 @@ from .factories import (
     sha,
     take_record,
 )
-from .txn_fakes import commit_fails, observing_rollback
+from .txn_fakes import scripted
 
 DAY = 86_400.0
 
@@ -323,7 +326,7 @@ def test_a_failed_commit_gives_the_audio_back(store: NarrationStore, monkeypatch
     # The COMMIT itself can fail after the folder was renamed into place: it goes back, and so does the audio.
     record = render_record()
     src = scratch_file(store, "raw.wav", audio_bytes("gpu output"))
-    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    scripted(monkeypatch, store, fail_commit=True)
     with pytest.raises(sqlite3.OperationalError):
         store.put_render(record, src)
     monkeypatch.undo()
@@ -336,7 +339,7 @@ def test_a_failed_commit_gives_the_audio_back(store: NarrationStore, monkeypatch
 def test_a_failed_commit_keeps_the_published_profile(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
     audio = sha(b"clip")
     old = store.put_profile(profile_record(audio, pictures=False), None)
-    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    scripted(monkeypatch, store, fail_commit=True)
     with pytest.raises(sqlite3.OperationalError):
         store.put_profile(profile_record(audio, version="profile-2", pictures=False), None)
     monkeypatch.undo()
@@ -347,7 +350,7 @@ def test_a_failed_commit_keeps_the_published_profile(store: NarrationStore, monk
 
 def test_a_failed_file_commit_keeps_the_published_file(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> None:
     old = store.put_measurement(measurement_record())
-    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    scripted(monkeypatch, store, fail_commit=True)
     with pytest.raises(sqlite3.OperationalError):
         store.put_measurement(measurement_record(corpus_hex="c1" * 32))
     monkeypatch.undo()
@@ -364,8 +367,7 @@ def test_a_failed_publish_is_undone_before_the_lock_is_released(
     audio = sha(b"clip")
     store.put_profile(profile_record(audio, pictures=False), None)
     folder = store.profile_dir(audio)
-    seen: list[object] = []
-    monkeypatch.setattr(store_db, "write_txn", observing_rollback(lambda: os.listdir(folder), seen))
+    seen = scripted(monkeypatch, store, look=lambda: os.listdir(folder)).seen
 
     def fail(*args: object, **kwargs: object) -> None:
         raise RuntimeError("the database is full")
@@ -374,3 +376,182 @@ def test_a_failed_publish_is_undone_before_the_lock_is_released(
     with pytest.raises(RuntimeError):
         store.put_profile(profile_record(audio, version="profile-2", pictures=False), None)
     assert seen == [["profile.json"]]
+
+
+# ---------------------------------------------------------------- follow-ups: the WP12 follow-ups review
+
+
+def _measurement_json(store: NarrationStore, record: MeasurementRecord) -> Path:
+    return store.measurement_dir(record.voice_hash, record.engine_profile.id) / "measurement.json"
+
+
+def _fail(*args: object, **kwargs: object) -> None:
+    raise RuntimeError("the database is full")
+
+
+def test_a_failed_file_publish_is_undone_before_the_lock_is_released(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A file publish renames the old file aside and the new one in; when its body fails, both renames are
+    # undone before the ROLLBACK makes the old row visible again.
+    old = store.put_measurement(measurement_record())
+    final = _measurement_json(store, old)
+    old_bytes = final.read_bytes()
+    seen = scripted(monkeypatch, store, look=final.read_bytes).seen
+    monkeypatch.setattr(store, "_index_files", _fail)
+    with pytest.raises(RuntimeError):
+        store.put_measurement(measurement_record(corpus_hex="c1" * 32))
+    assert seen == [old_bytes]
+
+
+def test_a_failed_commit_is_undone_before_the_lock_is_released(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = store.put_measurement(measurement_record())
+    final = _measurement_json(store, old)
+    old_bytes = final.read_bytes()
+    seen = scripted(monkeypatch, store, fail_commit=True, look=final.read_bytes).seen
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_measurement(measurement_record(corpus_hex="c1" * 32))
+    assert seen == [old_bytes]
+    monkeypatch.undo()
+    assert store.get_measurement(old.voice_hash, old.engine_profile.id) == old
+
+
+def test_an_undo_after_sqlite_ended_the_transaction_leaves_another_writers_file(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SQLite can end a transaction itself when its COMMIT fails, releasing the lock. The undo then takes the
+    # lock again, and puts back only what is still its own: here another writer published in that moment.
+    old = store.put_measurement(measurement_record())
+    final = _measurement_json(store, old)
+
+    def another_writer() -> None:
+        final.rename(final.with_name(".trash-0123456789abcdef-theirs"))
+        other = final.with_name(".tmp-0123456789abcdef-other")
+        other.write_bytes(b"another writer's measurement")
+        other.rename(final)
+
+    connection = scripted(monkeypatch, store, fail_commit=True, sqlite_ends_it=True, meanwhile=another_writer)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_measurement(measurement_record(corpus_hex="c1" * 32))
+    assert connection.statements[-3:] == ["COMMIT failed", "BEGIN IMMEDIATE", "ROLLBACK"]
+    assert final.read_bytes() == b"another writer's measurement"
+
+
+def _pause_after_renaming_aside(
+    monkeypatch: pytest.MonkeyPatch, final: Path
+) -> tuple[threading.Event, threading.Event]:
+    """Make a publish stop just after it renamed ``final`` aside (under its write lock) until ``go_on`` is
+    set; ``aside`` is set when it gets there."""
+    aside, go_on = threading.Event(), threading.Event()
+    real_rename = store_files.rename_retrying
+
+    def rename(src: Path, dst: Path, *, attempts: int = store_files.REPLACE_ATTEMPTS) -> None:
+        real_rename(src, dst, attempts=attempts)
+        if Path(src) == final and Path(dst).name.startswith(".trash-"):
+            aside.set()
+            assert go_on.wait(30)
+
+    monkeypatch.setattr(store_files, "rename_retrying", rename)
+    return aside, go_on
+
+
+def _read_during_the_publish(
+    store: NarrationStore,
+    monkeypatch: pytest.MonkeyPatch,
+    final: Path,
+    publish: Callable[[], object],
+    read: Callable[[], object],
+) -> tuple[list[object], list[object]]:
+    """Run ``publish`` in a thread, stop it once it has renamed ``final`` aside, and ``read`` in another
+    thread meanwhile. Returns what each returned or raised."""
+    aside, go_on = _pause_after_renaming_aside(monkeypatch, final)
+    reader_waits = threading.Event()
+    real_drop = store._drop
+
+    def drop(*args: Any) -> bool:
+        reader_waits.set()  # the reader found the file missing, and now waits for the publisher's lock
+        return real_drop(*args)
+
+    monkeypatch.setattr(store, "_drop", drop)
+    published: list[object] = []
+    read_back: list[object] = []
+
+    def run(target: Callable[[], object], into: list[object]) -> None:
+        try:
+            into.append(target())
+        except Exception as exc:
+            into.append(exc)
+
+    publisher = threading.Thread(target=run, args=(publish, published))
+    reader = threading.Thread(target=run, args=(read, read_back))
+    publisher.start()
+    try:
+        assert aside.wait(30)
+        reader.start()
+        assert reader_waits.wait(30)
+    finally:
+        go_on.set()
+        publisher.join(30)
+        if reader.ident is not None:  # started
+            reader.join(30)
+    return published, read_back
+
+
+def test_a_reader_during_a_replace_gets_the_new_measurement_s15(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The publish renames the old file aside before it renames the new one in. A reader in that moment
+    # finds the file missing; it must not report the measurement as gone.
+    old = store.put_measurement(measurement_record())
+    newer = measurement_record(corpus_hex="c1" * 32)
+    published, read_back = _read_during_the_publish(
+        store,
+        monkeypatch,
+        _measurement_json(store, old),
+        lambda: store.put_measurement(newer),
+        lambda: store.get_measurement(old.voice_hash, old.engine_profile.id),
+    )
+    assert published == [newer] and read_back == [newer]
+
+
+def test_a_reader_during_a_failed_replace_gets_the_old_profile_s15(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The same moment in a folder publish that then fails: the reader gets the profile that stays.
+    audio = sha(b"clip")
+    old = store.put_profile(profile_record(audio, pictures=False), None)
+    monkeypatch.setattr(store, "_index_files", _fail)
+    published, read_back = _read_during_the_publish(
+        store,
+        monkeypatch,
+        store.profile_dir(audio),
+        lambda: store.put_profile(profile_record(audio, version="profile-2", pictures=False), None),
+        lambda: store.get_profile(audio, names.PROFILE_VERSION),
+    )
+    assert [type(p) for p in published] == [RuntimeError] and read_back == [old]
+
+
+def test_a_measurement_published_while_gc_collects_the_one_it_replaces_s15(
+    store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # gc renames the old measurement's folder away while a new measurement of the same voice and engine
+    # waits to be published: the new one's temporary file must not be in that folder.
+    old = store.put_measurement(measurement_record())
+    with store._write() as conn:  # last used past measurement_retention_days (365); files stay recent
+        conn.execute("UPDATE measurements SET last_used_at = ?", (clock.now - 366 * DAY,))
+    real_write_temp = store_files.write_temp
+    collected: list[list[str]] = []
+
+    def write_then_gc(path: Path, data: Any, **kwargs: Any) -> tuple[Path, str, int]:
+        written = real_write_temp(path, data, **kwargs)
+        collected.append(store.gc(dry_run=False)["items"]["measurements"])
+        return written
+
+    monkeypatch.setattr(store_files, "write_temp", write_then_gc)
+    newer = store.put_measurement(measurement_record(corpus_hex="c1" * 32))
+    monkeypatch.undo()
+    assert collected == [[old.measurement_key]]
+    assert store.get_measurement(newer.voice_hash, newer.engine_profile.id) == newer
+    assert store.verify()["mismatched"] == []

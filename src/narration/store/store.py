@@ -124,6 +124,16 @@ RetentionKind = Literal["render", "take", "analysis", "measurement", "profile", 
 
 _Decision = Literal["keep", "new", "replace"]
 _R = TypeVar("_R")
+_T = TypeVar("_T")
+
+
+class _Reread:
+    """What a reader's row check returns when the row changed while it looked (``NarrationStore._drop``)."""
+
+
+_REREAD: Final = _Reread()
+_READ_ATTEMPTS: Final = 5
+"""How many times a reader reads a row again that concurrent publishes keep replacing (``_read_one``)."""
 
 _PRIORITY_RANK: Final = {"interactive": 0, "batch": 1}
 _ACTIVE: Final = ("queued", "running", "cancelling")
@@ -153,13 +163,13 @@ DC6_HINT: Final = "Use a new key for a different request."
 _log = logging.getLogger(__name__)
 _DAY: Final = 86_400.0
 DEFAULT_GRACE_S: Final = _DAY
+"""How old a temporary, staging or unindexed entry must be before ``gc`` treats it as left over by a crash
+(a publish takes seconds, so a day never races one)."""
 GC_BATCH_ITEMS = 200
-"""The most items one ``gc`` write transaction collects."""
+"""The most items one ``gc`` write transaction examines (collected or not)."""
 GC_BATCH_SECONDS = 2.0
 """About how long one ``gc`` write transaction may run before it commits and lets other writers in: far
 below the busy timeout (``db.BUSY_TIMEOUT_MS``) every other writer waits for."""
-"""How old a temporary, staging or unindexed entry must be before ``gc`` treats it as left over by a crash
-(a publish takes seconds, so a day never races one)."""
 
 
 class StoreError(RuntimeError):
@@ -312,8 +322,10 @@ class NarrationStore:
             self._local.conn = conn
         return conn
 
-    def _write(self) -> contextlib.AbstractContextManager[sqlite3.Connection]:
-        return db.write_txn(self._conn())
+    def _write(
+        self, *, undo: Callable[[], None] | None = None
+    ) -> contextlib.AbstractContextManager[sqlite3.Connection]:
+        return db.write_txn(self._conn(), undo=undo)
 
     def _read(self) -> contextlib.AbstractContextManager[sqlite3.Connection]:
         return db.read_txn(self._conn())
@@ -419,7 +431,9 @@ class NarrationStore:
     ) -> bool:
         """Rename a finished temporary file into place and index it, in one write transaction. A file
         already at ``final`` is renamed aside first, and removed after the commit. If the transaction does
-        not commit, both renames are undone, so the old file stays published.
+        not commit, both renames are undone, so the old file stays published. ``final``'s folder is made
+        under the lock, so ``tmp`` may wait elsewhere on the same volume (``put_measurement``). A reader that
+        finds ``final`` missing meanwhile reads again once this commits (``_drop``).
 
         ``source`` is where the caller had ``tmp`` (a clip the store moved in). If the publish fails, ``tmp``
         goes back there, writable, instead of being discarded. If the key is already published (``keep``),
@@ -435,6 +449,7 @@ class NarrationStore:
                 if os.path.lexists(final):
                     trash = files.trash_name(final, self._clock())
                     renames.rename(final, trash)
+                _make_folder(final.parent)  # under the lock: gc may have taken it
                 renames.rename(tmp, final)
                 commit(conn)
         except BaseException:
@@ -445,22 +460,12 @@ class NarrationStore:
             _discard_trash(trash, final)
         return True
 
-    @contextlib.contextmanager
-    def _write_undoing(self, renames: _Renames) -> Iterator[sqlite3.Connection]:
-        """A write transaction whose file renames are undone if it does not commit. When its body fails
-        they are undone inside the transaction, before the ROLLBACK releases the lock, so no other process
-        ever sees a restored row whose folder is still under a ``.trash-`` name. When the COMMIT itself
-        fails, they are undone right after it."""
-        try:
-            with self._write() as conn:
-                try:
-                    yield conn
-                except BaseException:
-                    renames.undo()
-                    raise
-        except BaseException:
-            renames.undo()  # the COMMIT failed; after a failed body there is nothing left to undo
-            raise
+    def _write_undoing(self, renames: _Renames) -> contextlib.AbstractContextManager[sqlite3.Connection]:
+        """A write transaction whose file renames are undone if it does not commit, whether its body or its
+        COMMIT fails. They are undone under the write lock, before the ROLLBACK releases it
+        (``db.write_txn``), so no other process ever sees a restored row whose file or folder is still
+        under a ``.trash-`` name, or a rolled-back row next to the file that replaced its own."""
+        return self._write(undo=renames.undo)
 
     def _index_files(
         self, conn: sqlite3.Connection, owner_kind: str, owner_id: str, entries: list[tuple[str, str, int]]
@@ -512,20 +517,15 @@ class NarrationStore:
 
     # ================================================================ renders (the render layer)
     def get_render(self, render_key: str) -> RenderRecord | None:
-        row = self._conn().execute("SELECT record FROM renders WHERE render_key = ?", (render_key,)).fetchone()
-        return self._render_from_row(row)
+        return self._read_one(self._fetch("SELECT record FROM renders WHERE render_key = ?", render_key), self._render)
 
     def get_render_by_id(self, render_id: str) -> RenderRecord | None:
-        row = self._conn().execute("SELECT record FROM renders WHERE render_id = ?", (render_id,)).fetchone()
-        return self._render_from_row(row)
+        return self._read_one(self._fetch("SELECT record FROM renders WHERE render_id = ?", render_id), self._render)
 
-    def _render_from_row(self, row: sqlite3.Row | None) -> RenderRecord | None:
-        if row is None:
-            return None
+    def _render(self, row: sqlite3.Row) -> RenderRecord | _Reread | None:
         record = from_json(RenderRecord, json.loads(row["record"]))
         if not self._present(record.raw.path):
-            self._drop("render", record.render_id, row["record"], record.raw.path)
-            return None
+            return None if self._drop("render", record.render_id, row["record"], record.raw.path) else _REREAD
         return map_render(record, self._to_abs)
 
     def put_render(self, record: RenderRecord, raw_audio: Path) -> RenderRecord:
@@ -574,20 +574,15 @@ class NarrationStore:
 
     # ================================================================ takes (the delivery layer)
     def get_take(self, delivery_key: str) -> TakeRecord | None:
-        row = self._conn().execute("SELECT record FROM takes WHERE delivery_key = ?", (delivery_key,)).fetchone()
-        return self._take_from_row(row)
+        return self._read_one(self._fetch("SELECT record FROM takes WHERE delivery_key = ?", delivery_key), self._take)
 
     def get_take_by_id(self, take_id: str) -> TakeRecord | None:
-        row = self._conn().execute("SELECT record FROM takes WHERE take_id = ?", (take_id,)).fetchone()
-        return self._take_from_row(row)
+        return self._read_one(self._fetch("SELECT record FROM takes WHERE take_id = ?", take_id), self._take)
 
-    def _take_from_row(self, row: sqlite3.Row | None) -> TakeRecord | None:
-        if row is None:
-            return None
+    def _take(self, row: sqlite3.Row) -> TakeRecord | _Reread | None:
         record = from_json(TakeRecord, json.loads(row["record"]))
         if not self._present(record.delivery.path):
-            self._drop("take", record.take_id, row["record"], record.delivery.path)
-            return None
+            return None if self._drop("take", record.take_id, row["record"], record.delivery.path) else _REREAD
         return map_take(record, self._to_abs)
 
     def put_take(self, record: TakeRecord, delivery_audio: Path) -> TakeRecord:
@@ -635,39 +630,22 @@ class NarrationStore:
 
     # ================================================================ analyses (the analysis layer)
     def get_analysis(self, analysis_key: str) -> AnalysisRecord | None:
-        row = (
-            self._conn()
-            .execute("SELECT record, rel_path FROM analyses WHERE analysis_key = ?", (analysis_key,))
-            .fetchone()
-        )
-        return self._analysis_from_row(row)
+        sql = "SELECT record, rel_path FROM analyses WHERE analysis_key = ?"
+        return self._read_one(self._fetch(sql, analysis_key), self._analysis)
 
     def get_analysis_by_id(self, analysis_id: str) -> AnalysisRecord | None:
-        row = (
-            self._conn()
-            .execute("SELECT record, rel_path FROM analyses WHERE analysis_id = ?", (analysis_id,))
-            .fetchone()
-        )
-        return self._analysis_from_row(row)
+        sql = "SELECT record, rel_path FROM analyses WHERE analysis_id = ?"
+        return self._read_one(self._fetch(sql, analysis_id), self._analysis)
 
     def analyses_of(self, take_id: str) -> tuple[AnalysisRecord, ...]:
         """Every analysis of a take, oldest first (``narration://takes/{take_id}``)."""
-        rows = (
-            self._conn()
-            .execute(
-                "SELECT record, rel_path FROM analyses WHERE take_id = ? ORDER BY created_at, analysis_id", (take_id,)
-            )
-            .fetchall()
-        )
-        return tuple(a for a in (self._analysis_from_row(r) for r in rows) if a is not None)
+        sql = "SELECT record, rel_path FROM analyses WHERE take_id = ? ORDER BY created_at, analysis_id"
+        return self._read_all(self._fetch_all(sql, take_id), self._analysis)
 
-    def _analysis_from_row(self, row: sqlite3.Row | None) -> AnalysisRecord | None:
-        if row is None:
-            return None
+    def _analysis(self, row: sqlite3.Row) -> AnalysisRecord | _Reread | None:
         record = from_json(AnalysisRecord, json.loads(row["record"]))
         if not self._present(row["rel_path"]):
-            self._drop("analysis", record.analysis_id, row["record"], row["rel_path"])
-            return None
+            return None if self._drop("analysis", record.analysis_id, row["record"], row["rel_path"]) else _REREAD
         return record
 
     def put_analysis(self, record: AnalysisRecord) -> AnalysisRecord:
@@ -711,36 +689,19 @@ class NarrationStore:
 
     # ================================================================ measurements (section 3.2)
     def get_measurement(self, voice_hash: str, engine_profile_id: str) -> MeasurementRecord | None:
-        row = (
-            self._conn()
-            .execute(
-                "SELECT record, rel_dir FROM measurements WHERE voice_hash = ? AND engine_profile_id = ?",
-                (voice_hash, engine_profile_id),
-            )
-            .fetchone()
-        )
-        return self._measurement_from_row(row)
+        sql = "SELECT record, rel_dir FROM measurements WHERE voice_hash = ? AND engine_profile_id = ?"
+        return self._read_one(self._fetch(sql, voice_hash, engine_profile_id), self._measurement)
 
     def measurements_of(self, voice_hash: str) -> tuple[MeasurementRecord, ...]:
         """A voice's measurements, one per engine profile (``narration://measurements/{voice_hash}``)."""
-        rows = (
-            self._conn()
-            .execute(
-                "SELECT record, rel_dir FROM measurements WHERE voice_hash = ? ORDER BY engine_profile_id",
-                (voice_hash,),
-            )
-            .fetchall()
-        )
-        return tuple(m for m in (self._measurement_from_row(r) for r in rows) if m is not None)
+        sql = "SELECT record, rel_dir FROM measurements WHERE voice_hash = ? ORDER BY engine_profile_id"
+        return self._read_all(self._fetch_all(sql, voice_hash), self._measurement)
 
-    def _measurement_from_row(self, row: sqlite3.Row | None) -> MeasurementRecord | None:
-        if row is None:
-            return None
+    def _measurement(self, row: sqlite3.Row) -> MeasurementRecord | _Reread | None:
         record = from_json(MeasurementRecord, json.loads(row["record"]))
         rel = f"{row['rel_dir']}/{MEASUREMENT_JSON}"
         if not self._present(rel):
-            self._drop("measurement", record.measurement_key, row["record"], rel)
-            return None
+            return None if self._drop("measurement", record.measurement_key, row["record"], rel) else _REREAD
         return record
 
     def put_measurement(self, record: MeasurementRecord) -> MeasurementRecord:
@@ -749,11 +710,15 @@ class NarrationStore:
         if not keys.KEY_PATTERN.fullmatch(record.measurement_key):
             raise InvalidIdError("measurement_key", record.measurement_key)
         folder = self._layout.measurement_dir(record.voice_hash, record.engine_profile.id)
-        folder.mkdir(parents=True, exist_ok=True)
         final = folder / MEASUREMENT_JSON
         rel_dir = self._layout.rel(folder)
         now = self._clock()
-        tmp, sha, size = files.write_temp(final, sidecar_bytes(record), readonly=True)
+        # Until this publish holds the write lock, gc may rename the folder away with the measurement it
+        # replaces, so the temporary file waits at the top of the measurements tree, which gc never renames.
+        # The folder is made (again, if gc took it) under the lock, by _publish_file.
+        top = self._layout.tree(MEASUREMENTS)
+        top.mkdir(parents=True, exist_ok=True)
+        tmp, sha, size = files.write_temp(top / MEASUREMENT_JSON, sidecar_bytes(record), readonly=True)
         old_key: list[str] = []
 
         def decide(conn: sqlite3.Connection) -> _Decision:
@@ -797,21 +762,14 @@ class NarrationStore:
 
     # ================================================================ voice profiles (section 3.6)
     def get_profile(self, audio_sha256: str, profile_version: str) -> ProfileRecord | None:
-        row = (
-            self._conn()
-            .execute(
-                "SELECT record, rel_dir FROM profiles WHERE audio_sha256 = ? AND profile_version = ?",
-                (audio_sha256, profile_version),
-            )
-            .fetchone()
-        )
-        if row is None:
-            return None
+        sql = "SELECT record, rel_dir FROM profiles WHERE audio_sha256 = ? AND profile_version = ?"
+        return self._read_one(self._fetch(sql, audio_sha256, profile_version), self._profile)
+
+    def _profile(self, row: sqlite3.Row) -> ProfileRecord | _Reread | None:
         record = from_json(ProfileRecord, json.loads(row["record"]))
         rel = f"{row['rel_dir']}/{PROFILE_JSON}"
         if not self._present(rel):
-            self._drop("profile", audio_sha256, row["record"], rel)
-            return None
+            return None if self._drop("profile", record.audio_sha256, row["record"], rel) else _REREAD
         return map_profile(record, self._to_abs)
 
     def put_profile(self, record: ProfileRecord, pictures_dir: Path | None) -> ProfileRecord:
@@ -1079,9 +1037,9 @@ class NarrationStore:
         rel = self._layout.rel(final)
         src = self._source(audio, "audio")
         sha, size = files.sha256_file(src)
+        pinned = self.get_engine_profile(engine_profile_id)  # before the move: nothing after it may strand the clip
         tmp = self._layout.confine(files.temp_name(final))
         files.move_into(src, tmp, readonly=True)
-        pinned = self.get_engine_profile(engine_profile_id)
 
         def decide(conn: sqlite3.Connection) -> _Decision:
             row = conn.execute("SELECT sha256 FROM files WHERE rel_path = ?", (rel,)).fetchone()
@@ -1454,16 +1412,54 @@ class NarrationStore:
                     [(now, sha) for sha in sorted(_candidate_profiles(rows.fetchall()))],
                 )
 
-    def _drop(self, kind: str, ident: str, record_text: str, rel: str) -> None:
+    def _drop(self, kind: str, ident: str, record_text: str, rel: str) -> bool:
         """Forget an index entry whose file is gone (removed by hand, or damaged). Checked again under the
         write lock: the row is dropped only if it is still the row that was read (``record_text``) and its
-        file (``rel``) is still missing, so a row a concurrent publish has just replaced is never dropped."""
+        file (``rel``) is still missing, so a row a concurrent publish has just replaced is never dropped.
+
+        Returns True if it dropped the row. False means the row was replaced or deleted, or its file is back:
+        the reader saw a publish in progress, which renames the old file aside before it renames the new one
+        in. That publish has finished by the time this returns (this waited for its lock), so the reader
+        reads again (``_read_one``)."""
         table, column = _DROP_ROWS[kind]  # fixed names from this module, never from a caller
         with self._write() as conn:
             row = conn.execute(f"SELECT record FROM {table} WHERE {column} = ?", (ident,)).fetchone()
             if row is None or row["record"] != record_text or self._present(rel):
-                return
+                return False
             self._delete_rows(conn, kind, ident)
+            return True
+
+    def _fetch(self, sql: str, *args: object) -> Callable[[], sqlite3.Row | None]:
+        """A query for one row, to run (and run again) later: ``_read_one``'s ``fetch``."""
+        return lambda: self._conn().execute(sql, args).fetchone()
+
+    def _fetch_all(self, sql: str, *args: object) -> Callable[[], list[sqlite3.Row]]:
+        return lambda: self._conn().execute(sql, args).fetchall()
+
+    def _read_one(
+        self, fetch: Callable[[], sqlite3.Row | None], convert: Callable[[sqlite3.Row], _T | _Reread | None]
+    ) -> _T | None:
+        """``convert(fetch())``, read again while ``convert`` says the row changed under it (``_drop``). A
+        row replaced over and over during the read is given up on after ``_READ_ATTEMPTS`` reads."""
+        for _ in range(_READ_ATTEMPTS):
+            row = fetch()
+            if row is None:
+                return None
+            result = convert(row)
+            if not isinstance(result, _Reread):
+                return result
+        return None
+
+    def _read_all(
+        self, fetch: Callable[[], list[sqlite3.Row]], convert: Callable[[sqlite3.Row], _T | _Reread | None]
+    ) -> tuple[_T, ...]:
+        """``_read_one`` for a query of several rows: all of them are read again if any one changed."""
+        results: list[_T | _Reread | None] = []
+        for _ in range(_READ_ATTEMPTS):
+            results = [convert(row) for row in fetch()]
+            if not any(isinstance(r, _Reread) for r in results):
+                break
+        return tuple(r for r in results if r is not None and not isinstance(r, _Reread))
 
     def _delete_rows(self, conn: sqlite3.Connection, kind: str, ident: str) -> None:
         if kind == "render":
@@ -1598,9 +1594,11 @@ class NarrationStore:
             with self._write_undoing(renames) as conn:
                 still = {k: set(v) for k, v in self._gc_plan(conn, cache_cutoff, measurement_cutoff).items()}
                 started = time.monotonic()
-                while at < len(queue) and _batch_open(len(batch), started):
+                examined = 0
+                while at < len(queue) and _batch_open(examined, started):
                     kind, ident = queue[at]
                     at += 1
+                    examined += 1
                     if ident not in still[kind]:
                         continue  # used again, or newly kept alive, since the plan
                     try:
@@ -1622,9 +1620,11 @@ class NarrationStore:
             with self._write_undoing(renames) as conn:
                 indexed = self._indexed(conn)
                 started = time.monotonic()
-                while at < len(orphans) and _batch_open(len(chosen), started):
+                examined = 0
+                while at < len(orphans) and _batch_open(examined, started):
                     path = orphans[at]
                     at += 1
+                    examined += 1
                     if self._layout.rel(path) in indexed or _mtime(path) >= leftover_cutoff:
                         continue  # published since it was listed
                     if self._to_trash(path, renames, errors):
@@ -1940,22 +1940,54 @@ class _Renames:
 
     def __init__(self) -> None:
         self.done: list[tuple[Path, Path]] = []
+        self._identities: list[tuple[int, int] | None] = []
 
     def rename(self, src: Path, dst: Path, *, attempts: int = files.REPLACE_ATTEMPTS) -> None:
         files.rename_retrying(src, dst, attempts=attempts)
         self.done.append((src, dst))
+        self._identities.append(_identity(dst))
 
     def undo(self) -> None:
-        """Put every renamed path back; one that cannot be is logged (``_put_back``)."""
+        """Put every renamed path back, newest first. A name that no longer holds what was renamed to it is
+        left alone: another writer replaced it, which can happen only if SQLite ended the transaction and
+        released the lock before the undo (``db.write_txn``). That, and a path that cannot be put back
+        (``_put_back``), is logged."""
         while self.done:
             src, dst = self.done.pop()
+            identity = self._identities.pop()
+            if identity is not None and _identity(dst) != identity:
+                _log.error("did not rename %s back to %s: another writer has replaced it since", dst, src)
+                continue
             _put_back(dst, src)
 
 
-def _batch_open(count: int, started: float) -> bool:
-    """Whether a ``gc`` transaction may take one more item: it always takes one, then stops at
-    ``GC_BATCH_ITEMS`` items or ``GC_BATCH_SECONDS``."""
-    return count == 0 or (count < GC_BATCH_ITEMS and time.monotonic() - started < GC_BATCH_SECONDS)
+def _make_folder(path: Path) -> None:
+    """``path.mkdir(parents=True, exist_ok=True)``, tried again if ``gc`` removes an empty parent in between:
+    it removes a voice's emptied measurements folder after its commit, outside the lock."""
+    for attempt in range(3):
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            return
+        except FileNotFoundError:
+            if attempt == 2:
+                raise
+
+
+def _identity(path: Path) -> tuple[int, int] | None:
+    """What ``path`` names, as the file system identifies it (volume and file id), or None if it cannot be
+    read."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return None
+    return info.st_dev, info.st_ino
+
+
+def _batch_open(examined: int, started: float) -> bool:
+    """Whether a ``gc`` transaction may examine one more item: it always examines one, then stops at
+    ``GC_BATCH_ITEMS`` items or ``GC_BATCH_SECONDS``. It counts every item it looked at, collected or not,
+    so items that fail to rename (each tried once) close it as surely as items collected."""
+    return examined == 0 or (examined < GC_BATCH_ITEMS and time.monotonic() - started < GC_BATCH_SECONDS)
 
 
 def _discard_trash(trash: Path, final: Path) -> None:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any, Final
 
 from narration.contracts import codes, names
@@ -155,8 +155,12 @@ def method_file_stem(method_id: str) -> str:
     return stem[:cut] + _METHOD_HASH_MARK + digest
 
 
-def is_under(path: Path, root: Path) -> bool:
-    """Whether ``path`` is ``root`` or inside it (both already resolved)."""
+def is_under(path: PurePath, root: PurePath) -> bool:
+    """Whether ``path`` is ``root`` or inside it (both already resolved). The comparison is on the text of
+    the names, so a path with a ``..`` in it (``D:\\root\\..\\..\\x`` has ``D:\\root`` among its parents) is
+    never inside."""
+    if ".." in path.parts or ".." in root.parts:
+        return False
     return path == root or root in path.parents
 
 

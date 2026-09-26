@@ -25,7 +25,6 @@ from narration.store import (
     StoreError,
     StoreIntegrityError,
 )
-from narration.store import db as store_db
 from narration.store import files as store_files
 
 from .conftest import FakeClock
@@ -45,7 +44,7 @@ from .factories import (
     sha,
 )
 from .standin import StandInPlatform
-from .txn_fakes import commit_fails
+from .txn_fakes import scripted
 
 DESIGN_ID = Keys().new_design_id()
 
@@ -366,7 +365,7 @@ def test_a_canary_clip_whose_commit_fails_goes_back_and_the_old_one_stays_dc_3(
 ) -> None:
     clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, scratch_file(store, "canary.wav", b"canary"))
     other = scratch_file(store, "c2.wav", b"a newer canary")
-    monkeypatch.setattr(store_db, "write_txn", commit_fails)
+    scripted(monkeypatch, store, fail_commit=True)
     with pytest.raises(sqlite3.OperationalError):
         store.put_canary_clip(names.ENGINE_PROFILE_BASE, other)
     monkeypatch.undo()
@@ -384,12 +383,28 @@ def test_a_canary_clip_that_waited_in_scratch_survives_a_gc_during_its_publish_d
     src = scratch_file(store, "canary.wav", b"canary")
     months_ago = clock.now - 90 * 86_400
     os.utime(src, (months_ago, months_ago))
-    get_engine_profile = store.get_engine_profile
+    move_into = store_files.move_into
 
-    def gc_first(engine_profile_id: str) -> EngineProfile | None:  # called between the move and the publish
-        store.gc(dry_run=False)
-        return get_engine_profile(engine_profile_id)
+    def move_then_gc(source: Path, dst: Path, *, readonly: bool) -> None:
+        move_into(source, dst, readonly=readonly)
+        store.gc(dry_run=False)  # between the move and the publish
 
-    monkeypatch.setattr(store, "get_engine_profile", gc_first)
+    monkeypatch.setattr(store_files, "move_into", move_then_gc)
     clip = store.put_canary_clip(names.ENGINE_PROFILE_BASE, src)
     assert Path(clip.path).read_bytes() == b"canary"
+
+
+def test_a_canary_clip_whose_profile_cannot_be_read_stays_in_scratch_dc_3(
+    store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The engine profile is read before the clip is moved, so a failure there cannot strand it under .tmp-.
+    src = scratch_file(store, "canary.wav", b"canary")
+
+    def unreadable(engine_profile_id: str) -> EngineProfile | None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(store, "get_engine_profile", unreadable)
+    with pytest.raises(sqlite3.OperationalError):
+        store.put_canary_clip(names.ENGINE_PROFILE_BASE, src)
+    assert src.read_bytes() == b"canary" and not store_files.is_readonly(src)
+    assert not [p for p in store.root.rglob("*") if p.name.startswith(".tmp-")]

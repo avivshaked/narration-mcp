@@ -55,11 +55,12 @@ def real_path(path: str | os.PathLike[str]) -> str:
     look had already resolved every link, so the plain path is the real one. ``\\?\UNC\server\share``
     becomes ``\\server\share`` (``winpaths.strip_verbatim``).
 
-    This is string handling after the call, with no branch on the OS: a POSIX ``realpath`` starts with ``/``
-    and is returned unchanged. Every check that compares ``realpath``s (the store's confinement, section
-    17.2) goes through this, on both sides.
+    This is string handling after the call, with no branch on the OS: a POSIX ``realpath`` never starts
+    with the prefix. The result is then ``os.path.normpath``-ed, so no ``..`` survives the stripping. Every
+    check that compares ``realpath``s (the store's confinement, section 17.2) goes through this, on both
+    sides.
     """
-    return winpaths.strip_verbatim(os.path.realpath(path))
+    return os.path.normpath(winpaths.strip_verbatim(os.path.realpath(path)))
 
 
 __all__ = ["SUPPORTED_PLATFORMS", "UnsupportedOsPlatform", "get_platform", "is_supported", "real_path"]

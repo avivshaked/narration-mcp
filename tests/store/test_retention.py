@@ -15,7 +15,6 @@ import pytest
 from narration.contracts.models import ProvenanceEntry, RenderRecord, TakeRecord
 from narration.keys import Keys
 from narration.store import NarrationStore
-from narration.store import db as store_db
 from narration.store import files as store_files
 from narration.store import store as store_module
 
@@ -34,7 +33,7 @@ from .factories import (
     sha,
     take_record,
 )
-from .txn_fakes import observing_rollback
+from .txn_fakes import scripted
 
 DAY = 86_400.0
 KEYS = Keys()
@@ -468,9 +467,9 @@ def _count_per_transaction(store: NarrationStore, monkeypatch: pytest.MonkeyPatc
     per_txn: list[int] = []
     real_write, real_delete = store._write, store._delete_rows
 
-    def counting_write() -> contextlib.AbstractContextManager[sqlite3.Connection]:
+    def counting_write(**kwargs: Any) -> contextlib.AbstractContextManager[sqlite3.Connection]:
         per_txn.append(0)
-        return real_write()
+        return real_write(**kwargs)
 
     def counting_delete(conn: sqlite3.Connection, kind: str, ident: str) -> None:
         per_txn[-1] += 1
@@ -481,6 +480,79 @@ def _count_per_transaction(store: NarrationStore, monkeypatch: pytest.MonkeyPatc
     return per_txn
 
 
+def _tried_per_transaction(store: NarrationStore, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """How many items each write transaction of the store tried to rename to trash, in order."""
+    per_txn: list[int] = []
+    real_write, real_to_trash = store._write, store._to_trash
+
+    def counting_write(**kwargs: Any) -> contextlib.AbstractContextManager[sqlite3.Connection]:
+        per_txn.append(0)
+        return real_write(**kwargs)
+
+    def counting_to_trash(path: Path, renames: Any, errors: list[dict[str, str]]) -> bool:
+        per_txn[-1] += 1
+        return real_to_trash(path, renames, errors)
+
+    monkeypatch.setattr(store, "_write", counting_write)
+    monkeypatch.setattr(store, "_to_trash", counting_to_trash)
+    return per_txn
+
+
+def _refuse_renames(monkeypatch: pytest.MonkeyPatch, folders: set[Path]) -> None:
+    """Every rename of one of ``folders`` fails, as it does while a file in it is open."""
+    real_rename = os.rename
+
+    def rename(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        if Path(src) in folders:
+            raise PermissionError(13, "a file in it is open", os.fspath(src))
+        real_rename(src, dst)
+
+    monkeypatch.setattr(os, "rename", rename)
+
+
+@pytest.mark.parametrize(("seconds", "expected"), [(0.0, [1, 1, 1, 1, 1, 1]), (3600.0, [2, 2, 2])])
+def test_gc_bounds_a_transaction_by_the_items_it_tries_s15(
+    store: NarrationStore,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+    seconds: float,
+    expected: list[int],
+) -> None:
+    # Items that fail to rename close a transaction as surely as items collected. The review's experiment:
+    # with 2 items and 0 s per transaction, six refused renames all ran in one transaction.
+    renders = _old_renders(store, clock, 6)
+    _refuse_renames(monkeypatch, {store.render_dir(r.render_id) for r in renders})
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 2)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", seconds)
+    per_txn = _tried_per_transaction(store, monkeypatch)
+    report = store.gc(dry_run=False)
+    assert report["items"]["renders"] == [] and len(report["errors"]) == 6
+    assert [n for n in per_txn if n] == expected
+
+
+@pytest.mark.parametrize(("seconds", "expected"), [(0.0, [1, 1, 1]), (3600.0, [2, 1])])
+def test_gc_bounds_an_orphan_transaction_by_the_items_it_tries_s15(
+    store: NarrationStore,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+    seconds: float,
+    expected: list[int],
+) -> None:
+    # Folders the index does not know (a crash between the rename and the index row), none renameable.
+    months_ago = clock.now - 90 * DAY
+    orphans = {store.root / "renders" / "ab" / f"rn_{i:016x}" for i in range(3)}
+    for folder in orphans:
+        folder.mkdir(parents=True)
+        os.utime(folder, (months_ago, months_ago))
+    _refuse_renames(monkeypatch, orphans)
+    monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 2)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", seconds)
+    per_txn = _tried_per_transaction(store, monkeypatch)
+    report = store.gc(dry_run=False)
+    assert report["orphans"] == [] and len(report["errors"]) == 3
+    assert [n for n in per_txn if n] == expected
+
+
 def test_gc_collects_in_bounded_transactions_s15(
     store: NarrationStore, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -488,6 +560,7 @@ def test_gc_collects_in_bounded_transactions_s15(
     # writer waits for: it commits every GC_BATCH_ITEMS items, and the lock is free while it removes trash.
     renders = _old_renders(store, clock, 5)
     monkeypatch.setattr(store_module, "GC_BATCH_ITEMS", 2)
+    monkeypatch.setattr(store_module, "GC_BATCH_SECONDS", 3600.0)  # only the count bounds it here
     per_txn = _count_per_transaction(store, monkeypatch)
     lock_free: list[bool] = []
     real_remove = store._remove
@@ -578,8 +651,7 @@ def test_a_failed_gc_transaction_puts_folders_back_before_it_releases_the_lock_s
             raise RuntimeError("the disk went away")
         real_delete(conn, kind, ident)
 
-    seen: list[object] = []
-    monkeypatch.setattr(store_db, "write_txn", observing_rollback(lambda: [f.is_dir() for f in folders], seen))
+    seen = scripted(monkeypatch, store, look=lambda: [f.is_dir() for f in folders]).seen
     monkeypatch.setattr(store, "_delete_rows", fail_on_the_second)
     with pytest.raises(RuntimeError):
         store.gc(dry_run=False)

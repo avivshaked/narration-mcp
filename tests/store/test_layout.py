@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import pytest
@@ -15,7 +15,7 @@ from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
 from narration.contracts.interfaces import Platform
 from narration.store import layout as layout_module
-from narration.store.layout import InvalidIdError, StoreLayout, StorePathError, method_file_stem
+from narration.store.layout import InvalidIdError, StoreLayout, StorePathError, is_under, method_file_stem
 
 from .standin import StandInPlatform, make_link, remove_link
 
@@ -294,6 +294,24 @@ def test_the_real_platform_confines_the_store_s17_2(tmp_path: Path) -> None:
             layout.render_dir(RENDER_ID)
     finally:
         remove_link(link)
+
+
+@pytest.mark.parametrize(
+    ("path", "root", "inside"),
+    [
+        (PureWindowsPath(r"D:\root\..\..\x"), PureWindowsPath(r"D:\root"), False),
+        (PureWindowsPath(r"D:\root\x\.."), PureWindowsPath(r"D:\root"), False),
+        (PureWindowsPath(r"D:\root\x"), PureWindowsPath(r"D:\root"), True),
+        (PureWindowsPath(r"D:\root"), PureWindowsPath(r"D:\root"), True),
+        (PureWindowsPath(r"D:\root2\x"), PureWindowsPath(r"D:\root"), False),
+        (PurePosixPath("/root/../../x"), PurePosixPath("/root"), False),
+        (PurePosixPath("/root/x"), PurePosixPath("/root"), True),
+        (PurePosixPath("/root/x"), PurePosixPath("/root/.."), False),
+    ],
+)
+def test_a_path_with_dot_dot_is_never_inside_s17_2(path: PurePath, root: PurePath, inside: bool) -> None:
+    # is_under compares names as text, so D:\root\..\..\x has D:\root among its parents.
+    assert is_under(path, root) is inside
 
 
 @pytest.mark.skipif(

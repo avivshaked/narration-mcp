@@ -179,7 +179,6 @@ ROOT = p("D:", "store")
         (p("", "", "?", "D:", "store", "run", "daemon.json"), p("D:", "store", "run", "daemon.json")),
         (p("", "", "?", "UNC", "server", "share", "store", "x"), p("", "", "server", "share", "store", "x")),
         (p("D:", "store", "run", "daemon.json"), p("D:", "store", "run", "daemon.json")),
-        ("/srv/store/run/daemon.json", "/srv/store/run/daemon.json"),  # a POSIX realpath is never changed
     ],
 )
 def test_real_path_drops_the_verbatim_prefix_a_replaced_file_keeps_s17_2(
@@ -189,6 +188,30 @@ def test_real_path_drops_the_verbatim_prefix_a_replaced_file_keeps_s17_2(
         patched.setattr(os.path, "realpath", lambda path: resolved)
         got = real_path("anything")
     assert got == expected
+
+
+@pytest.mark.skipif(os.sep != "/", reason="a POSIX realpath is checked where os.path is posixpath")
+def test_real_path_leaves_a_posix_realpath_as_it_is_s17_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    with monkeypatch.context() as patched:
+        patched.setattr(os.path, "realpath", lambda path: "/srv/store/run/daemon.json")
+        got = real_path("anything")
+    assert got == "/srv/store/run/daemon.json"
+
+
+def test_real_path_leaves_no_dot_dot_s17_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    climbing = os.path.join(os.sep, "srv", "store", "run", "..", "..", "x")
+    with monkeypatch.context() as patched:
+        patched.setattr(os.path, "realpath", lambda path: climbing)
+        got = real_path("anything")
+    assert got == os.path.join(os.sep, "srv", "x")
+
+
+@pytest.mark.skipif(os.sep != "\\", reason="a verbatim path is normalised where os.path is ntpath")
+def test_real_path_leaves_no_dot_dot_after_the_prefix_s17_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    with monkeypatch.context() as patched:
+        patched.setattr(os.path, "realpath", lambda path: p("", "", "?", "D:", "store", "run", "..", "..", "x"))
+        got = real_path("anything")
+    assert got == p("D:", "x")
 
 
 def test_a_replaced_file_inside_the_root_compares_inside_once_normalised_s17_2(monkeypatch: pytest.MonkeyPatch) -> None:
