@@ -113,3 +113,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   insertions with reference bleed, speaker similarity and pace against the voice's measurement, signal
   checks, the verdict and retake triggers, the suggestion tiers, the per-job consistency report,
   `listen_first`, fit reporting, and the job report in Markdown and JSON.
+- The Qwen3-TTS worker (`workers/qwen3tts`, role `qwen3`): loads Base or VoiceDesign offline from a
+  snapshot folder named by its revision, prepares ICL voice prompts, and renders with every audio-changing
+  setting passed explicitly (never a library default). Each `synthesize` or `design` call takes its own
+  required `max_new_tokens` (at most the loaded ceiling, 8192) and the reply echoes it. Each render is
+  seeded, reports how generation stopped (`new_tokens`, `hit_token_cap`), and is written as a float32 WAV
+  that repeats byte for byte. A snapshot of another model is refused, and a broken one is reported as not
+  installed.
