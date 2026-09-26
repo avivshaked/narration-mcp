@@ -39,23 +39,28 @@ def _voice(client: SubprocessWorkerClient, store: Path) -> None:
         "design",
         {
             "description": "A calm voice.",
-            "design_text": "Some of them thrive.",
+            "design_text": "Good bread asks for patience.",
             "language": "English",
             "seed": 3,
-            "max_new_tokens": call_cap("Some of them thrive.", design=True),
+            "max_new_tokens": call_cap("Good bread asks for patience.", design=True),
             "out_path": str(clip),
         },
         timeout_s=TIMEOUT,
     )
     client.request(
         "prepare_voice",
-        {"voice_hash": VOICE, "ref_wav": str(clip), "ref_text": "Some of them thrive.", "x_vector_only_mode": False},
+        {
+            "voice_hash": VOICE,
+            "ref_wav": str(clip),
+            "ref_text": "Good bread asks for patience.",
+            "x_vector_only_mode": False,
+        },
         timeout_s=TIMEOUT,
     )
 
 
 def _synthesize(
-    client: SubprocessWorkerClient, store: Path, name: str, text: str = "Small things live."
+    client: SubprocessWorkerClient, store: Path, name: str, text: str = "The dough is left to rise."
 ) -> dict[str, Any]:
     return client.request(
         "synthesize",
@@ -100,7 +105,7 @@ def test_round_trip_through_the_fake_appA(make_client: ClientFactory, store: Pat
         {"wav": str(store / "scratch" / "take.wav"), "language": "English", "word_timestamps": True, "long_form": True},
         timeout_s=TIMEOUT,
     )
-    assert heard["text"] == "Small things live."
+    assert heard["text"] == "The dough is left to rise."
     client.close()
     assert client.exit_code == 0 and not client.is_alive()
 

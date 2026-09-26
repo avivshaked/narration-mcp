@@ -1,6 +1,6 @@
 {
   "set": "qa-faults-v1",
-  "design_revision": "5.2",
+  "design_revision": "5.8",
   "conventions": [
     "Specs, not audio: each gives the segment as sent (a Segment, design section 7.2), the request's hints, and the transcript the ASR is pretended to return (asr.text). A pure QA test feeds asr.text to the QA logic through the fake worker; a GPU test renders render.text so that real audio carries the fault, and scores it against the segment.",
     "kind is fault (must be caught) or non-fault (must pass).",
@@ -36,8 +36,7 @@
         "retake_trigger": true,
         "verdict": "fail"
       },
-      "unsure": ["expect.exact[0].expected", "expect.exact[0].heard"],
-      "note": "expected and heard are shown in normalised form (design 11.3 step 1); whether they are reported raw or normalised is WP14's."
+      "note": "expected and heard are reported in normalised form (design 11.3 step 1), as QA reports them (WP14)."
     },
     {
       "name": "fault_head_insertion_three_words",
@@ -64,7 +63,7 @@
       "name": "fault_head_insertion_reference_bleed",
       "kind": "fault",
       "design": ["11.1", "20 (Phase 3)"],
-      "about": "Words of the voice's own transcript are heard before cue 0: reference bleed, a known ICL failure.",
+      "about": "The last two words of the voice's own transcript are heard before cue 0: reference bleed, a known ICL failure. Two extra words alone only warn (a head insertion fails at three), so only the bleed rule fails it.",
       "segment": {
         "segment_id": "fault-head-insertion-reference-bleed",
         "cues": [
@@ -73,15 +72,15 @@
         ]
       },
       "hints": [],
-      "voice_transcript": "Far below the surface, where the light grows thin, small things live quiet lives. Some of them thrive, and some of them simply disappear, and the water keeps no record of either.",
+      "voice_transcript": "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen.",
       "render": {
-        "text": "And the water keeps no record of either. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+        "text": "Whole kitchen. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
       },
       "asr": {
-        "text": "And the water keeps no record of either. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
+        "text": "Whole kitchen. The tide came in slowly over the mud flats, and by evening the channel by the old quay was full again."
       },
       "expect": {"flags": [{"code": "HEAD_INSERTION", "severity": "fail"}], "retake_trigger": true, "verdict": "fail"},
-      "note": "voice_transcript is the design text of canary.v1, standing in for any voice's transcript."
+      "note": "voice_transcript is the design text of canary.v1, standing in for any voice's transcript. The two extra words also raise WER_HIGH; the spec pins HEAD_INSERTION, which fails here only through the bleed rule."
     },
     {
       "name": "boundary_head_insertion_one_word",

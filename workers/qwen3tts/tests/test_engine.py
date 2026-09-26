@@ -214,7 +214,7 @@ def wrapper(engine: QwenEngine) -> FakeQwen:
 def base_with_voice(tmp_path: Path, torch: FakeTorch, **load_kwargs: Any) -> QwenEngine:
     engine = QwenEngine(torch)
     load(engine, snapshot(tmp_path, "base"), **load_kwargs)
-    engine.prepare_voice("v", clip(tmp_path), "Far below.", False)
+    engine.prepare_voice("v", clip(tmp_path), "Good bread.", False)
     return engine
 
 
@@ -336,7 +336,7 @@ def test_loading_the_same_model_again_keeps_it_takes_the_new_settings_and_clears
     engine = QwenEngine(torch)
     folder = snapshot(tmp_path, "base")
     load(engine, folder)
-    engine.prepare_voice("v", clip(tmp_path), "Far below.", False)
+    engine.prepare_voice("v", clip(tmp_path), "Good bread.", False)
     again = load(engine, folder, settings=settings(max_new_tokens=24))
     assert again.reused is True and len(FakeQwen.loads) == 1
     assert engine.ceiling == 24
@@ -375,17 +375,17 @@ def test_settings_passed_explicitly_s10_1(tmp_path: Path, torch: FakeTorch) -> N
     assert (speak["text"], speak["language"], speak["voice_clone_prompt"]) == (
         "Rain moved across the hills.",
         "English",
-        [{"prompt": "Far below."}],
+        [{"prompt": "Good bread."}],
     )
 
 
 def test_design_passes_its_streaming_mode_settings_and_cap_explicitly_s10_1(tmp_path: Path, torch: FakeTorch) -> None:
     engine = QwenEngine(torch)
     load(engine, snapshot(tmp_path, "voice_design"), settings=settings(True))
-    rendered = engine.design("A warm, clear voice.", "Far below the surface.", "English", 128)
+    rendered = engine.design("A warm, clear voice.", "Good bread asks for patience.", "English", 128)
     (speak,) = wrapper(engine).calls
     assert speak["non_streaming_mode"] is True
-    assert (speak["instruct"], speak["text"]) == ("A warm, clear voice.", "Far below the surface.")
+    assert (speak["instruct"], speak["text"]) == ("A warm, clear voice.", "Good bread asks for patience.")
     assert {key: speak[key] for key in GENERATION_KEYS} == {**GENERATION, "max_new_tokens": 128}
     assert rendered.max_new_tokens == 128
 
@@ -463,11 +463,11 @@ def test_prepare_voice_suspends_deterministic_algorithms_only_for_the_encode_s10
     engine = QwenEngine(torch)
     load(engine, snapshot(tmp_path, "base"))
     torch.use_deterministic_algorithms(True, warn_only=True)
-    engine.prepare_voice("v", clip(tmp_path), "Far below.", False)
+    engine.prepare_voice("v", clip(tmp_path), "Good bread.", False)
     assert wrapper(engine).prompt_deterministic == [False]
     assert (torch.deterministic, torch.warn_only) == (True, True)
     torch.use_deterministic_algorithms(False)
-    engine.prepare_voice("v", clip(tmp_path), "Far below.", False)
+    engine.prepare_voice("v", clip(tmp_path), "Good bread.", False)
     assert torch.deterministic is False
 
 
@@ -491,7 +491,7 @@ def test_an_unreadable_clip_is_unsupported_audio(tmp_path: Path, torch: FakeTorc
     bad = tmp_path / "bad.wav"
     bad.write_bytes(b"not a wav")
     with pytest.raises(EngineError) as caught:
-        engine.prepare_voice("v", bad, "Far below.", False)
+        engine.prepare_voice("v", bad, "Good bread.", False)
     assert caught.value.code == "UNSUPPORTED_AUDIO"
 
 
@@ -509,9 +509,9 @@ def test_the_least_recently_used_voice_is_evicted(tmp_path: Path, torch: FakeTor
     load(engine, snapshot(tmp_path, "base"))
     path = clip(tmp_path)
     for n in range(MAX_PREPARED_VOICES):
-        engine.prepare_voice(f"v{n}", path, "Far below.", False)
+        engine.prepare_voice(f"v{n}", path, "Good bread.", False)
     engine.synthesize("v0", "Rain.", "English", CEILING)  # using v0 makes v1 the least recently used
-    engine.prepare_voice("new", path, "Far below.", False)
+    engine.prepare_voice("new", path, "Good bread.", False)
     assert engine.prepared("v0") and engine.prepared("new") and not engine.prepared("v1")
     with pytest.raises(EngineError) as caught:
         engine.synthesize("v1", "Rain.", "English", CEILING)

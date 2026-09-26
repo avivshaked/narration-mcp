@@ -16,7 +16,7 @@ import pytest
 
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import Hint, SegmentIn, SegmentText
-from narration.contracts.serial import from_json
+from narration.contracts.serial import from_json, to_json
 from narration.text import TextPipeline, words
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,8 +43,9 @@ def _check_cue(cue: Any, expected: dict[str, Any]) -> None:
     for key in ("spoken", "engine"):
         if key in expected:
             assert getattr(cue, key) == expected[key], key
-    if "span" in expected:
-        assert list(cue.spoken_span) == expected["span"]
+    for key in ("spoken_span", "engine_span"):
+        if key in expected:
+            assert list(getattr(cue, key)) == expected[key], key
     if "hints_applied" in expected:
         got = [{"term": h.term, "respell": h.respell, "offset": h.offset} for h in cue.hints_applied]
         assert got == expected["hints_applied"]
@@ -88,5 +89,7 @@ def test_text_v1_fixture_case_s9_3(case: dict[str, Any]) -> None:
         for cue, expected in zip(result.cues, expect["cues"], strict=False):
             _check_cue(cue, expected)
     if "flags" in expect:
-        got = [{"code": f.code, "severity": f.severity} for f in result.warnings]
-        assert got == expect["flags"]
+        got = [to_json(f) for f in result.warnings]
+        assert len(got) == len(expect["flags"])
+        for flag, want in zip(got, expect["flags"], strict=True):
+            assert {k: flag.get(k) for k in want} == want

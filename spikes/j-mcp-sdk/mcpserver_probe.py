@@ -47,7 +47,7 @@ def build() -> MCPServer:
 
 async def run() -> dict[str, Any]:
     observed: dict[str, Any] = {}
-    voice = {"path": "C:/voices/narrator.wav", "sha256": "5b" * 32, "transcript": "Far below the surface."}
+    voice = {"path": "C:/voices/narrator.wav", "sha256": "5b" * 32, "transcript": "Good bread asks for patience."}
     async with Client(build(), mode="legacy") as client:
         tool = (await client.list_tools()).tools[0]
         schema_text = json.dumps(tool.input_schema)

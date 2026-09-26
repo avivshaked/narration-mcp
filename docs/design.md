@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.7 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.8 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -58,6 +58,10 @@ applied here, each listed in the revision history below.*
 - *Revision 5.7 (the same day) records spike (d): the clone path is `bit_exact` on the pinned stack, the
   one exemption from deterministic algorithms (the voice prompt's encode), a worker's own WAV writer, and
   the tier decided by `engine pin` on the installing machine (section 10.1; ADR 0002).*
+- *Revision 5.8 (the same day) applies the owner's **DC-13**: the service ships its own default design
+  text, written for it in place of the bake-off's reference text, since the bake-off's texts are private
+  (section 16; it is also the canary's text, DC-3). Section 3.1 and the examples in section 7.3 and
+  Appendices A and B follow.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -365,8 +369,8 @@ transcript and its fingerprint, and sends their locations with each request.
 
 ### 3.1 Design returns candidates
 
-`design_voice(description, takes, design_text?)` renders the fixed neutral design text (the bake-off's
-`REF_TEXT`, or the caller's `design_text`) with *n* derived seeds through Qwen VoiceDesign. Each
+`design_voice(description, takes, design_text?)` renders the fixed neutral design text (the service's
+default of section 16, or the caller's `design_text`) with *n* derived seeds through Qwen VoiceDesign. Each
 **candidate** comes back with:
 
 - the clip: path + sha256 (a WAV in the service's output area, kept for the retention period);
@@ -947,7 +951,7 @@ comments below mark where a fragment goes.
   "name": "submit_job",
   "arguments": {
     "voice": {"path": "C:\\reef-film\\voice\\narrator.wav", "sha256": "5b1e…",
-              "transcript": "Far below the surface, where the light grows thin, small things live quiet lives. …"},
+              "transcript": "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. …"},
     "hints": [{"term": "Ossavine", "respell": "Oss-a-veen"}],
     "segments": [
       {"segment_id": "p03", "cues": [
@@ -1962,7 +1966,7 @@ trim_pad_s = 0.08
 fade_s = 0.01
 
 [voice_design]
-design_text = "Far below the surface, where the light grows thin, small things live quiet lives. Some of them thrive, and some of them simply disappear, and the water keeps no record of either."
+design_text = "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen."
 
 [measurement]
 corpus = "narration-en.v1"     # the service's own spoken-form paragraphs (section 3.2)
@@ -2235,7 +2239,7 @@ daemon computes the hashes. All times are in seconds.
     "settings":{"non_streaming_mode":false,"generation":{"do_sample":true,"top_k":50,"…":"explicit","max_new_tokens":8192}}}
 ← {"id":2,"ok":true,"load_s":18.2,"vram_mb":6120}
 → {"id":3,"op":"prepare_voice","voice_hash":"sha256:…","ref_wav":"…\\scratch\\voices\\5b1e….wav",
-    "ref_text":"Far below the surface, …","x_vector_only_mode":false}
+    "ref_text":"Good bread asks for patience: …","x_vector_only_mode":false}
 ← {"id":3,"ok":true}
 → {"id":4,"op":"synthesize","voice_hash":"sha256:…","engine_text":"…","language":"English","seed":1834112093,
     "max_new_tokens":868,"out_path":"…\\scratch\\job_…\\p03_a0.wav"}   // the call's cap (DC-4)
@@ -2326,7 +2330,7 @@ daemon computes the hashes. All times are in seconds.
 ```json
 {"schema": "narration.measurement/v1", "voice_hash": "sha256:3f9a0c1e…", "clip_sha256": "5b1e…",
  "engine_profile": {"id": "qwen3-base-1.7b.p1", "hash": "sha256:9e21…"},
- "transcript_check": {"heard": "Far below the surface, …", "wer": 0.0, "ok": true},
+ "transcript_check": {"heard": "Good bread asks for patience: …", "wer": 0.0, "ok": true},
  "corpus": "narration-en.v1",
  "similarity": {"anchor_p5": 0.982, "anchor_p50": 0.987, "consistency_p5": 0.983},
  "pace": {"trend": {"intercept_wpm": 118, "per_100_chars": 12.5, "band_max_chars": 300}, "tol": 0.17,

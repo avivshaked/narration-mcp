@@ -31,7 +31,7 @@ SERVER = HERE / "spike_server.py"
 RESULTS = HERE / "results"
 STDERR_SCRATCH = RESULTS / "_server-stderr.tmp"
 
-GOOD_VOICE = {"path": "C:/voices/narrator.wav", "sha256": "5b" * 32, "transcript": "Far below the surface."}
+GOOD_VOICE = {"path": "C:/voices/narrator.wav", "sha256": "5b" * 32, "transcript": "Good bread asks for patience."}
 GOOD_LINE = {"voice": GOOD_VOICE, "text": "Before dawn, the reef belongs to the Ossavine shrimp."}
 
 CHECKS: list[dict[str, Any]] = []

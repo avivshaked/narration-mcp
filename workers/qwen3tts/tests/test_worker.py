@@ -299,7 +299,7 @@ def prepared(handler: Qwen3Handler, store: Path) -> None:
     clip.parent.mkdir(parents=True, exist_ok=True)
     clip.write_bytes(b"RIFF")  # the fake engine never reads it
     prepare = {"id": 2, "op": "prepare_voice", "voice_hash": "sha256:v", "ref_wav": str(clip)}
-    handler.op_prepare_voice(prepare | {"ref_text": "Far below.", "x_vector_only_mode": False})
+    handler.op_prepare_voice(prepare | {"ref_text": "Good bread.", "x_vector_only_mode": False})
 
 
 def synthesize_request(store: Path, **overrides: Any) -> dict[str, Any]:
@@ -322,7 +322,7 @@ def design_request(store: Path, **overrides: Any) -> dict[str, Any]:
         "id": 4,
         "op": "design",
         "description": "A warm, clear adult voice.",
-        "design_text": "Far below the surface.",
+        "design_text": "Good bread asks for patience.",
         "language": "English",
         "seed": 271828,
         "max_new_tokens": 128,

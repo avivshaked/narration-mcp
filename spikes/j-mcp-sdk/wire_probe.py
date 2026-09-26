@@ -39,7 +39,7 @@ SERVER_INFO_KEY = "io.modelcontextprotocol/serverInfo"
 SUBSCRIPTION_ID_KEY = "io.modelcontextprotocol/subscriptionId"
 CLIENT_INFO = {"name": "wire-probe", "version": "0"}
 
-GOOD_VOICE = {"path": "C:/voices/narrator.wav", "sha256": "5b" * 32, "transcript": "Far below the surface."}
+GOOD_VOICE = {"path": "C:/voices/narrator.wav", "sha256": "5b" * 32, "transcript": "Good bread asks for patience."}
 GOOD_LINE = {"voice": GOOD_VOICE, "text": "Before dawn,   the reef belongs to the Ossavine shrimp."}
 
 

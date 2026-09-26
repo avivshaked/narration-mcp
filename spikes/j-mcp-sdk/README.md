@@ -167,3 +167,11 @@ in `results/`. **KNOW (source)** means read in the installed package's source, n
   `cacheScope: "private"`, `subscriptions/listen`, progress, cancellation, `structuredContent` +
   `outputSchema`, `resource_link`, annotations, and legacy `initialize`. The SDK marks Sampling, Roots
   and Logging deprecated (`MCPDeprecationWarning`), and the spike uses none of them.
+
+### Note on the recorded probes (2026-09-26)
+
+After the runs, the probes' voice transcript was changed in the scripts and in the recorded
+`results/*.jsonl` alike. It is now the first clause of the service's new default design text (design
+section 16), ending in a full stop. The spike's servers check the transcript against the schema (a string
+of 1 to 600 characters) and never read it. The new value meets the same limits, so no recorded outcome
+changes.

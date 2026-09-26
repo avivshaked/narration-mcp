@@ -9,7 +9,7 @@ import pytest
 from narration_worker.testing.client import WorkerProcess
 from narration_worker.testing.contract import WorkerContract
 
-TEXT = "Some of them thrive, and some of them simply disappear."
+TEXT = "When the loaves come out golden and crisp."
 VOICE = "sha256:" + "5" * 64
 
 

@@ -120,3 +120,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   seeded, reports how generation stopped (`new_tokens`, `hit_token_cap`), and is written as a float32 WAV
   that repeats byte for byte. A snapshot of another model is refused, and a broken one is reported as not
   installed.
+
+### Changed
+
+- The default design text (`[voice_design] design_text`, also the canary's design text in
+  `material/canary/canary.v1`) is a new text written for the service: "Good bread asks for patience: the
+  dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp,
+  a gentle warmth fills the whole kitchen." A clip keeps the transcript `design_voice` returned for it.
