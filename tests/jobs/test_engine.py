@@ -157,6 +157,14 @@ def test_an_interactive_job_goes_before_a_queued_batch_job_s4(world: World) -> N
     assert world.host.started == [interactive.job_id, batch.job_id]
 
 
+def test_jobs_are_taken_by_priority_then_first_come_s4(world: World) -> None:
+    first, second = world.submit(LAMPS), world.submit(KETTLE)
+    urgent = world.submit(ORCHARD, priority="interactive")
+    last = world.submit(LANTERN)
+    world.run()
+    assert world.host.started == [urgent.job_id, first.job_id, second.job_id, last.job_id]
+
+
 def test_a_batch_job_gives_way_to_an_interactive_one_and_resumes_from_the_cache_s4(world: World) -> None:
     batch = world.submit(LAMPS, KETTLE, ORCHARD)
     _step_until(world, lambda: world.pool.calls[("qwen", "synthesize")] == 2)
