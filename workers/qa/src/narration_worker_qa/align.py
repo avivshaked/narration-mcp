@@ -40,6 +40,7 @@ import argparse
 import itertools
 import json
 import os
+import pickle
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -49,7 +50,7 @@ from typing import Any, ClassVar, Final
 
 import numpy as np
 import numpy.typing as npt
-from narration_worker.errors import OpError
+from narration_worker.errors import OpError, is_transient_load_error
 from narration_worker.handler import Request, WorkerHandler, require_str, require_str_list
 from narration_worker.protocol import WorkerErrorCode
 from narration_worker.threads import cap_threads_env, cap_torch_threads
@@ -72,6 +73,13 @@ WILDCARD_FLOOR: Final = 1e-6
 """The smallest 1 − P(blank) the wildcard's column takes, so its log-probability stays finite (-13.8)."""
 DEVICE: Final = "cpu"
 """The only device the aligner runs on (design section 11.2: the GPU path is untested and not needed)."""
+ALPHABET: Final = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ'|")
+"""The tokens the server spells words in (``narration.align.ALPHABET``): a vocabulary without all of them is
+not the English character model the aligner is pinned to."""
+CTC_ARCHITECTURE: Final = "Wav2Vec2ForCTC"
+"""What a snapshot's ``config.json`` must name in ``architectures``."""
+INSTALL_HINT: Final = "install the models again (narration-admin install)"
+"""What to do about a missing or damaged snapshot."""
 
 
 # ---------------------------------------------------------------------- errors
@@ -111,7 +119,8 @@ class UnreadableAudio(AlignerError):
 
 
 class BackendMissing(AlignerError):
-    """The snapshot directory or one of its files is missing."""
+    """The snapshot directory or one of its files is missing or damaged, or it is not the pinned kind of model
+    (a wav2vec2 CTC model with the English character vocabulary)."""
 
     code: ClassVar[WorkerErrorCode] = "BACKEND_NOT_INSTALLED"
 
@@ -264,11 +273,22 @@ def align_emission(torch: Any, emission: Any, ids: Sequence[int], blank_id: int)
 # ---------------------------------------------------------------------- the model
 
 
+def _read_json(path: Path, what: str) -> Any:
+    """A snapshot's JSON file; ``BackendMissing`` (with the hint) when it is missing or unreadable."""
+    if not path.is_file():
+        raise BackendMissing(f"the aligner's {what} is missing: {path}; {INSTALL_HINT}", {"path": str(path)})
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise _load_error(exc, f"the aligner's {what} cannot be read: {path}", {"path": str(path)}) from exc
+
+
 def snapshot_vocabulary(revision: str, snapshot_dir: str | Path, device: str = DEVICE) -> tuple[Path, dict[str, int]]:
     """Check a snapshot before the model loads from it; returns its directory and its ``vocab.json``.
 
     ``InvalidRequest`` for a device other than the CPU or a directory not named by ``revision`` (section 4);
-    ``BackendMissing`` for a missing directory, a missing vocabulary, or a vocabulary with no blank.
+    ``BackendMissing`` for a missing directory, and for a vocabulary that is missing, unreadable, without
+    the blank or the alphabet, or whose ids are not exactly 0 to N − 1 (the wildcard's column is id N).
     """
     if device != DEVICE:
         raise InvalidRequest(
@@ -283,12 +303,72 @@ def snapshot_vocabulary(revision: str, snapshot_dir: str | Path, device: str = D
             {"field": "snapshot_dir", "revision": revision},
         )
     vocab_path = path / "vocab.json"
-    if not vocab_path.is_file():
-        raise BackendMissing(f"the aligner's vocabulary is missing: {vocab_path}", {"path": str(vocab_path)})
-    vocab = json.loads(vocab_path.read_text(encoding="utf-8"))
-    if not isinstance(vocab, dict) or BLANK not in vocab:
-        raise BackendMissing(f"the aligner's vocabulary has no blank token {BLANK!r}", {"path": str(vocab_path)})
-    return path, {str(k): int(v) for k, v in vocab.items()}
+    vocab = _read_json(vocab_path, "vocabulary")
+    facts = {"path": str(vocab_path)}
+    if not isinstance(vocab, dict) or not all(isinstance(v, int) and not isinstance(v, bool) for v in vocab.values()):
+        raise BackendMissing(f"the aligner's vocabulary is not a map of tokens to ids; {INSTALL_HINT}", facts)
+    ids: dict[str, int] = {str(k): v for k, v in vocab.items()}
+    if sorted(ids.values()) != list(range(len(ids))):
+        raise BackendMissing(f"the aligner's vocabulary ids are not exactly 0 to {len(ids) - 1}; {INSTALL_HINT}", facts)
+    missing = sorted((ALPHABET | {BLANK}) - set(ids))
+    if missing:
+        raise BackendMissing(
+            f"the aligner's vocabulary lacks {', '.join(missing)} of the blank and the alphabet: it is not the "
+            f"English character model; {INSTALL_HINT}",
+            {**facts, "missing": missing},
+        )
+    return path, ids
+
+
+def check_ctc_config(path: Path, vocab: Mapping[str, int]) -> None:
+    """``BackendMissing`` unless the snapshot's ``config.json`` is a wav2vec2 CTC model with one class per
+    vocabulary entry: another model's snapshot (the Qwen forced aligner, say) must not load as this one."""
+    config = _read_json(path / "config.json", "model config")
+    facts = {"path": str(path / "config.json")}
+    architectures = config.get("architectures") if isinstance(config, dict) else None
+    if not isinstance(architectures, list) or CTC_ARCHITECTURE not in architectures:
+        raise BackendMissing(
+            f"the snapshot is not a wav2vec2 CTC model (architectures {architectures!r}, not "
+            f"{CTC_ARCHITECTURE!r}); {INSTALL_HINT}",
+            {**facts, "architectures": architectures if isinstance(architectures, list) else None},
+        )
+    classes = config.get("vocab_size")
+    if classes != len(vocab):
+        raise BackendMissing(
+            f"the aligner's vocabulary has {len(vocab)} entries but its model has {classes} classes; {INSTALL_HINT}",
+            {**facts, "vocabulary": len(vocab), "classes": classes},
+        )
+
+
+def _load_error(exc: BaseException, what: str, details: Mapping[str, object]) -> AlignerError:
+    """A file of the snapshot that cannot be read or loaded, as ``narration_worker`` classifies one.
+
+    A file another process holds (``is_transient_load_error``: an antivirus scanning the weights, say) is
+    ``INTERNAL`` with ``details.transient``, since a retry gets past it; anything else is a broken install,
+    ``BackendMissing`` with the hint.
+    """
+    error = f"{type(exc).__name__}: {exc}"[:2000]
+    if is_transient_load_error(exc):
+        return AlignerError(
+            f"{what}, because another process holds a file ({error}); try again",
+            {**details, "error": error, "transient": True},
+        )
+    return BackendMissing(f"{what} ({error}); {INSTALL_HINT}", {**details, "error": error})
+
+
+def _is_broken_file(exc: BaseException) -> bool:
+    """Whether ``from_pretrained`` failed on a missing or damaged file, not on memory or a bug.
+
+    KNOW (transformers 5.17.0, torch 2.11): a missing file or an unreadable ``config.json`` raises
+    ``OSError``; garbage in ``pytorch_model.bin`` raises ``UnpicklingError``; a truncated one ``RuntimeError``
+    (PytorchStreamReader); a damaged ``model.safetensors`` ``SafetensorError``. A ``RuntimeError`` about
+    memory is not a broken file.
+    """
+    if isinstance(exc, OSError | EOFError | pickle.UnpicklingError):
+        return True
+    if type(exc).__name__ == "SafetensorError":
+        return True
+    return isinstance(exc, RuntimeError) and "memory" not in str(exc).lower()
 
 
 class Wav2Vec2Aligner:
@@ -312,16 +392,27 @@ class Wav2Vec2Aligner:
     def load(self, repo: str, revision: str, snapshot_dir: str | Path, device: str = DEVICE) -> float:
         """Load the model and its vocabulary from a snapshot directory, offline; returns the seconds taken.
 
-        ``snapshot_dir`` must be the directory named by ``revision`` (section 4). ``BackendMissing`` if it or
-        a file the model needs is absent; ``InvalidRequest`` for a device other than the CPU or a directory
-        not named by the revision.
+        ``snapshot_dir`` must be the directory named by ``revision`` (section 4). ``InvalidRequest`` for a
+        device other than the CPU or a directory not named by the revision. ``BackendMissing``, whose message
+        says to install the models again, if the directory or a file the model needs is missing or damaged,
+        or if the snapshot is not a wav2vec2 CTC model with the English character vocabulary
+        (``snapshot_vocabulary``, ``check_ctc_config``). A file another process holds is ``INTERNAL`` with
+        ``details.transient``. The weights load with ``weights_only=True``.
         """
         path, vocab = snapshot_vocabulary(revision, snapshot_dir, device)
+        check_ctc_config(path, vocab)
         from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
 
         start = time.perf_counter()
-        extractor = Wav2Vec2FeatureExtractor.from_pretrained(str(path), local_files_only=True)
-        model = Wav2Vec2ForCTC.from_pretrained(str(path), local_files_only=True, dtype=self._torch.float32)
+        try:
+            extractor = Wav2Vec2FeatureExtractor.from_pretrained(str(path), local_files_only=True)
+            model = Wav2Vec2ForCTC.from_pretrained(
+                str(path), local_files_only=True, weights_only=True, dtype=self._torch.float32
+            )
+        except Exception as exc:
+            if not _is_broken_file(exc):
+                raise
+            raise _load_error(exc, f"the aligner's snapshot {path.name} cannot be loaded", {"path": str(path)}) from exc
         model.eval()
         self._extractor, self._model = extractor, model
         self._vocab = vocab
@@ -372,7 +463,7 @@ class Wav2Vec2Aligner:
         if classes != len(self._vocab):
             raise BackendMissing(
                 f"the aligner's vocabulary has {len(self._vocab)} entries but its model emits {classes} classes: "
-                "the snapshot is damaged; install the models again",
+                f"the snapshot is damaged; {INSTALL_HINT}",
                 {"vocabulary": len(self._vocab), "classes": classes},
             )
         ids = token_ids(tokens, self._vocab, wildcard_id=classes)
@@ -434,8 +525,9 @@ class AlignOp:
         """Load the aligner from a ``ModelRef`` {repo, revision, snapshot_dir}; returns the seconds taken.
 
         ``INVALID_REQUEST`` naming ``field`` for a malformed ref or a snapshot directory not named by its
-        revision; ``BACKEND_NOT_INSTALLED`` for a missing snapshot, a missing vocabulary, or no torch. A load
-        that fails leaves the aligner unloaded.
+        revision; ``BACKEND_NOT_INSTALLED`` for no torch, or a snapshot that is missing, damaged or not the
+        pinned kind of model (``Wav2Vec2Aligner.load``); ``INTERNAL`` with ``details.transient`` for a file
+        another process holds. A load that fails leaves the aligner unloaded.
         """
         if not isinstance(ref, Mapping):
             raise OpError(

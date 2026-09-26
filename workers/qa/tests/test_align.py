@@ -7,6 +7,7 @@ tests need torch and torchaudio but no model. The ``model`` tests load the pinne
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from pathlib import Path
@@ -183,6 +184,152 @@ def test_load_refuses_a_gpu_a_missing_snapshot_and_a_misnamed_one_s11_2(tmp_path
     empty.mkdir()
     with pytest.raises(qa.BackendMissing, match="vocabulary"):
         aligner.load(REPO, REVISION, empty)
+    assert not aligner.loaded
+
+
+# ---------------------------------------------------------------------- snapshots the aligner refuses
+
+PINNED_VOCABULARY = ("<pad>", "<s>", "</s>", "<unk>", "|", *"ETAONIHSRDLUMWCFGYPBVK'XJQZ")
+
+
+def _tiny_snapshot(root: Path, *, safetensors: bool = False) -> Path:
+    """A real, tiny wav2vec2 CTC snapshot (random weights) with the pinned model's vocabulary. Its weights are
+    ``pytorch_model.bin``, as the pinned revision's are, or ``model.safetensors``."""
+    from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
+
+    path = root / REVISION
+    config = Wav2Vec2Config(
+        vocab_size=len(PINNED_VOCABULARY),
+        hidden_size=16,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        intermediate_size=16,
+        conv_dim=(8,) * 7,
+        num_conv_pos_embeddings=4,
+        num_conv_pos_embedding_groups=2,
+        architectures=["Wav2Vec2ForCTC"],
+    )
+    torch.manual_seed(0)
+    Wav2Vec2ForCTC(config).save_pretrained(str(path), safe_serialization=safetensors)
+    Wav2Vec2FeatureExtractor().save_pretrained(str(path))
+    vocab = {token: i for i, token in enumerate(PINNED_VOCABULARY)}
+    (path / "vocab.json").write_text(json.dumps(vocab), encoding="utf-8")
+    return path
+
+
+def _weights(path: Path) -> Path:
+    [weights] = [p for p in path.iterdir() if p.name in {"model.safetensors", "pytorch_model.bin"}]
+    return weights
+
+
+def test_a_tiny_ctc_snapshot_loads_with_weights_only_s11_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from transformers import Wav2Vec2ForCTC
+
+    seen: dict[str, Any] = {}
+    real = Wav2Vec2ForCTC.from_pretrained
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(Wav2Vec2ForCTC, "from_pretrained", spy)
+    aligner = qa.Wav2Vec2Aligner(torch)
+    aligner.load(REPO, REVISION, _tiny_snapshot(tmp_path))
+    assert aligner.loaded
+    reply = aligner.align(np.zeros(16_000, dtype=np.float32), 16_000, [*"RAIN", "|", "*", "|", *"CAME"])
+    assert [s["token_index"] for s in reply["spans"]] == list(range(11))
+    assert seen["weights_only"] is True and seen["local_files_only"] is True
+
+
+def _break_vocab_json(path: Path) -> None:
+    (path / "vocab.json").write_text("{not json", encoding="utf-8")
+
+
+def _break_config_json(path: Path) -> None:
+    (path / "config.json").write_text("{not json", encoding="utf-8")
+
+
+def _remove_weights(path: Path) -> None:
+    _weights(path).unlink()
+
+
+def _garble_weights(path: Path) -> None:
+    _weights(path).write_bytes(bytes(range(256)) * 20)
+
+
+def _truncate_weights(path: Path) -> None:
+    weights = _weights(path)
+    weights.write_bytes(weights.read_bytes()[: weights.stat().st_size // 2])
+
+
+def _remove_extractor(path: Path) -> None:
+    (path / "preprocessor_config.json").unlink()
+
+
+@pytest.mark.parametrize("safetensors", [False, True], ids=["bin", "safetensors"])
+@pytest.mark.parametrize(
+    "damage",
+    [_break_vocab_json, _break_config_json, _remove_weights, _garble_weights, _truncate_weights, _remove_extractor],
+)
+def test_a_damaged_snapshot_is_backend_not_installed_s11_2(tmp_path: Path, damage: Any, safetensors: bool) -> None:
+    # Regression (review F3): a missing or corrupt file raised out of load, and the worker replied INTERNAL.
+    path = _tiny_snapshot(tmp_path, safetensors=safetensors)
+    damage(path)
+    aligner = qa.Wav2Vec2Aligner(torch)
+    with pytest.raises(qa.BackendMissing, match="install the models again") as caught:
+        aligner.load(REPO, REVISION, path)
+    assert caught.value.code == "BACKEND_NOT_INSTALLED"
+    assert not aligner.loaded
+
+
+def test_a_file_another_process_holds_is_a_transient_internal_error_s11_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from transformers import Wav2Vec2ForCTC
+
+    def held(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("The process cannot access the file because it is being used by another process")
+
+    path = _tiny_snapshot(tmp_path)
+    monkeypatch.setattr(Wav2Vec2ForCTC, "from_pretrained", held)
+    with pytest.raises(qa.AlignerError) as caught:
+        qa.Wav2Vec2Aligner(torch).load(REPO, REVISION, path)
+    assert caught.value.code == "INTERNAL" and caught.value.details["transient"] is True
+
+
+def _set_config(path: Path, **members: Any) -> None:
+    config = json.loads((path / "config.json").read_text(encoding="utf-8"))
+    (path / "config.json").write_text(json.dumps(config | members), encoding="utf-8")
+
+
+def _set_vocab(path: Path, vocab: dict[str, int]) -> None:
+    (path / "vocab.json").write_text(json.dumps(vocab), encoding="utf-8")
+
+
+BASE_VOCAB = {token: i for i, token in enumerate(PINNED_VOCABULARY)}
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        (lambda p: _set_config(p, architectures=["Wav2Vec2ForSequenceClassification"]), "not a wav2vec2 CTC"),
+        (lambda p: _set_config(p, architectures=["Qwen3ForcedAligner"], model_type="qwen3"), "not a wav2vec2 CTC"),
+        (lambda p: _set_config(p, vocab_size=40), "classes"),
+        (lambda p: _set_vocab(p, BASE_VOCAB | {"Z": 40}), "0 to"),
+        (lambda p: _set_vocab(p, BASE_VOCAB | {"Z": 30}), "0 to"),
+        (lambda p: _set_vocab(p, {k: v for k, v in BASE_VOCAB.items() if k != "Q"} | {"q": 30}), "alphabet"),
+        (lambda p: _set_vocab(p, BASE_VOCAB | {"A": "7"}), "map of tokens to ids"),
+    ],
+    ids=["classifier", "another_model", "vocab_size", "id_gap", "id_twice", "no_capital_q", "id_not_int"],
+)
+def test_a_snapshot_that_is_not_the_ctc_model_is_refused_at_load_s11_2(tmp_path: Path, change: Any, match: str) -> None:
+    # The wildcard's column is id N, so the vocabulary's ids must be exactly 0..N-1 (review nit), and a
+    # snapshot of another model (the Qwen aligner, say) must not load as ctc-snap's (review nit).
+    path = _tiny_snapshot(tmp_path)
+    change(path)
+    aligner = qa.Wav2Vec2Aligner(torch)
+    with pytest.raises(qa.BackendMissing, match=match):
+        aligner.load(REPO, REVISION, path)
     assert not aligner.loaded
 
 
