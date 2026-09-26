@@ -231,7 +231,8 @@ class QwenEngine:
         settings: QwenSettings,
     ) -> LoadResult:
         try:  # heavy: imports transformers; the offline variables are already set
-            from qwen_tts import Qwen3TTSModel
+            # CI type-checks this worker without the model packages; in the worker's own venv this resolves.
+            from qwen_tts import Qwen3TTSModel  # pyright: ignore[reportMissingImports]
         except (ImportError, OSError) as exc:
             raise _load_error(exc, "qwen-tts cannot be imported", {"module": "qwen_tts"}) from exc
         torch = self._torch
