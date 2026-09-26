@@ -70,3 +70,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   - A failed publish puts the caller's audio back in `scratch/` and keeps the folder it would have
     replaced. The store moves in files only from `scratch/`.
   - The current alignment benchmark is the configured aligner's.
+- `narration.post`: delivery post-processing (design section 13). A raw take becomes a 48 kHz PCM_24 mono
+  WAV through the relative trim, a pinned resampler, static gain to -16 LUFS (BS.1770-4) with the
+  -1.0 dBTP true-peak ceiling winning, and 10 ms fades. Each delivery reports its trim and loudness
+  records, the `LOUDNESS_UNDER_TARGET` and `GAIN_HIGH` flags, the tools that enter the delivery key, and
+  the signal statistics QA needs. The same raw take always gives the same bytes.
