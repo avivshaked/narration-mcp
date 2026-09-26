@@ -5,7 +5,15 @@
 
 ## Where things stand
 
-- **Stage: H0 answered, plan pushed; WP00 (bootstrap) is next.** No code is written yet.
+- **Stage: WP00 done (merged to local `main`, not pushed yet); WP01 (contracts, lead) in progress;
+  WP02 and WP03 agents active.** Worktrees exist for WP01, WP02, WP03, WP13, WP17, WP18, WP19, WP20.
+- **Incident, 2026-09-26 ~17:14 local:** the machine froze hard or lost power (Kernel-Power 41, no
+  bugcheck, no dump, nothing logged in the minutes before). Our load at the time was light: two doc/CI
+  agents, one had just started basedpyright; no model on the GPU. The machine had an earlier blue screen
+  (bugcheck 0x3B) on 2026-09-22, before this project began. After the restart: `git fsck` clean, all 52
+  model files (16.1 GB) re-hashed and matching, worker venvs import, WP02's staged files intact, WP03's
+  work lost (nothing had been written). **GPU work (WP20) is on hold** until the owner says the machine is
+  fine to load models on (a driver check or memory test was suggested).
 - The repository is initialised locally (`main`), with `origin` = `git@github.com:avivshaked/narration-mcp.git`,
   a **public** repository. `main` is pushed.
 - Tracked so far:
@@ -34,7 +42,7 @@
 
 ## Waiting on the owner
 
-Nothing right now. `COMMERCIAL.md`, the README, DC-2 (backoff) and DC-3 (install-time canary) were
+- **Whether GPU work may start** after the 2026-09-26 crash (see "Where things stand"). `COMMERCIAL.md`, the README, DC-2 (backoff) and DC-3 (install-time canary) were
 approved on 2026-09-26. WP01 applies DC-1 to DC-3 to `docs/design.md` as revision 5.2.
 
 Coming later: DC-4 (`max_new_tokens`, from WP20's evidence); the GitHub description, which still says
@@ -43,15 +51,11 @@ work reaches them.
 
 ## Next steps
 
-1. **WP00 bootstrap (lead):**
-   - the layout;
-   - the server `pyproject.toml`, every dependency licence-checked;
-   - the worker skeletons with the P8 pins;
-   - pytest, ruff and pyright configuration;
-   - tools: `gpu_lock.py`, `check_tracked.py`, the githooks, the worktree helper;
-   - the dev models copied and downloaded into `.dev\models\`.
-2. **WP01 contracts (lead)**, while agents take WP02 (public scaffolding) and WP03 (CI) in worktrees.
-3. **Wave 1 fan-out**, up to 6 agents at once plus the GPU lane, in plan.md §7's order.
+1. ~~WP00 bootstrap~~ done 2026-09-26 (plan.md §9).
+2. **WP01 contracts (lead)**, in `worktrees\wp01-contracts`, while agents finish WP02 and WP03.
+3. Push `main` and open PRs once WP03's CI exists (Q4).
+4. **Wave 1 fan-out** after WP01 merges, in plan.md §7's order; the CPU-only WPs first, and fewer agents at
+   once than §7 allows until the machine's stability is understood. WP20 waits for the owner.
 
 ## Things a new session should know
 
