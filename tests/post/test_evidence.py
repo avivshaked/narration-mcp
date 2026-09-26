@@ -36,6 +36,8 @@ TAKES = "outputs/qwen3-tts-1.7b-clone-*/r48_names_probe.wav"
 PROFILE = DeliveryConfig()
 LOUDNESS_TOLERANCE_LU = 0.1
 """EBU Tech 3341's tolerance for a loudness meter."""
+METER_AGREEMENT_LU = 0.001
+"""How far the record may be from the independent reference: both count whole gating blocks only."""
 TRUE_PEAK_TOLERANCE_DB = 0.1
 """How far the independent interpolator may read above the pinned 4x meter."""
 
@@ -95,9 +97,9 @@ def test_evidence_delivery_meets_loudness_and_true_peak_s13(renders: dict[Path, 
                 problems.append(f"{where}: no loudness measured")
                 continue
             reference = reference_loudness(delivery)
-            # pyloudnorm also counts a final partial block, which the whole-block reference leaves out: up to
-            # 0.06 LU on these paragraphs, inside EBU Tech 3341's tolerance.
-            if abs(reference - loud.measured_lufs) > LOUDNESS_TOLERANCE_LU:
+            # The meter and the reference both count whole blocks only (narration.post.loudness), so they
+            # agree to float noise and the record's 0.0001 rounding: at most 0.00005 LU on these paragraphs.
+            if abs(reference - loud.measured_lufs) > METER_AGREEMENT_LU:
                 problems.append(f"{where}: record {loud.measured_lufs} vs reference {reference:.4f} LUFS")
             if loud.ceiling_applied or out.flags:
                 problems.append(f"{where}: the -23 LUFS default was not reached ({loud}, {out.flags})")

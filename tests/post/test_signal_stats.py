@@ -69,6 +69,35 @@ def test_a_dc_offset_does_not_hide_an_internal_silence_s11_1_dc10() -> None:
     assert stats.raw_dc_offset == pytest.approx(0.001, abs=1e-5)
 
 
+@pytest.mark.parametrize("dc", [0.0, 0.001, 0.002, 0.01])
+def test_the_fades_do_not_turn_a_dc_offset_into_speech_s11_1_dc10(dc: float) -> None:
+    # Review F1: the delivery keeps the DC, its fades ramp it, and the ramps passed as speech at dc >= 0.002.
+    raw = speech_like(24000, head_s=0.5, bursts=(1.0, 1.0), gaps=(1.0,), tail_s=0.7, level=0.05) + dc
+    delivery, rate = decode_wav(deliver(raw, 24000, DeliveryConfig()).wav)
+    stats = measure_signal(raw, 24000, delivery, rate)
+    assert stats.delivery_duration_s == pytest.approx(3.16)
+    assert stats.voiced_start_s == pytest.approx(0.08) and stats.voiced_end_s == pytest.approx(3.08)
+    assert stats.longest_internal_silence_s == pytest.approx(1.0, abs=0.04)
+
+
+def test_a_constant_offset_without_speech_has_no_voiced_span_s11_1_dc10() -> None:
+    # Review F1: this read voiced (0.0, 2.0) with a 1.96 s internal silence, a false SILENCE_LONG.
+    raw = np.full(48000, 0.001)
+    delivery, rate = decode_wav(deliver(raw, 24000, DeliveryConfig()).wav)
+    stats = measure_signal(raw, 24000, delivery, rate)
+    assert (stats.voiced_start_s, stats.voiced_end_s, stats.longest_internal_silence_s) == (None, None, 0.0)
+
+
+def test_signal_stats_leaves_the_configured_fades_unmeasured_s11_1(tmp_path: Path) -> None:
+    raw_path, out = tmp_path / "raw.wav", tmp_path / "delivery.wav"
+    raw = np.full(48000, 0.001)
+    write_raw(str(raw_path), raw, 24000)
+    long_fades = DeliveryConfig(fade_s=0.05)
+    DeliveryPipeline().process(raw_path, out, long_fades)
+    assert DeliveryPipeline(fade_s=0.05).signal_stats(raw_path, out).voiced_start_s is None
+    assert DeliveryPipeline().signal_stats(raw_path, out).voiced_start_s is not None  # 10 ms is not enough
+
+
 def test_a_near_silent_delivery_has_no_voiced_span_s11_1_dc10() -> None:
     # Everything under -70 dBFS is silence, whatever its own p95.
     stats = measure_signal(np.zeros(2400), 24000, 1e-5 * np.sin(np.arange(48000) / 3.0), 48000)

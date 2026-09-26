@@ -58,12 +58,33 @@ def speech_threshold(rms: Audio, rel_db: float, floor_dbfs: float) -> float:
     return max(level * 10.0 ** (rel_db / 20.0), 10.0 ** (floor_dbfs / 20.0))
 
 
-def speech_frames(x: Audio, sample_rate: int, rel_db: float, floor_dbfs: float) -> Mask:
-    """Which 20 ms frames of ``x`` are speech under the rule of the module docstring."""
-    if x.shape[0] == 0:
-        return np.zeros(0, dtype=np.bool_)
-    rms = frame_rms(x - np.mean(x), frame_length(sample_rate))
-    return (rms > 0.0) & (rms >= speech_threshold(rms, rel_db, floor_dbfs))
+def speech_frames(x: Audio, sample_rate: int, rel_db: float, floor_dbfs: float, *, edge: int = 0) -> Mask:
+    """Which 20 ms frames of ``x`` are speech under the rule of the module docstring.
+
+    ``edge`` samples at each end are not measured (a delivery's fades: a fade turns a DC offset into a ramp,
+    which the mean removal would otherwise read as sound). The mean is taken over the measured samples, a
+    frame is measured over its measured samples only, and a frame with none is silence and is left out of
+    the percentile. With ``edge`` 0 (the trim) every sample is measured.
+    """
+    n = int(x.shape[0])
+    frame = frame_length(sample_rate)
+    frames = -(-n // frame)
+    lo, hi = min(max(edge, 0), n), max(n - max(edge, 0), 0)
+    if hi <= lo:
+        return np.zeros(frames, dtype=np.bool_)
+    y = x - np.mean(x[lo:hi])
+    rms = frame_rms(y, frame)
+    measured = np.ones(frames, dtype=np.bool_)
+    if lo > 0 or hi < n:
+        edges = set(range(0, -(-lo // frame))) | set(range(hi // frame, frames))
+        for i in sorted(edges):
+            start, stop = max(i * frame, lo), min((i + 1) * frame, hi)
+            if stop <= start:
+                rms[i], measured[i] = 0.0, False
+            else:
+                rms[i] = np.sqrt(np.mean(np.square(y[start:stop])))
+    threshold = speech_threshold(rms[measured], rel_db, floor_dbfs)
+    return measured & (rms > 0.0) & (rms >= threshold)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

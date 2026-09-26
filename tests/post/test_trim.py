@@ -82,6 +82,17 @@ def test_trim_cuts_a_near_silent_tail_under_5_percent_speech_s13_dc10(kind: str)
     assert points.kept == 1920 + 24000 + 1920
 
 
+def test_speech_frames_leave_the_edges_unmeasured_s11_1() -> None:
+    # A frame is measured over its samples outside the edges; one with none left is silence.
+    x = frames_of([0.5] * 10, 480)
+    x[:480] = 0.9  # a loud first frame, entirely inside the edge
+    # The first and last frames each lie entirely inside an edge.
+    assert speech_frames(x, 24000, REL, FLOOR, edge=480).tolist() == [False] + [True] * 8 + [False]
+    assert speech_frames(x, 24000, REL, FLOOR, edge=240)[0]  # half of it is measured
+    assert not speech_frames(x, 24000, REL, FLOOR, edge=2400).any()  # nothing is left to measure
+    assert speech_frames(x, 24000, REL, FLOOR, edge=0).tolist() == speech_frames(x, 24000, REL, FLOOR).tolist()
+
+
 def test_trim_does_not_change_the_audio_s13_dc10() -> None:
     x = speech_like(24000) + 0.001
     before = x.copy()

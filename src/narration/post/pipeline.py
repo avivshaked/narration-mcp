@@ -69,6 +69,8 @@ FULL_SCALE: Final = 32767 / 32768
 VOICED_REL_DB: Final = -40.0
 VOICED_FLOOR_DBFS: Final = -70.0
 """The speech rule ``SignalStats`` uses on the delivery file: the trim's rule at its defaults (DC-10)."""
+DEFAULT_FADE_S: Final = DeliveryConfig().fade_s
+"""The delivery's fades at their default: ``SignalStats`` leaves this much of each end unmeasured."""
 
 Audio = npt.NDArray[np.float64]
 
@@ -219,13 +221,16 @@ def deliver(raw: Audio, sample_rate: int, profile: DeliveryConfig) -> Delivered:
     return Delivered(wav=encode_wav(q, rate, profile.subtype), output=output)
 
 
-def measure_signal(raw: Audio, raw_rate: int, delivery: Audio, delivery_rate: int) -> SignalStats:
+def measure_signal(
+    raw: Audio, raw_rate: int, delivery: Audio, delivery_rate: int, *, fade_s: float = DEFAULT_FADE_S
+) -> SignalStats:
     """The signal facts QA needs (section 11.1 step 1), from a raw take and its delivery, both in memory.
 
     Clipping counts raw samples at or beyond ``FULL_SCALE`` (32767/32768) in magnitude, infinities included.
     The DC offset is the mean of the raw samples, non-finite ones as zero. Voiced bounds and the longest
     internal silence use the trim's speech rule (DC-10: frame RMS with the mean removed, against
-    max(p95 - 40 dB, -70 dBFS)) on the delivery: ``voiced_start_s`` / ``voiced_end_s`` are the edges of its
+    max(p95 - 40 dB, -70 dBFS)) on the delivery, leaving out the ``fade_s`` at each end: the fades turn a
+    DC offset into ramps that are not speech. ``voiced_start_s`` / ``voiced_end_s`` are the edges of its
     first and last speech frames (None when it has none), and the longest silence is the longest run of
     non-speech frames between them.
     """
@@ -235,7 +240,8 @@ def measure_signal(raw: Audio, raw_rate: int, delivery: Audio, delivery_rate: in
     magnitude = np.abs(np.nan_to_num(raw, nan=0.0))
     frame = frame_length(delivery_rate)
     total = int(delivery.shape[0])
-    speech = np.flatnonzero(speech_frames(delivery, delivery_rate, VOICED_REL_DB, VOICED_FLOOR_DBFS))
+    edge = round(fade_s * delivery_rate)
+    speech = np.flatnonzero(speech_frames(delivery, delivery_rate, VOICED_REL_DB, VOICED_FLOOR_DBFS, edge=edge))
     if speech.size == 0:
         start: float | None = None
         end: float | None = None
@@ -261,8 +267,15 @@ def measure_signal(raw: Audio, raw_rate: int, delivery: Audio, delivery_rate: in
 class DeliveryPipeline:
     """The ``DeliveryProcessor`` of section 13 (``narration.contracts.interfaces``), built by WP13.
 
-    Stateless: every call depends only on its arguments. See the module docstring for the steps.
+    Stateless: every call depends only on its arguments and ``fade_s``. See the module docstring for the
+    steps. ``fade_s`` is the configured ``[delivery] fade_s``: ``signal_stats`` reads delivery files, which
+    do not say how long their fades are, and leaves that much of each end unmeasured.
     """
+
+    def __init__(self, *, fade_s: float = DEFAULT_FADE_S) -> None:
+        if fade_s < 0:
+            raise ValueError(f"fade_s must be at least 0, got {fade_s}")
+        self._fade_s = fade_s
 
     @property
     def tools(self) -> DeliveryTools:
@@ -285,4 +298,4 @@ class DeliveryPipeline:
         """The signal facts QA needs (section 11.1 step 1); see ``measure_signal``."""
         raw, raw_rate = read_mono(raw_path)
         delivery, delivery_rate = read_mono(delivery_path)
-        return measure_signal(raw, raw_rate, delivery, delivery_rate)
+        return measure_signal(raw, raw_rate, delivery, delivery_rate, fade_s=self._fade_s)
