@@ -101,6 +101,9 @@ class SegmentWork:
     state: SegmentState | None = None
     suggested: str | None = None
     suggestion: Suggestion | None = None
+    oom_retries: int = 0
+    """Section 4 item 5: retries of this segment's GPU work after running out of memory, since its last
+    piece of GPU work went through."""
 
     @property
     def segment_id(self) -> str:

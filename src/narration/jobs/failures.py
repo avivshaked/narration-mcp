@@ -4,7 +4,8 @@ A job-level problem raises ``NarrationError`` for the runner to record on the jo
 installed or loaded, or a store whose disk is full. A take-level execution problem is flagged on its
 segment (severity ``error``), and the job goes on with the rest:
 
-- out of GPU memory: unload, wait, retry once, then ``GPU_OOM`` (section 4 item 5);
+- out of GPU memory, loading or running: unload, wait, retry once; then the segment's work in that stage
+  fails with ``GPU_OOM`` (section 4 item 5). The retry is the segment's, not each take's;
 - a worker that crashed or timed out twice (``WORKER_CRASHED``): each time it is started again;
 - a worker that lost its models or the prepared voice: loaded and prepared again, once;
 - anything else the worker or the audio tools refuse: ``RENDER_FAILED`` or ``QA_UNAVAILABLE``.
@@ -22,9 +23,8 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError, QaUnavailable, WorkerCrashed, WorkerFailure, WorkerTimeout
 from narration.contracts.models import Flag
 from narration.contracts.names import GpuHolder
-from narration.contracts.worker import WorkerErrorCode
 
-from .core import EngineCore, worker_code
+from .core import LOST_STATE, EngineCore, worker_code
 from .host import RunnerHost
 from .stages import Stages
 from .state import Attempt, JobRun, Outcome, label
@@ -35,8 +35,6 @@ OOM_WAIT_S: Final = 15.0
 """Section 4 item 5: on an out-of-memory error, unload, wait this long, and retry once."""
 MAX_RETRIES: Final = 1
 """Retries of one piece of work after an out-of-memory error, a crash or a timeout of its worker."""
-LOST_STATE: Final[tuple[WorkerErrorCode, ...]] = ("NOT_LOADED", "VOICE_NOT_PREPARED")
-"""The worker codes that say it lost its models or the prepared voice (unloaded meanwhile)."""
 
 
 class Failures:
@@ -50,8 +48,9 @@ class Failures:
         """Run the attempt's next stage; turn a worker's failure into a retry, a flag, or a job-level error."""
         stages = self.stages
         work = {"render": stages.render, "post": stages.post, "score": stages.score}[attempt.stage]
+        before = attempt.stage
         try:
-            return work(host, run, attempt)
+            outcome = work(host, run, attempt)
         except WorkerFailure as exc:
             if host.should_stop():
                 return "stopped"
@@ -97,21 +96,26 @@ class Failures:
                 run, attempt, code, f"it could not be {'scored' if group == 'qa' else 'made'}: {exc}", None
             )
             return "worked"
+        if group is not None and attempt.stage != before:
+            run.segments[attempt.segment].oom_retries = 0  # the segment's GPU work went through
+        return outcome
 
     def _oom(self, host: RunnerHost, run: JobRun, attempt: Attempt, group: GpuHolder, exc: WorkerFailure) -> Outcome:
-        """Section 4 item 5: unload, wait, retry once; then the take slot fails with ``GPU_OOM``."""
-        if attempt.retries >= MAX_RETRIES:
-            self.fail_attempt(
-                run, attempt, codes.GPU_OOM, f"out of GPU memory after one retry: {exc.message}", exc.code
-            )
+        """Section 4 item 5, loading or running: unload, wait, retry once; then fail the segment with
+        ``GPU_OOM``: every take slot of it whose current attempt waits for the same stage."""
+        seg = run.segments[attempt.segment]
+        if seg.oom_retries >= MAX_RETRIES:
+            seg.oom_retries = 0
+            stage = attempt.stage
+            for current in seg.current():
+                if current.stage == stage:
+                    self.fail_attempt(
+                        run, current, codes.GPU_OOM, f"out of GPU memory after one retry: {exc.message}", exc.code
+                    )
             return "worked"
-        attempt.retries += 1
-        log.warning("job %s: out of GPU memory on %s; unloading, waiting, once more", run.job_id, label(run, attempt))
-        try:
-            self.core.residency.unload(host, group)
-        except (WorkerFailure, WorkerCrashed, WorkerTimeout) as unload_exc:
-            log.warning("unloading the %s group after running out of memory failed: %s", group, unload_exc)
-            self.core.residency.forget(group)
+        seg.oom_retries += 1
+        log.warning("job %s: out of GPU memory on %s; unloading, waiting, once more", run.job_id, seg.segment_id)
+        self.stages.drop(host, group)
         if group == "qwen":
             run.prepared = None
         return "waited" if host.sleep(OOM_WAIT_S) else "stopped"
@@ -151,4 +155,4 @@ def _verb(group: GpuHolder | None) -> str:
     return "render" if group == "qwen" else "score" if group == "qa" else "post-process"
 
 
-__all__ = ["LOST_STATE", "MAX_RETRIES", "OOM_WAIT_S", "Failures"]
+__all__ = ["MAX_RETRIES", "OOM_WAIT_S", "Failures"]

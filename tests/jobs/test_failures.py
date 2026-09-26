@@ -13,10 +13,11 @@ from narration.contracts.errors import NarrationError
 from narration.contracts.models import EngineProfile
 from narration.contracts.names import CanaryStatus, GpuHolder
 from narration.contracts.worker import HelloReply
+from narration.jobs.failures import OOM_WAIT_S
 from narration.jobs.host import ResidencyError, RunnerHost
 
 from .conftest import World
-from .support import KETTLE, LAMPS
+from .support import KETTLE, LAMPS, ORCHARD
 
 # ======================================================================== the engine guard (WP32's canary gate)
 
@@ -94,3 +95,35 @@ def test_a_residency_the_pool_disagrees_with_twice_fails_the_job_s4(
     assert failed.status == "failed" and failed.error is not None and failed.error.code == codes.INTERNAL
     assert not any(f.severity == "error" for i in failed.items for f in i.flags)
     assert world.pool.texts() == []
+
+
+# ======================================================================== the voice (section 14)
+
+
+def test_a_voice_the_worker_cannot_prepare_fails_the_job_with_unsupported_audio_s14(world: World) -> None:
+    world.faults({"kind": "error", "op": "prepare_voice", "code": "UNSUPPORTED_AUDIO", "message": "unreadable"})
+    job = world.submit(LAMPS, KETTLE, ORCHARD)
+    world.run()
+    failed = world.job(job.job_id)
+    assert failed.status == "failed" and failed.error is not None
+    assert failed.error.code == codes.UNSUPPORTED_AUDIO and failed.error.field == "voice"
+    assert world.pool.calls[("qwen", "prepare_voice")] == 1  # once for the job, not once per take
+    assert world.pool.texts() == []
+
+
+# ================================================================ out of memory while loading (section 4 item 5)
+
+
+def test_out_of_memory_while_loading_is_retried_once_then_fails_the_segment_s4(world: World) -> None:
+    world.faults({"kind": "gpu_oom", "op": "load", "times": 2})  # the first load, and its retry
+    job = world.submit(LAMPS, KETTLE, takes=2)
+    world.run()
+    done = world.job(job.job_id)
+    assert done.status == "completed"
+    lamps, kettle = done.items
+    assert lamps.state == "error"
+    assert [f.code for f in lamps.flags if f.severity == "error"] == [codes.GPU_OOM, codes.GPU_OOM]  # both slots
+    assert all(a.render_id is None for a in lamps.attempts)
+    assert world.host.sleeps.count(OOM_WAIT_S) == 1  # one wait for the segment, not one per take
+    assert kettle.state == "passed" and len(kettle.attempts) == 2
+    assert world.pool.texts() == [KETTLE, KETTLE]

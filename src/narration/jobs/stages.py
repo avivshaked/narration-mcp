@@ -27,7 +27,7 @@ from narration import keys
 from narration.align import has_letters
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError, WorkerCrashed, WorkerFailure, WorkerTimeout
-from narration.contracts.interfaces import AnalysisKeyInputs, QaInputs
+from narration.contracts.interfaces import AnalysisKeyInputs, QaInputs, WorkerClient
 from narration.contracts.models import (
     AnalysisRecord,
     AnalysisText,
@@ -45,7 +45,7 @@ from narration.contracts.models import (
 from narration.contracts.names import GpuHolder
 from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 
-from .core import EngineCore, worker_code
+from .core import LOST_STATE, EngineCore, worker_code
 from .gpu import GroupNeed, Readiness
 from .host import GROUP_ROLES, ResidencyError, RunnerHost
 from .pins import call_cap, generation, qwen_load_payload
@@ -278,17 +278,7 @@ class Stages:
         config = core.config
         client = host.workers.client("qwen", cublas_workspace_config=need.cublas_workspace_config)
         if run.prepared is not client:  # a new worker holds no prepared voice, whatever its pid
-            client.request(
-                "prepare_voice",
-                {
-                    "voice_hash": run.voice_hash,
-                    "ref_wav": str(run.clip),
-                    "ref_text": run.request.voice.transcript,
-                    "x_vector_only_mode": config.engines.qwen3_base.x_vector_only_mode,
-                },
-                timeout_s=PREPARE_TIMEOUT_S,
-            )
-            run.prepared = client
+            self._prepare(run, client)
         core.phase(host, run, "rendering" if attempt.round == 0 else "retaking")
         run.message = f"round {attempt.round}: rendering {label(run, attempt)}"
         engine_text = seg.text.engine_text
@@ -343,6 +333,37 @@ class Stages:
         run.fresh_keys.add(attempt.render_key)
         core.throughput.record(core.parts.clock() - started, seg.est_s / 3)
         return published
+
+    def _prepare(self, run: JobRun, client: WorkerClient) -> None:
+        """Prepare the job's voice in the Qwen worker (App. A ``prepare_voice``).
+
+        A clip the worker cannot prepare fails the job (``UNSUPPORTED_AUDIO``, section 14): every take needs
+        the voice, so no take is tried. Running out of memory, a worker that is not installed, and one that
+        lost its models go on to the failure handling like any worker failure (``failures``)."""
+        try:
+            client.request(
+                "prepare_voice",
+                {
+                    "voice_hash": run.voice_hash,
+                    "ref_wav": str(run.clip),
+                    "ref_text": run.request.voice.transcript,
+                    "x_vector_only_mode": self.core.config.engines.qwen3_base.x_vector_only_mode,
+                },
+                timeout_s=PREPARE_TIMEOUT_S,
+            )
+        except WorkerFailure as exc:
+            code = worker_code(exc)
+            if code in (codes.GPU_OOM, codes.BACKEND_NOT_INSTALLED) or code in LOST_STATE:
+                raise
+            raise NarrationError(
+                codes.UNSUPPORTED_AUDIO,
+                f"the Qwen worker could not prepare the voice from its clip: {exc.message}",
+                field="voice",
+                details={"worker_code": code, **exc.details},
+                retryable=False,
+                hint="Send a WAV the service designed (at most 30 s and 20 MB); nothing was rendered.",
+            ) from exc
+        run.prepared = client
 
     # ------------------------------------------------------------------ post-process
     def post(self, host: RunnerHost, run: JobRun, attempt: Attempt) -> Outcome:

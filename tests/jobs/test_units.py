@@ -18,8 +18,7 @@ from narration.contracts.models import DaemonStatus, GpuStatus, Hint, JobRecord,
 from narration.contracts.names import GpuHolder, JobPhase
 from narration.contracts.worker import WORKER_ERROR_CODES
 from narration.jobs import admission
-from narration.jobs.core import worker_code
-from narration.jobs.failures import LOST_STATE
+from narration.jobs.core import LOST_STATE, worker_code
 from narration.jobs.gpu import GroupNeed, NoProbe, NvmlProbe, Residency
 from narration.jobs.pins import ModelPin, ProfileError, QaPins, call_cap, ceiling, qwen_load_payload
 from narration.jobs.plan import (

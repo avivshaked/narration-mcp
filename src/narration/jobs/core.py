@@ -58,6 +58,10 @@ class EngineParts:
     defer_s: float = DEFER_S
 
 
+LOST_STATE: Final[tuple[WorkerErrorCode, ...]] = ("NOT_LOADED", "VOICE_NOT_PREPARED")
+"""The worker codes that say it lost its models or the prepared voice (unloaded meanwhile)."""
+
+
 def worker_code(exc: WorkerFailure) -> WorkerErrorCode:
     """A worker's error code, typed as the protocol's (App. A), so the engine compares it with the
     protocol's members and never a retyped string. A code the protocol does not have reads as ``INTERNAL``."""
@@ -84,4 +88,4 @@ class EngineCore:
             host.job_phase(phase)
 
 
-__all__ = ["DEFER_S", "EngineCore", "EngineParts", "Scorer", "worker_code"]
+__all__ = ["DEFER_S", "LOST_STATE", "EngineCore", "EngineParts", "Scorer", "worker_code"]
