@@ -69,10 +69,13 @@ after `1814b3b`. Resume in this order:
 
 1. **Check the machine is clean**: `tools/gpu_lock.py status` is free (release it if WP22 left it held,
    after checking no WP22 run is alive); no `-m narration.daemon` or `narration_worker` process is left.
-2. **WP16 follow-ups** (`wp/16-worker-followups`, b131baa): its reviewer's re-verification was cut short.
-   Re-run it, then merge first, with the lead's design note (§11.2 step 7, the four `CUE_UNALIGNED`
-   reasons; the lead's script bumps the revision). Contracts 1.6.3. Then tell WP22 the shared patterns
-   are on main.
+2. **WP16 follow-ups** (`wp/16-worker-followups`, b131baa): re-verified, merge with follow-ups (all Low).
+   No refusal changed across 128 load cases; the WAV writer is byte-identical; no cycles; standard library
+   only. Merge first, with the lead's design note (§11.2 step 7, the four `CUE_UNALIGNED` reasons; the
+   lead's script bumps the revision). Contracts 1.6.3. Low follow-ups: `model` refs are checked by three
+   implementations (the fake, qwen3, WP22's), so share one `check_snapshot_ref` or reword the CHANGELOG's
+   "the Qwen worker's own checks" for `model`; WP22 imports the shared patterns; the writer can still raise
+   `struct.error` past 4 GiB of data.
 3. **WP30** (`wp/30-daemon`, 05f99f3, state `review`): all fixes done, including the third review's
    three last ones (an answered stop from the future is not trusted; only a `stopped: true` answer stops a
    waiter; `[0-9]` in `_STORE_TIME`), each with a test that failed before it. Full suite 2968 passed. The
