@@ -1,0 +1,323 @@
+{
+  "spike": "d (repeat test, Base clone path)",
+  "design_sections": [
+    "10.1",
+    "10.3",
+    "20 (d)"
+  ],
+  "ran_at": "2026-09-26T18:09:06+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "qwen-tts": "0.1.1",
+      "transformers": "4.57.3",
+      "accelerate": "1.12.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "items": [
+    {
+      "key": "d2/ladder-080/s11",
+      "voice": "d2",
+      "segment": "ladder-080",
+      "seed": 11
+    },
+    {
+      "key": "d2/ladder-150/s12",
+      "voice": "d2",
+      "segment": "ladder-150",
+      "seed": 12
+    },
+    {
+      "key": "d2/cal-02/s13",
+      "voice": "d2",
+      "segment": "cal-02",
+      "seed": 13
+    },
+    {
+      "key": "d4/ladder-080/s11",
+      "voice": "d4",
+      "segment": "ladder-080",
+      "seed": 11
+    }
+  ],
+  "orders": {
+    "forward": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "reverse": [
+      3,
+      2,
+      1,
+      0
+    ],
+    "shuffled": [
+      2,
+      0,
+      3,
+      1
+    ]
+  },
+  "plan": [
+    {
+      "name": "pinned-p1",
+      "variant": "pinned",
+      "voices": [
+        "d2",
+        "d4"
+      ],
+      "passes": [
+        "forward",
+        "reverse"
+      ],
+      "exit_code": 0,
+      "wall_s": 132.3
+    },
+    {
+      "name": "pinned-p2",
+      "variant": "pinned",
+      "voices": [
+        "d4",
+        "d2"
+      ],
+      "passes": [
+        "shuffled"
+      ],
+      "exit_code": 0,
+      "wall_s": 72.3
+    },
+    {
+      "name": "pinned-p3",
+      "variant": "pinned",
+      "voices": [
+        "d2",
+        "d4"
+      ],
+      "passes": [
+        "forward"
+      ],
+      "exit_code": 0,
+      "wall_s": 70.5
+    },
+    {
+      "name": "no_det_algos-p1",
+      "variant": "no_det_algos",
+      "voices": [
+        "d2",
+        "d4"
+      ],
+      "passes": [
+        "forward",
+        "reverse"
+      ],
+      "exit_code": 0,
+      "wall_s": 121.9
+    },
+    {
+      "name": "no_det_algos-p2",
+      "variant": "no_det_algos",
+      "voices": [
+        "d4",
+        "d2"
+      ],
+      "passes": [
+        "shuffled"
+      ],
+      "exit_code": 0,
+      "wall_s": 69.6
+    },
+    {
+      "name": "defaults-p1",
+      "variant": "defaults",
+      "voices": [
+        "d2",
+        "d4"
+      ],
+      "passes": [
+        "forward",
+        "reverse"
+      ],
+      "exit_code": 0,
+      "wall_s": 117.4
+    },
+    {
+      "name": "defaults-p2",
+      "variant": "defaults",
+      "voices": [
+        "d4",
+        "d2"
+      ],
+      "passes": [
+        "shuffled"
+      ],
+      "exit_code": 0,
+      "wall_s": 70.0
+    }
+  ],
+  "switches": {
+    "pinned": {
+      "matmul_allow_tf32": false,
+      "cudnn_allow_tf32": false,
+      "cudnn_deterministic": true,
+      "cudnn_benchmark": false,
+      "deterministic_algorithms": "warn_only",
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8"
+    },
+    "no_det_algos": {
+      "matmul_allow_tf32": false,
+      "cudnn_allow_tf32": false,
+      "cudnn_deterministic": true,
+      "cudnn_benchmark": false,
+      "deterministic_algorithms": "off",
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8"
+    },
+    "defaults": {
+      "torch_defaults": true,
+      "CUBLAS_WORKSPACE_CONFIG": null
+    }
+  },
+  "voice_prompt_exemption": "deterministic algorithms are off during create_voice_clone_prompt only (narration_qwen3tts.engine; spike h+i found the Mimi encoder fails under them)",
+  "summary": {
+    "by_variant": {
+      "pinned": {
+        "bit_exact_within_process": true,
+        "bit_exact_across_processes": true,
+        "items": {
+          "d2/ladder-080/s11": {
+            "renders": 4,
+            "processes": 3,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d2/ladder-150/s12": {
+            "renders": 4,
+            "processes": 3,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d2/cal-02/s13": {
+            "renders": 4,
+            "processes": 3,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d4/ladder-080/s11": {
+            "renders": 4,
+            "processes": 3,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          }
+        }
+      },
+      "no_det_algos": {
+        "bit_exact_within_process": true,
+        "bit_exact_across_processes": true,
+        "items": {
+          "d2/ladder-080/s11": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d2/ladder-150/s12": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d2/cal-02/s13": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d4/ladder-080/s11": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          }
+        }
+      },
+      "defaults": {
+        "bit_exact_within_process": true,
+        "bit_exact_across_processes": true,
+        "items": {
+          "d2/ladder-080/s11": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d2/ladder-150/s12": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d2/cal-02/s13": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          },
+          "d4/ladder-080/s11": {
+            "renders": 3,
+            "processes": 2,
+            "identical_within_process": true,
+            "identical_across_processes": true,
+            "distinct_hashes": 1
+          }
+        }
+      }
+    },
+    "across_variants": {
+      "d2/ladder-080/s11": {
+        "pinned_equals_no_det_algos": true,
+        "pinned_equals_defaults": true
+      },
+      "d2/ladder-150/s12": {
+        "pinned_equals_no_det_algos": true,
+        "pinned_equals_defaults": true
+      },
+      "d2/cal-02/s13": {
+        "pinned_equals_no_det_algos": true,
+        "pinned_equals_defaults": true
+      },
+      "d4/ladder-080/s11": {
+        "pinned_equals_no_det_algos": true,
+        "pinned_equals_defaults": true
+      }
+    },
+    "warnings": {
+      "renders_checked": 40,
+      "renders_checked_with_deterministic_algorithms_warn_only": 16,
+      "renders_with_warnings": 0,
+      "distinct": []
+    },
+    "tier": "bit_exact"
+  },
+  "summary_recomputed_at": "2026-09-26T19:29:24+00:00"
+}

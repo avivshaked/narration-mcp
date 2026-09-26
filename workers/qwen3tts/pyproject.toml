@@ -8,6 +8,7 @@ requires-python = ">=3.12,<3.13"
 # exactly. Licences: qwen-tts Apache-2.0, transformers Apache-2.0, accelerate Apache-2.0, torch BSD-3,
 # soundfile BSD-3, numpy BSD-3. qwen-tts brings librosa (ISC), soxr (LGPL-2.1+, a separately installed,
 # replaceable package), gradio (Apache-2.0), onnxruntime (MIT), sox (BSD-3), einops (MIT); see plan.md 1.4.
+# nvidia-ml-py (BSD-3-Clause) lets `hello` report the GPU and driver without starting CUDA (WP20).
 dependencies = [
     "narration-worker",
     "qwen-tts==0.1.1",
@@ -17,13 +18,26 @@ dependencies = [
     "torchaudio==2.11.0",
     "soundfile>=0.13,<1",
     "numpy>=2,<3",
+    "nvidia-ml-py>=12,<14",
 ]
+
+[project.entry-points."narration_worker.roles"]
+# How `python -m narration_worker --role qwen3` finds this worker's handler (narration_worker.roles).
+qwen3 = "narration_qwen3tts.worker:Qwen3Handler"
 
 [dependency-groups]
 dev = ["pytest>=9.1,<10"]
 
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "narration_qwen3tts"
+
 [tool.uv]
-package = false
+# A package (with a src layout) so that its entry point registers the qwen3 role's handler.
+package = true
 # Universal lock for the platforms with CUDA 12.8 wheels (plan.md Q2): Windows and Linux on x86-64.
 environments = [
     "sys_platform == 'win32' and platform_machine == 'AMD64'",
@@ -41,7 +55,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--strict-markers", "-m", "not model and not gpu and not evidence and not slow"]
+addopts = ["-ra", "--strict-markers", "--import-mode=importlib", "-m", "not model and not gpu and not evidence and not slow"]
 markers = [
     "model: loads a model on the CPU (needs NARRATION_MODELS_ROOT)",
     "gpu: needs an NVIDIA GPU and the GPU lock",

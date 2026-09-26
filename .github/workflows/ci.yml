@@ -7,6 +7,8 @@
 #   tracked  tools/check_tracked.py: no local paths and no audio, weights or databases, in the files
 #            and in the commit messages being pushed or proposed
 #   schemas  the published tool schemas contain no "$ref", and every outputSchema is an object
+#   worker-qwen3tts  the Qwen worker's default tests on Windows and Linux, and basedpyright on its code,
+#            in a venv without the model packages (torch, qwen-tts, transformers)
 #
 # Nothing here needs a GPU, a model, the bakeoff or a secret.
 #
@@ -184,3 +186,52 @@ jobs:
             exit 0
           fi
           uv run pytest -m "not model and not gpu and not evidence and not slow" -k schema tests/contracts
+
+  worker-qwen3tts:
+    name: worker qwen3tts (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            workers/qwen3tts/uv.lock
+      - name: Install from the worker's lock, without the model packages
+        # The worker imports torch, qwen-tts and transformers only where a model loads, so its default tests
+        # and its code need only numpy, soundfile and pytest. Those come at the versions workers/qwen3tts/uv.lock
+        # pins: the lock is exported as constraints (UV_LOCKED makes the export fail if the lock is stale).
+        # The two worker packages are installed without their dependencies; the qwen3 role's entry point
+        # needs the worker installed, not just on the path.
+        run: |
+          uv export --project workers/qwen3tts --no-hashes --no-emit-project --no-emit-package narration-worker \
+            --quiet -o "$RUNNER_TEMP/qwen3tts-constraints.txt"
+          uv venv workers/qwen3tts/.venv
+          uv pip install --python workers/qwen3tts/.venv -c "$RUNNER_TEMP/qwen3tts-constraints.txt" \
+            numpy soundfile pytest
+          uv pip install --python workers/qwen3tts/.venv --no-deps -e workers/common -e workers/qwen3tts
+      - name: Default tests
+        # The worker's pyproject.toml deselects the model, gpu, evidence and slow markers.
+        working-directory: workers/qwen3tts
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then py=.venv/Scripts/python.exe; else py=.venv/bin/python; fi
+          "$py" -m pytest
+      - name: Install the server's dev tools
+        if: runner.os == 'Linux'
+        run: uv sync --locked
+      - name: basedpyright
+        # The server's basedpyright and settings, resolving imports in the worker's venv.
+        if: runner.os == 'Linux'
+        run: uv run basedpyright --pythonpath workers/qwen3tts/.venv/bin/python workers/qwen3tts

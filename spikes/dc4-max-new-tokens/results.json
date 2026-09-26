@@ -1,0 +1,134 @@
+{
+  "evidence_for": "DC-4 (plan.md 1.5): max_new_tokens",
+  "ran_at": "2026-09-26T18:27:36+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "qwen-tts": "0.1.1",
+      "transformers": "4.57.3",
+      "accelerate": "1.12.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "model": {
+    "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "revision": "fd4b254389122332181a7c3db7f27e918eec64e3"
+  },
+  "switches": {
+    "matmul_allow_tf32": false,
+    "cudnn_allow_tf32": false,
+    "cudnn_deterministic": true,
+    "cudnn_benchmark": false,
+    "deterministic_algorithms": "warn_only",
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8"
+  },
+  "items": [
+    {
+      "segment": "ladder-150",
+      "seed": 12,
+      "spoken_chars": 151,
+      "frames_per_spoken_char": 0.7417,
+      "seconds_per_spoken_char": 0.0593,
+      "runs": [
+        {
+          "max_new_tokens": 8192,
+          "talker_steps": 113,
+          "new_tokens": 112,
+          "hit_token_cap": false,
+          "samples": 215040,
+          "sha256_float32": "3c3cbda3c03a65bd0736b0e7076c2affc020c6ad75e7577f0ccf12b9fcd315a3",
+          "gen_s": 17.76
+        },
+        {
+          "max_new_tokens": 2048,
+          "talker_steps": 113,
+          "new_tokens": 112,
+          "hit_token_cap": false,
+          "samples": 215040,
+          "sha256_float32": "3c3cbda3c03a65bd0736b0e7076c2affc020c6ad75e7577f0ccf12b9fcd315a3",
+          "gen_s": 17.91,
+          "identical_to_8192": true
+        },
+        {
+          "max_new_tokens": 113,
+          "talker_steps": 113,
+          "new_tokens": 112,
+          "hit_token_cap": false,
+          "samples": 215040,
+          "sha256_float32": "3c3cbda3c03a65bd0736b0e7076c2affc020c6ad75e7577f0ccf12b9fcd315a3",
+          "gen_s": 17.69,
+          "identical_to_8192": true
+        },
+        {
+          "max_new_tokens": 112,
+          "talker_steps": 112,
+          "new_tokens": 111,
+          "hit_token_cap": true,
+          "samples": 213120,
+          "sha256_float32": "c37d4d8556f7035662871d3e5812c401fde5127c55884e05cebe00b02d7408f7",
+          "gen_s": 27.73,
+          "identical_to_8192": false,
+          "identical_prefix_samples": 0
+        }
+      ]
+    },
+    {
+      "segment": "ladder-350",
+      "seed": 21,
+      "spoken_chars": 347,
+      "frames_per_spoken_char": 0.7176,
+      "seconds_per_spoken_char": 0.0574,
+      "runs": [
+        {
+          "max_new_tokens": 8192,
+          "talker_steps": 250,
+          "new_tokens": 249,
+          "hit_token_cap": false,
+          "samples": 478080,
+          "sha256_float32": "1d85c04dc3389885b1cc426e95795e032e9ce99fb085344abc352977ea14729e",
+          "gen_s": 60.39
+        },
+        {
+          "max_new_tokens": 2048,
+          "talker_steps": 250,
+          "new_tokens": 249,
+          "hit_token_cap": false,
+          "samples": 478080,
+          "sha256_float32": "1d85c04dc3389885b1cc426e95795e032e9ce99fb085344abc352977ea14729e",
+          "gen_s": 40.54,
+          "identical_to_8192": true
+        },
+        {
+          "max_new_tokens": 250,
+          "talker_steps": 250,
+          "new_tokens": 249,
+          "hit_token_cap": false,
+          "samples": 478080,
+          "sha256_float32": "1d85c04dc3389885b1cc426e95795e032e9ce99fb085344abc352977ea14729e",
+          "gen_s": 39.02,
+          "identical_to_8192": true
+        },
+        {
+          "max_new_tokens": 249,
+          "talker_steps": 249,
+          "new_tokens": 248,
+          "hit_token_cap": true,
+          "samples": 476160,
+          "sha256_float32": "f92950e3ae37ae1d6b21a035fca45b3a6d44cd0df44c5ea982570abcfea62110",
+          "gen_s": 38.7,
+          "identical_to_8192": false,
+          "identical_prefix_samples": 286080
+        }
+      ]
+    }
+  ],
+  "cap_only_truncates": true
+}

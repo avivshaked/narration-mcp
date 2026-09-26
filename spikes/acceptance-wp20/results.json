@@ -1,0 +1,174 @@
+{
+  "check": "WP20 acceptance: a render through the worker protocol vs the bakeoff's take",
+  "ran_at": "2026-09-26T19:41:42+00:00",
+  "threshold": 0.98,
+  "worker_fingerprint": {
+    "python": "3.12.10",
+    "packages": {
+      "narration-worker": "0.1.0",
+      "narration-worker-qwen3tts": "0.1.0",
+      "qwen-tts": "0.1.1",
+      "transformers": "4.57.3",
+      "accelerate": "1.12.0",
+      "tokenizers": "0.22.2",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "librosa": "1.0.0",
+      "soxr": "1.1.0",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "cpu_threads": 8,
+    "env": {
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+      "HF_HUB_OFFLINE": "1",
+      "TRANSFORMERS_OFFLINE": "1",
+      "OMP_NUM_THREADS": "8",
+      "MKL_NUM_THREADS": "8",
+      "OPENBLAS_NUM_THREADS": "8",
+      "NUMEXPR_NUM_THREADS": "8",
+      "VECLIB_MAXIMUM_THREADS": "8"
+    }
+  },
+  "load": {
+    "load_s": 2.586,
+    "vram_mb": 4134,
+    "determinism": {
+      "tf32": false,
+      "cudnn_deterministic": true,
+      "cudnn_benchmark": false,
+      "deterministic_algorithms": "warn_only"
+    }
+  },
+  "sv": {
+    "model": "microsoft/wavlm-base-plus-sv",
+    "revision_prefix": "feb593a6",
+    "device": "cpu"
+  },
+  "renders": [
+    {
+      "voice": "d2",
+      "segment": "n07",
+      "seed": 1006,
+      "reply": {
+        "sample_rate": 24000,
+        "samples": 207360,
+        "gen_s": 17.424,
+        "hit_token_cap": false,
+        "new_tokens": 108,
+        "max_new_tokens": 285
+      },
+      "bakeoff_samples": 207360,
+      "similarity_to_bakeoff_take": 1.0,
+      "passes": true,
+      "same_length_as_bakeoff": true,
+      "identical_to_bakeoff_pcm16": true
+    },
+    {
+      "voice": "d2",
+      "segment": "n08",
+      "seed": 1007,
+      "reply": {
+        "sample_rate": 24000,
+        "samples": 157440,
+        "gen_s": 13.071,
+        "hit_token_cap": false,
+        "new_tokens": 82,
+        "max_new_tokens": 203
+      },
+      "bakeoff_samples": 157440,
+      "similarity_to_bakeoff_take": 1.0,
+      "passes": true,
+      "same_length_as_bakeoff": true,
+      "identical_to_bakeoff_pcm16": true
+    },
+    {
+      "voice": "d4",
+      "segment": "n07",
+      "seed": 1006,
+      "reply": {
+        "sample_rate": 24000,
+        "samples": 211200,
+        "gen_s": 17.57,
+        "hit_token_cap": false,
+        "new_tokens": 110,
+        "max_new_tokens": 285
+      },
+      "bakeoff_samples": 211200,
+      "similarity_to_bakeoff_take": 1.0,
+      "passes": true,
+      "same_length_as_bakeoff": true,
+      "identical_to_bakeoff_pcm16": true
+    },
+    {
+      "voice": "d4",
+      "segment": "n08",
+      "seed": 1007,
+      "reply": {
+        "sample_rate": 24000,
+        "samples": 170880,
+        "gen_s": 14.079,
+        "hit_token_cap": false,
+        "new_tokens": 89,
+        "max_new_tokens": 203
+      },
+      "bakeoff_samples": 170880,
+      "similarity_to_bakeoff_take": 1.0,
+      "passes": true,
+      "same_length_as_bakeoff": true,
+      "identical_to_bakeoff_pcm16": true
+    }
+  ],
+  "baselines_other_seeds": [
+    {
+      "label": "baseline d2 n07: bakeoff seed 1 vs seed 2",
+      "similarity": 0.9892
+    },
+    {
+      "label": "baseline d2 n08: bakeoff seed 1 vs seed 2",
+      "similarity": 0.9672
+    },
+    {
+      "label": "baseline d2 n07: bakeoff seed 1 vs seed 3",
+      "similarity": 0.9899
+    },
+    {
+      "label": "baseline d2 n08: bakeoff seed 1 vs seed 3",
+      "similarity": 0.9729
+    },
+    {
+      "label": "baseline d4 n07: bakeoff seed 1 vs seed 2",
+      "similarity": 0.9928
+    },
+    {
+      "label": "baseline d4 n08: bakeoff seed 1 vs seed 2",
+      "similarity": 0.9872
+    },
+    {
+      "label": "baseline d4 n07: bakeoff seed 1 vs seed 3",
+      "similarity": 0.9866
+    },
+    {
+      "label": "baseline d4 n08: bakeoff seed 1 vs seed 3",
+      "similarity": 0.9897
+    }
+  ],
+  "scorer_check": {
+    "tolerance": 0.002,
+    "d2": {
+      "segments": 8,
+      "mean": 0.9776,
+      "bakeoff_spk_to_ref": 0.9775,
+      "reproduced": true
+    },
+    "d4": {
+      "segments": 8,
+      "mean": 0.9663,
+      "bakeoff_spk_to_ref": 0.9663,
+      "reproduced": true
+    }
+  },
+  "accepted": true
+}

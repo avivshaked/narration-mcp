@@ -1,0 +1,229 @@
+{
+  "spike": "h+i (Qwen half)",
+  "design_sections": [
+    "20 (h)",
+    "20 (i)",
+    "4",
+    "10.1"
+  ],
+  "ran_at": "2026-09-26T18:03:24+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "qwen-tts": "0.1.1",
+      "transformers": "4.57.3",
+      "accelerate": "1.12.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "cuda_context_mb_estimate": 448,
+  "cuda_context_note": "device-level used memory before and after this process started CUDA (NVML); other jobs on the shared GPU can move it, so it is an estimate",
+  "models": {
+    "base": {
+      "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+      "snapshot_named_by_sha": true,
+      "first_load": {
+        "load_s": 2.88,
+        "vram_mb_reply": 4134,
+        "memory_after_load": {
+          "allocated_mb": 4006,
+          "reserved_mb": 4134,
+          "max_allocated_mb": 4008,
+          "max_reserved_mb": 4134,
+          "device_free_mb": 18792,
+          "device_total_mb": 24563
+        },
+        "device_free_drop_mb": 4132,
+        "model_type": "base"
+      },
+      "prepare_voice_s": 0.51,
+      "renders": {
+        "ladder-150": {
+          "spoken_chars": 151,
+          "audio_s": 9.2,
+          "gen_s": 19.01,
+          "rtf": 2.067,
+          "sample_rate": 24000,
+          "new_tokens": 115,
+          "talker_steps": 116,
+          "hit_token_cap": false,
+          "frames_per_audio_s": 12.5,
+          "peak_max_allocated_mb": 4511,
+          "peak_max_reserved_mb": 4824,
+          "sha256_float32": "5d36040633757324da1528597a47528439c426ba65f871c43a12735c05d75f63",
+          "warnings": []
+        },
+        "ladder-560": {
+          "spoken_chars": 560,
+          "audio_s": 31.28,
+          "gen_s": 62.66,
+          "rtf": 2.003,
+          "sample_rate": 24000,
+          "new_tokens": 391,
+          "talker_steps": 392,
+          "hit_token_cap": false,
+          "frames_per_audio_s": 12.5,
+          "peak_max_allocated_mb": 4569,
+          "peak_max_reserved_mb": 5304,
+          "sha256_float32": "5e8226617866a038affb89b67d92988887870221cd112184f981861981f8aade",
+          "warnings": []
+        }
+      },
+      "token_cap_probe": {
+        "max_new_tokens": 24,
+        "audio_s": 1.84,
+        "gen_s": 3.69,
+        "rtf": 2.005,
+        "sample_rate": 24000,
+        "new_tokens": 23,
+        "talker_steps": 24,
+        "hit_token_cap": true,
+        "frames_per_audio_s": 12.5,
+        "peak_max_allocated_mb": 4358,
+        "peak_max_reserved_mb": 5304,
+        "sha256_float32": "c6839174111e1bc46bf798cd87b137701c9709df47b993490d177dd41fda142d",
+        "warnings": []
+      },
+      "memory_after_unload": {
+        "allocated_mb": 33,
+        "reserved_mb": 38,
+        "max_allocated_mb": 4358,
+        "max_reserved_mb": 5304,
+        "device_free_mb": 22842,
+        "device_total_mb": 24563
+      },
+      "second_load": {
+        "load_s": 2.25,
+        "vram_mb_reply": 4168,
+        "memory_after_load": {
+          "allocated_mb": 4041,
+          "reserved_mb": 4168,
+          "max_allocated_mb": 4043,
+          "max_reserved_mb": 4168,
+          "device_free_mb": 18712,
+          "device_total_mb": 24563
+        },
+        "device_free_drop_mb": 4130,
+        "model_type": "base"
+      },
+      "weights_verified": {
+        "files": 11,
+        "mismatched": [],
+        "hash_s": 3.1
+      }
+    },
+    "voice_design": {
+      "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+      "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+      "snapshot_named_by_sha": true,
+      "first_load": {
+        "load_s": 3.64,
+        "vram_mb_reply": 4146,
+        "memory_after_load": {
+          "allocated_mb": 4018,
+          "reserved_mb": 4146,
+          "max_allocated_mb": 4019,
+          "max_reserved_mb": 4146,
+          "device_free_mb": 18734,
+          "device_total_mb": 24563
+        },
+        "device_free_drop_mb": 4108,
+        "model_type": "voice_design"
+      },
+      "canary_design": {
+        "audio_s": 12.48,
+        "gen_s": 25.18,
+        "rtf": 2.018,
+        "sample_rate": 24000,
+        "new_tokens": 156,
+        "talker_steps": 157,
+        "hit_token_cap": false,
+        "frames_per_audio_s": 12.5,
+        "peak_max_allocated_mb": 4275,
+        "peak_max_reserved_mb": 4508,
+        "sha256_float32": "cc67829328d8bc213bdf4fb2c46b3b08a5ae37f31fc36118936e9282c2b1b5fb",
+        "warnings": []
+      },
+      "d2_redesign_vs_bakeoff": {
+        "seed": 2001,
+        "reference_samples": 289920,
+        "switches_off": {
+          "audio_s": 12.08,
+          "gen_s": 22.59,
+          "rtf": 1.87,
+          "sample_rate": 24000,
+          "new_tokens": 151,
+          "talker_steps": 152,
+          "hit_token_cap": false,
+          "frames_per_audio_s": 12.5,
+          "peak_max_allocated_mb": 4267,
+          "peak_max_reserved_mb": 4508,
+          "sha256_float32": "4f2342b19ca950d067ab1c6e34e9d60b345dd97d36a7ad9f1aca4e8bfa6a0251",
+          "warnings": [],
+          "pcm16_bit_identical_to_bakeoff_clip": false,
+          "pcm16_samples": 289920,
+          "pcm16_max_abs_diff": 23935
+        },
+        "switches_on": {
+          "audio_s": 12.08,
+          "gen_s": 24.99,
+          "rtf": 2.069,
+          "sample_rate": 24000,
+          "new_tokens": 151,
+          "talker_steps": 152,
+          "hit_token_cap": false,
+          "frames_per_audio_s": 12.5,
+          "peak_max_allocated_mb": 4267,
+          "peak_max_reserved_mb": 4508,
+          "sha256_float32": "4f2342b19ca950d067ab1c6e34e9d60b345dd97d36a7ad9f1aca4e8bfa6a0251",
+          "warnings": [],
+          "pcm16_bit_identical_to_bakeoff_clip": false,
+          "pcm16_samples": 289920,
+          "pcm16_max_abs_diff": 23935
+        }
+      },
+      "memory_after_unload": {
+        "allocated_mb": 33,
+        "reserved_mb": 38,
+        "max_allocated_mb": 4267,
+        "max_reserved_mb": 4508,
+        "device_free_mb": 22842,
+        "device_total_mb": 24563
+      },
+      "second_load": {
+        "load_s": 2.27,
+        "vram_mb_reply": 4146,
+        "memory_after_load": {
+          "allocated_mb": 4018,
+          "reserved_mb": 4146,
+          "max_allocated_mb": 4019,
+          "max_reserved_mb": 4146,
+          "device_free_mb": 18734,
+          "device_total_mb": 24563
+        },
+        "device_free_drop_mb": 4108,
+        "model_type": "voice_design"
+      },
+      "weights_verified": {
+        "files": 11,
+        "mismatched": [],
+        "hash_s": 3.0
+      }
+    }
+  },
+  "network_attempts": [],
+  "loopback_connections": 0,
+  "offline_env": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1"
+  }
+}
