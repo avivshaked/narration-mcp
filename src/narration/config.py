@@ -107,9 +107,10 @@ class TextConfig:
 class DeliveryConfig:
     sample_rate: int = 48000
     subtype: str = "PCM_24"
-    target_lufs: float = -20.0  # plan.md DC-8: -16 was never reached under the -1 dBTP ceiling on real output
+    target_lufs: float = -23.0  # plan.md DC-8: EBU R128's pair with -1 dBTP; -16 was never reached on real output
     true_peak_dbtp: float = -1.0
     trim_rel_db: float = -40.0
+    trim_floor_dbfs: float = -70.0  # plan.md DC-10: the speech threshold never goes below this
     trim_pad_s: float = 0.08
     fade_s: float = 0.01
 
@@ -208,6 +209,7 @@ _RANGES: dict[tuple[str, str], tuple[float, float]] = {
     ("defaults", "max_retakes"): (0, 3),
     ("delivery", "sample_rate"): (8000, 192000),
     ("delivery", "trim_pad_s"): (0, 1),
+    ("delivery", "trim_floor_dbfs"): (-120, 0),
     ("delivery", "fade_s"): (0, 1),
     ("measurement", "seeds"): (1, 10),
     ("measurement", "pace_tol_min"): (0, 1),

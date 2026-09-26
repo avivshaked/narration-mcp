@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.3 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.4 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -41,6 +41,11 @@ applied here, each listed in the revision history below.*
   Q3). **DC-9**: a take with less silence than `pad_s` at an end keeps what it has, and nothing is added
   (section 13). Two clarifications come with them: the delivery key names the post-processing rules'
   version, and a take with no measurable loudness reports null (sections 10.2, 13, App. B).*
+- *Revision 5.4 (the same day) applies two more owner decisions from the review of the delivery code.
+  **DC-8 is amended** to −23 LUFS, EBU R128's pair with the −1 dBTP ceiling: on the same 48
+  paragraphs, −22 is reached by all of them and −20 by 40. **DC-10**: the trim measures frames with
+  the take's mean removed and never lets the speech threshold fall below −70 dBFS, so a DC offset or a
+  near-silent take no longer defeats it; QA warns on a DC offset above 0.001 (sections 11.1, 13, 16).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -1035,7 +1040,7 @@ still cached.
      "delivery": {"path": "<store_root>\\takes\\8c\\tk_8c41d2e07a9b3f55\\delivery.wav",
                   "sha256": "…", "samples": 420480, "sample_rate": 48000, "duration_s": 8.76},
      "trim": {"head_s": 0.27, "tail_s": 0.39, "pad_s": 0.08},
-     "loudness": {"measured_lufs": -20.0, "gain_db": 1.4, "true_peak_dbtp": -6.3, "ceiling_applied": false},
+     "loudness": {"measured_lufs": -23.0, "gain_db": -1.6, "true_peak_dbtp": -9.3, "ceiling_applied": false},
      "analysis_id": "an_0f3b91c2d5e7a468",
      "cues": [
        {"index": 0, "start_s": 0.08, "end_s": 3.02, "confidence": 0.93,
@@ -1507,6 +1512,7 @@ which made verdicts depend on render order and leak from one script to another.)
 | head / end insertion | ≥ 1 word | ≥ 3 words, or a match of the voice's transcript at the head | Reference bleed; hallucinated tail. |
 | longest internal silence | > 1.2 s | > 2.5 s | Dropout or hang. |
 | clipping (raw) | > 0.01 % of samples at full scale | — | Gain problem. |
+| signal (raw, `SIGNAL_INVALID`) | DC offset > 0.001 | any non-finite sample | Real output had |DC| ≤ 0.00002 (DC-5, DC-10). |
 | token cap | — | reached | Truncation by the model. |
 | cue alignment | `CUE_LOW_CONFIDENCE`, `CUE_ALIGNMENT_DISAGREE`, `CUE_UNALIGNED` (warn, R1) | `ALIGNMENT_ERROR` (fail) | Section 11.2. |
 | fit (only with `scene_seconds`) | `FIT_TIGHT` (slack < 1.0 s) | — (`OVER_SCENE` is a warn in v1: reported, not remedied) | Section 12. |
@@ -1669,19 +1675,23 @@ caller wants none (Q7).
   reproducibility check.
 - **Delivery** (take layer): deterministic, on the CPU, thread-capped, in this order:
   1. **Trim.** The threshold is **relative to the take**: its speech level (the 95th percentile of 20 ms
-     frame RMS) − 40 dB. It is gain independent. `head_s` and `tail_s` are the silence found below the
+     frame RMS) − 40 dB, and never below −70 dBFS. Frame RMS is measured on the take with its mean
+     removed; the audio itself is not changed (revision 5.4, DC-10: a DC offset of 0.001 made every frame
+     speech, and a take under 5 % speech was never trimmed). It is gain independent for every take whose
+     speech level is above −30 dBFS. `head_s` and `tail_s` are the silence found below the
      threshold at each end of the raw audio; up to `pad_s` (0.08 s) of it is kept at each end. A take
      with less silence than `pad_s` at an end keeps what it has, and no silence is added (revision 5.3,
      DC-9; 23 of 48 real takes had less at the tail). So the delivery's length is the raw length −
      max(`head_s` − `pad_s`, 0) − max(`tail_s` − `pad_s`, 0), before resampling rounds it to whole
      samples, and `head_s`/`tail_s` report the silence found.
   2. **Resample** to 48 kHz with a pinned resampler (its name and version are in the delivery key).
-  3. **Gain.** Static gain to **−20 LUFS** integrated by default (`target_lufs`; BS.1770-4, measured on
+  3. **Gain.** Static gain to **−23 LUFS** integrated by default (`target_lufs`; BS.1770-4, measured on
      the mono signal as a single channel with weight 1.0); no limiter. The meter's name and version are in
      the delivery key. *Revision 5.3 (DC-8):* the default was −16 LUFS, but on the bake-off's 48 real
      clone paragraphs the ceiling below held every take under it (−21.3 / −18.8 / −16.7 LUFS, min /
      median / max; peak-to-loudness ratio 15.7–20.3 dB), so takes of one script differed by up to
-     4.6 LU. At −20, 40 of the 48 reach the target exactly.
+     4.6 LU. At −23, EBU R128's pair with this ceiling, all 48 reach the target (−22 does too; −20
+     only 40; revision 5.4).
   4. **Fades**: 0.01 s at the edges.
   5. **Quantise** to WAV PCM_24 mono.
   6. **True peak**, measured on **this final 48 kHz file** (4× oversampled). If it is above −1.0 dBTP,
@@ -1895,9 +1905,10 @@ refuse = ["[", "]", "<|", "|>"]
 [delivery]
 sample_rate = 48000
 subtype = "PCM_24"
-target_lufs = -20.0            # revision 5.3, DC-8 (was -16.0)
+target_lufs = -23.0            # revisions 5.3/5.4, DC-8 (was -16.0)
 true_peak_dbtp = -1.0          # wins over target_lufs
-trim_rel_db = -40.0            # relative to the take's p95 frame RMS
+trim_rel_db = -40.0            # relative to the take's p95 frame RMS (mean removed)
+trim_floor_dbfs = -70.0        # DC-10: the speech threshold never goes below this
 trim_pad_s = 0.08
 fade_s = 0.01
 
@@ -2027,8 +2038,9 @@ owner reverses it.
    `d4-radio-drama_take2` (both allowlisted, section 16) and has the one it chooses measured. d4's lower
    similarity to its own clip (0.966–0.969 vs 0.978–0.984) is handled by its measurement.
 3. **Delivery format and loudness.** *Answered (story flow):* 48 kHz / 24-bit mono, −16 LUFS per take
-   (*revised by the owner to a −20 LUFS default in revision 5.3, DC-8, after real output never reached
-   −16 under the ceiling; `target_lufs` stays configurable*),
+   (*revised by the owner to a −23 LUFS default, EBU R128's pair with the ceiling, in revisions 5.3
+   and 5.4, DC-8, after real output never reached −16 under the ceiling; `target_lufs` stays
+   configurable*),
    with the true-peak ceiling winning; each take's loudness record is returned (section 13).
 4. **Numbers.** *Moot for the service (R6 revised):* callers send numbers already in words.
 5. **Mood/delivery variants.** *Moot for the service:* a different delivery is a different clip, which
@@ -2206,8 +2218,8 @@ daemon computes the hashes. All times are in seconds.
  "render_id": "rn_77e0c4a1b2d93f08",
  "delivery": {"path": "…\\delivery.wav", "sha256": "…", "sample_rate": 48000, "samples": 420480,
               "duration_s": 8.76, "format": "WAV PCM_24 mono"},
- "trim": {"head_s": 0.27, "tail_s": 0.39, "pad_s": 0.08, "rule": "p95_frame_rms - 40 dB; head_s/tail_s found, pad_s kept"},
- "loudness": {"target_lufs": -20.0, "measured_lufs": -20.0, "gain_db": 1.4, "true_peak_dbtp": -6.3,
+ "trim": {"head_s": 0.27, "tail_s": 0.39, "pad_s": 0.08, "rule": "max(p95_frame_rms - 40 dB, -70 dBFS), mean removed; head_s/tail_s found, up to pad_s kept"},
+ "loudness": {"target_lufs": -23.0, "measured_lufs": -23.0, "gain_db": -1.6, "true_peak_dbtp": -9.3,
               "ceiling_applied": false},
  "tools": {"resampler": "<name> <version>", "loudness_meter": "<name> <version>", "post": "narration.post/1"},
  "post_stretched": false}
