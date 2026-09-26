@@ -10,10 +10,11 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
+import psutil
 import pytest
 from narration_worker.fake.faults import SPEC_ENV
 
@@ -124,6 +125,26 @@ def plant_status(store: NarrationStore, content: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
     return path
+
+
+def our_children(pids: Iterable[int | None]) -> list[psutil.Process]:
+    """The processes with these pids, captured while they run, each checked to be a child of this test
+    process. A later look through the captured object is never fooled by a pid given to another process."""
+    captured: list[psutil.Process] = []
+    for pid in pids:
+        assert pid is not None
+        process = psutil.Process(pid)
+        assert process.ppid() == os.getpid(), f"pid {pid} is not a process this test started"
+        captured.append(process)
+    return captured
+
+
+def running(process: psutil.Process) -> bool:
+    """Whether a captured process still runs (False once its pid is gone or given to another process)."""
+    try:
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
 
 
 def wait_until(predicate: Callable[[], bool], timeout_s: float = WAIT_S, what: str = "a condition") -> None:

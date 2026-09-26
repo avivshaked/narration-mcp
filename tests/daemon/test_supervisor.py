@@ -11,7 +11,6 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-import psutil
 import pytest
 
 from narration.config import Config
@@ -28,7 +27,7 @@ from narration.daemon.supervisor import (
 from narration.store import NarrationStore
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command
 
-from .conftest import fake_env, unstartable
+from .conftest import fake_env, our_children, running, unstartable
 from .standin import StandInPlatform
 
 pytestmark = pytest.mark.timeout(120)
@@ -56,13 +55,6 @@ def supervisors(
     finally:
         for supervisor in opened:
             supervisor.close()
-
-
-def _alive(pid: int) -> bool:
-    try:
-        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
-    except psutil.NoSuchProcess:
-        return False
 
 
 # ---------------------------------------------------------------- how a worker starts (sections 4, 4.1, 17)
@@ -133,7 +125,7 @@ def test_a_worker_runs_in_its_project_folder_with_the_cmd_search_off_s17(
         assert env["PATH"] == os.environ["PATH"], "the operator's PATH is kept"
         # The process itself: its working directory and environment, read from the worker this test started.
         assert client.pid is not None
-        process = psutil.Process(client.pid)
+        (process,) = our_children([client.pid])
         assert process.cmdline()[1] == "-P"
         assert os.path.normcase(process.cwd()) == os.path.normcase(str(project))
         names = {name.upper(): value for name, value in process.environ().items()}  # Windows: case-insensitive
@@ -266,10 +258,10 @@ def test_a_new_cublas_pin_restarts_the_worker_s10_1(supervisors: SupervisorFacto
 # ---------------------------------------------------------------- stopping (section 4.1)
 def test_kill_all_ends_every_worker_and_starts_no_more_s4_1(supervisors: SupervisorFactory) -> None:
     supervisor = supervisors()
-    pids = [supervisor.client(group).pid for group in ("qwen", "qa")]
+    workers = our_children(supervisor.client(group).pid for group in ("qwen", "qa"))
     supervisor.kill_all()
     assert supervisor.closed
-    assert not any(pid is not None and _alive(pid) for pid in pids)
+    assert not any(running(w) for w in workers)
     with pytest.raises(SupervisorClosed):
         supervisor.client("qwen")
 

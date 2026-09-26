@@ -12,7 +12,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import psutil
 import pytest
 
 from narration.contracts.models import JobRecord
@@ -23,7 +22,16 @@ from narration.daemon.testing import SCRATCH_DIR, FakeWorkerRunner
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 
-from .conftest import UNREADABLE_STATUSES, WAIT_S, DaemonFactory, make_job, plant_status, wait_until
+from .conftest import (
+    UNREADABLE_STATUSES,
+    WAIT_S,
+    DaemonFactory,
+    make_job,
+    our_children,
+    plant_status,
+    running,
+    wait_until,
+)
 from .standin import StandInPlatform
 from .test_seam_and_sweep import NO_SUCH_PID, status
 
@@ -159,13 +167,6 @@ def job_status(store: NarrationStore, job: JobRecord) -> Any:
     found = store.get_job(job.job_id)
     assert found is not None
     return found
-
-
-def alive(pid: int) -> bool:
-    try:
-        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
-    except psutil.NoSuchProcess:
-        return False
 
 
 # ---------------------------------------------------------------- start, singleton, idle exit (sections 4, 4.1)
@@ -358,12 +359,12 @@ def test_release_gpu_unloads_an_idle_model_at_once_s7_6(run_daemon: DaemonFactor
     daemon = run_daemon(LoadOnce())
     loaded = daemon.wait_status(lambda s: s.gpu.in_use and bool(s.workers), "the model to load")
     assert loaded.gpu.holder == "qwen"
-    worker_pids = [w.pid for w in loaded.workers]
+    workers = our_children(w.pid for w in loaded.workers)
     done = daemon.command("release_gpu")
     assert done.result == {"released": True, "holder_before": "qwen", "busy_job": None}
     after = daemon.wait_status(lambda s: not s.gpu.in_use, "the release to show")
     assert after.workers == () and after.gpu.holder is None
-    wait_until(lambda: not any(alive(pid) for pid in worker_pids), 15, "the worker to exit")
+    wait_until(lambda: not any(running(w) for w in workers), 15, "the worker to exit")
 
 
 def test_release_gpu_with_nothing_loaded_releases_nothing_s7_6(run_daemon: DaemonFactory) -> None:
@@ -383,7 +384,7 @@ def test_release_gpu_while_a_job_runs_changes_nothing_and_names_it_s7_6(
     assert done.result == {"released": False, "holder_before": "qwen", "busy_job": job.job_id}
     still = daemon.status()
     assert still is not None and still.gpu.in_use and still.workers
-    assert all(alive(w.pid) for w in still.workers)
+    assert all(running(w) for w in our_children(w.pid for w in still.workers))
 
 
 # ---------------------------------------------------------------- idle unload (section 4)
@@ -431,7 +432,7 @@ def test_stop_now_requeues_the_segment_and_leaves_no_partial_file_s4_1(
     daemon = run_daemon(FakeWorkerRunner(), spec=spec)
     wait_until(lambda: job_status(store, job).progress.segments_done == 1, what="the first segment")
     busy = daemon.wait_status(lambda s: bool(s.workers), "a worker")
-    worker_pids = [w.pid for w in busy.workers]
+    workers = our_children(w.pid for w in busy.workers)
     time.sleep(0.3)  # the second segment's render is in flight
     posted = store.post_command("stop_now")
     stopped_at = time.monotonic()
@@ -444,7 +445,7 @@ def test_stop_now_requeues_the_segment_and_leaves_no_partial_file_s4_1(
     assert temp_leftovers(store.root) == []
     report = store.verify()
     assert (report["missing"], report["mismatched"], report["errors"]) == ([], [], [])
-    assert not any(alive(pid) for pid in worker_pids), "the workers were killed"
+    assert not any(running(w) for w in workers), "the workers were killed"
     done = store.wait_for_command(posted.command_id, timeout_s=0)
     assert done is not None and done.result == {"stopped": True, "requeued": [job.job_id]}
 
