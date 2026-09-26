@@ -19,9 +19,8 @@ to disk first, so a crash or a power loss can leave it empty or cut short. ``rea
 died (``sweep(..., previous_unreadable=True)``), a daemon that finds the singleton held as a holder that is
 not stopping, and ``start.running_daemon`` as no daemon.
 
-**Commands.** The sweep leaves every pending command alone. A ``stop`` is for the service, not for one daemon
-process: whichever daemon holds the singleton when it reads a pending ``stop`` honours it, even one posted
-before it started or while it waited for the singleton.
+**Commands.** The sweep leaves every pending command alone: the daemon answers each one, and judges a
+pending ``stop`` by when it was posted (``service``, "Which stops a daemon honours").
 """
 
 from __future__ import annotations

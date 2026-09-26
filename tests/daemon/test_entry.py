@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from narration_worker.threads import THREAD_ENV_VARS
 
-from narration.daemon.__main__ import DEFAULT_RUNNER
+from narration.daemon.__main__ import DEFAULT_RUNNER, launch_time
 from narration.daemon.seam import NullRunner
 from narration.daemon.start import daemon_argv
 
@@ -132,6 +132,12 @@ def test_the_store_must_be_the_configurations_s16(tmp_path: Path) -> None:
     )
     assert done.returncode == 2
     assert "store_root" in done.stderr
+
+
+def test_the_launch_time_is_the_launchers_unless_it_is_later_than_the_process_began_s4_1() -> None:
+    assert launch_time(None, 100.0) == 100.0, "no launcher: when this process began"
+    assert launch_time(99.5, 100.0) == 99.5, "the launcher's clock, read just before the spawn"
+    assert launch_time(250.0, 100.0) == 100.0, "a launch after the process began is not believed"
 
 
 def test_the_default_runner_is_the_null_runner_until_the_job_engine() -> None:

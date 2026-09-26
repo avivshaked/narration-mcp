@@ -30,6 +30,7 @@ from narration.contracts.models import DaemonStatus
 from narration.daemon import start
 from narration.daemon.sweep import read_status
 from narration.store import NarrationStore
+from narration.store.store import parse_iso
 
 from .conftest import fake_env, make_job, wait_until
 from .owned import OwnedDaemon, capture_daemon, stop_detached
@@ -222,6 +223,23 @@ def test_stop_now_ends_the_workers_and_leaves_no_partial_file_s4_1(
 
 
 # ---------------------------------------------------------------- detached start (section 4.1; spike g)
+def test_the_launch_time_decides_which_stops_a_real_daemon_honours_s4_1(
+    service: Path, real_store: NarrationStore
+) -> None:
+    earlier = real_store.post_command("stop")
+    launched = parse_iso(earlier.requested_at) - 5.0  # a launcher that started the daemon before the stop
+    with daemon_child(service, "--launched-at", repr(launched)) as honouring:
+        assert honouring.wait(timeout=60) == 0, "the stop was asked after its launch"
+    done = real_store.wait_for_command(earlier.command_id, timeout_s=0)
+    assert done is not None and done.result == {"stopped": True, "requeued": []}
+    old = real_store.post_command("stop")
+    time.sleep(0.05)
+    with daemon_child(service) as serving:  # launched after the stop, as it began to run
+        answered = real_store.wait_for_command(old.command_id, timeout_s=60)
+        assert answered is not None and answered.result is not None and answered.result["stopped"] is False
+        assert serving.poll() is None, "it keeps serving"
+
+
 def test_a_detached_daemon_outlives_its_session_s4_1(service: Path, real_store: NarrationStore, tmp_path: Path) -> None:
     out = tmp_path / "session.json"
     test_began = time.time()

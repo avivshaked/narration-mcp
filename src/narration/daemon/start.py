@@ -8,7 +8,10 @@ For the front-end's autostart (WP36) and ``narration-admin daemon start | status
   caller's Job Object forbids breakaway, it raises ``DAEMON_UNAVAILABLE`` (retryable, with the hint to run
   ``narration-admin daemon start`` in a terminal) and starts nothing: a daemon that is not detached would
   die with its client mid-job;
-- ``running_daemon`` reads ``run/daemon.json`` and checks its pid (``sweep.daemon_alive``);
+- ``running_daemon`` reads ``run/daemon.json`` and checks its pid (``sweep.daemon_alive``). Post a
+  ``stop`` only when it says a daemon runs (``narration-admin daemon stop``, WP37): a daemon honours only
+  the stops posted after it was launched (``service``, "Which stops a daemon honours"), so a stop posted
+  with none running stops nothing, and the next daemon answers it ``stopped: false``;
 - ``ensure_daemon`` starts one unless one runs, and can wait until it has written its status.
 
 Starting a daemon when one already runs is harmless: the second one exits quietly (the singleton). One that
@@ -69,7 +72,9 @@ def start_detached(
     own pid in ``run/daemon.json``. The store root is created first (the singleton's name hashes its
     ``realpath``). The interpreter is ``platform.python_for(python, console=False)``, where ``python`` is
     this interpreter by default. Its environment is ``env`` (this process's by default) without the
-    ``PYTHON*`` variables that change imports (``settings.scrub_python_env``). Raises
+    ``PYTHON*`` variables that change imports (``settings.scrub_python_env``). The daemon is told when it was
+    launched (``--launched-at``, this process's wall clock just before the spawn), so that a stop posted
+    while it starts up is for it. Raises
     ``NarrationError(DAEMON_UNAVAILABLE)`` when breakaway is refused, and never falls back to a daemon that is
     not detached; on an OS v1 does not support, ``UnsupportedPlatform``.
     """
@@ -80,7 +85,8 @@ def start_detached(
     root = Path(os.path.abspath(store_root))
     root.mkdir(parents=True, exist_ok=True)
     interpreter = platform.python_for(Path(sys.executable) if python is None else python, console=False)
-    argv = daemon_argv(root, Path(os.path.abspath(config_path)), python=interpreter, extra=extra)
+    launched = ("--launched-at", repr(time.time()))
+    argv = daemon_argv(root, Path(os.path.abspath(config_path)), python=interpreter, extra=(*extra, *launched))
     return platform.spawn_detached(argv, cwd=root, env=scrub_python_env(os.environ if env is None else env))
 
 

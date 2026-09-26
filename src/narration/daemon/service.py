@@ -7,10 +7,8 @@
    it to go, and takes over, so a job queued while a daemon was exiting is not left waiting. If the holder
    says ``idle`` or ``busy`` again meanwhile (it found work as it was about to exit), this one gives up;
 2. records its own pid and start time, sweeps up after the previous daemon (``sweep``), and reads the
-   pending commands once: a ``stop`` is for the service, not for one daemon process, so the daemon that
-   holds the singleton when it reads a pending ``stop`` (even one posted while it waited for the singleton)
-   honours it, before any work, and never says ``idle``. Otherwise it writes ``run/daemon.json``
-   (``idle``);
+   pending commands once (see "Which stops a daemon honours"). A ``stop`` it honours stops it before any
+   work, and it never says ``idle``; otherwise it writes ``run/daemon.json`` (``idle``);
 3. opens the worker supervisor (its kill-on-close group) and starts the runner thread, which drives the
    ``JobRunner`` one ``step`` at a time, unloads idle models after ``idle_unload_s``, and asks to exit
    after ``idle_exit_s`` with nothing to do. It says ``stopping`` first, then asks the runner ``has_work``
@@ -23,6 +21,18 @@
 
 Every file the store publishes is written to a temp name and renamed, so a ``stop_now`` never leaves a
 partial file published (section 4.1).
+
+**Which stops a daemon honours** (lead's decision, WP30 review). A ``stop`` is for the service, not for one
+daemon process, but only for the service as it was when the stop was asked. A daemon honours a pending
+``stop`` or ``stop_now`` posted after it was launched (``launched_at``), whenever it reads it: even one posted
+while it waited for the singleton, which the daemon it took over from never read. It completes one posted
+before it was launched with ``stopped: false`` and keeps serving: that stop was asked of a daemon that has
+gone without reading it, or of none. Both times are read from the wall clock (``time.time``), as
+``started_at`` is; a command's ``requested_at`` is cut to the millisecond, so a stop posted in the
+millisecond of the launch counts as posted after it (``posted_after_launch``).
+
+So ``narration-admin daemon stop`` (WP37) posts a stop only when ``start.running_daemon`` says a daemon
+runs: a stop posted with none running stops nothing, and is answered ``stopped: false`` by the next daemon.
 """
 
 from __future__ import annotations
@@ -40,7 +50,7 @@ from narration.contracts.interfaces import Store
 from narration.contracts.models import JobRecord
 from narration.contracts.names import JobPhase
 from narration.platform import ProcessPlatform
-from narration.store.store import utc_iso
+from narration.store.store import parse_iso, utc_iso
 
 from .seam import DAEMON_HOLDER, GpuFacts, JobRunner, ShutdownReason, StopMode, return_job
 from .settings import DaemonSettings
@@ -59,6 +69,20 @@ EXIT_USAGE: Final = 2
 
 MAX_STEP_BACKOFF_S: Final = 30.0
 """The longest wait after a step that raised, before the next step."""
+
+STAMP_PRECISION_S: Final = 0.001
+"""Store times (``requested_at``, ``started_at``) are written to the millisecond, cut short (``utc_iso``)."""
+
+STALE_STOP_REASON: Final = "it was posted before this daemon was launched, and no daemon running then read it"
+"""The ``reason`` of a stop a daemon does not honour (see "Which stops a daemon honours")."""
+
+
+def posted_after_launch(requested_at: str, launched_at: float) -> bool:
+    """Whether a command posted at ``requested_at`` (a store time, cut to the millisecond) may have been posted
+    after ``launched_at`` (Unix seconds, the same wall clock). A command posted in the millisecond of the launch
+    counts as after it, so a stop asked of this daemon is never taken for an older one."""
+    return parse_iso(requested_at) + STAMP_PRECISION_S > launched_at
+
 
 SupervisorFactory = Callable[[Callable[[], None]], WorkerSupervisor]
 """Makes the daemon's supervisor, given the callback it reports worker changes to."""
@@ -138,10 +162,13 @@ class Daemon:
         runner: JobRunner,
         supervisor_factory: SupervisorFactory | None = None,
         pid: int | None = None,
+        launched_at: float | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], float] = time.time,
     ) -> None:
         self.settings = settings
+        self.launched_at = wall() if launched_at is None else launched_at
+        """When this daemon was launched (Unix seconds, ``wall``): stops posted before it are not for it."""
         self.config = config
         self.store = store
         self.platform = platform
@@ -285,11 +312,26 @@ class Daemon:
                 else:
                     log.info("release_gpu: %s", result)
             elif command.kind in ("stop", "stop_now"):
-                self._stop_commands.append(command.command_id)
+                stale = not posted_after_launch(command.requested_at, self.launched_at)
+                if stale and self.stopping is None:
+                    self._complete_stale_stop(command.command_id, command.kind)
+                    continue
+                self._stop_commands.append(command.command_id)  # completed as stopped, with the others
+                if stale:  # already stopping: an older stop_now does not hurry it
+                    continue
                 log.info("%s requested", command.kind)
                 self._request_stop("now" if command.kind == "stop_now" else "segment")
             else:  # pragma: no cover - the store refuses other kinds
                 log.error("unknown daemon command %r", command.kind)
+
+    def _complete_stale_stop(self, command_id: str, kind: str) -> None:
+        """Answer a stop posted before this daemon was launched, and keep serving."""
+        try:
+            self.store.complete_command(command_id, {"stopped": False, "reason": STALE_STOP_REASON})
+        except Exception:
+            log.exception("could not complete command %s", command_id)
+        else:
+            log.info("%s %s was posted before this daemon was launched; not honoured", kind, command_id)
 
     def _release_gpu(self) -> dict[str, Any]:
         """``release_gpu`` (section 7.6): unload an idle model at once; while a job runs, change nothing and

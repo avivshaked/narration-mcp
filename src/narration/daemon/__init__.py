@@ -15,7 +15,8 @@ and it:
   environment, at below-normal priority, inside a kill-on-close group, so workers die with the daemon;
 - writes ``run/daemon.json`` (``status``) on start and on every phase change, for ``get_server_status``;
 - answers commands posted through the store (``release_gpu``, ``stop``, ``stop_now``; there are no
-  sockets, section 4);
+  sockets, section 4). It honours only the stops posted after it was launched, so ``narration-admin daemon
+  stop`` (WP37) posts one only when ``start.running_daemon`` says a daemon runs (``service``);
 - unloads idle models after ``[daemon] idle_unload_s`` and exits after ``idle_exit_min`` idle;
 - drives a ``JobRunner`` (``seam``), the job engine that claims and runs the work (WP31).
 

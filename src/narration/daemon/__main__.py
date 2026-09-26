@@ -22,6 +22,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Final
 
@@ -30,6 +31,8 @@ from narration_worker.threads import cap_threads_env
 from narration.config import Config, load_config
 from narration.contracts.errors import ConfigError
 
+BEGAN: Final = time.time()
+"""When this module began to run (Unix seconds): the daemon's launch time when no launcher gave one."""
 DEFAULT_RUNNER: Final = "narration.daemon.seam:NullRunner"
 """The job runner the daemon drives unless ``--runner`` names another (the job engine, WP31, replaces it)."""
 LOG_NAME: Final = "daemon.log"
@@ -48,6 +51,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--store", required=True, type=Path, help="the store root (section 15)")
     parser.add_argument("--config", required=True, type=Path, help="the configuration file (section 16)")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
+    parser.add_argument(
+        "--launched-at",
+        type=float,
+        default=None,
+        help="when the launcher started this process (Unix seconds; start_detached sets it)",
+    )
     dev = parser.add_argument_group("development and tests")
     dev.add_argument("--fake-workers", action="store_true", help="serve every worker group with the fake role")
     dev.add_argument("--runner", default=DEFAULT_RUNNER, help="module:callable that returns the JobRunner")
@@ -55,6 +64,12 @@ def _parser() -> argparse.ArgumentParser:
     dev.add_argument("--idle-exit-s", type=float, default=None, help="override [daemon] idle_exit_min, in seconds")
     dev.add_argument("--poll-s", type=float, default=None, help="how often to look for commands and work")
     return parser
+
+
+def launch_time(given: float | None, began: float) -> float:
+    """This daemon's launch time: the launcher's ``--launched-at``, or ``began`` without one. A launcher
+    cannot have started this process after it began to run, so a later ``given`` is not believed."""
+    return began if given is None else min(given, began)
 
 
 def _same_folder(a: Path, b: Path) -> bool:
@@ -123,7 +138,15 @@ def _serve(args: argparse.Namespace, config: Config) -> int:
             log.error("%r is not a JobRunner (it needs step, has_work and shutdown)", args.runner)
             return _EXIT_USAGE
         try:
-            return Daemon(settings=settings, config=config, store=store, platform=platform, runner=runner).run()
+            daemon = Daemon(
+                settings=settings,
+                config=config,
+                store=store,
+                platform=platform,
+                runner=runner,
+                launched_at=launch_time(args.launched_at, BEGAN),
+            )
+            return daemon.run()
         except Exception:
             log.exception("the daemon failed")
             return _EXIT_ERROR

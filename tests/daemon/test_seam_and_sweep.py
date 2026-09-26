@@ -14,7 +14,7 @@ from narration.config import Config
 from narration.contracts.models import DaemonStatus, GpuStatus
 from narration.contracts.names import DaemonState
 from narration.daemon.seam import JobRunner, NullRunner, RunnerHost, WorkerPool, return_job
-from narration.daemon.service import Daemon, _Host  # pyright: ignore[reportPrivateUsage]
+from narration.daemon.service import Daemon, _Host, posted_after_launch  # pyright: ignore[reportPrivateUsage]
 from narration.daemon.settings import DaemonSettings
 from narration.daemon.supervisor import WorkerSupervisor
 from narration.daemon.sweep import (
@@ -249,6 +249,22 @@ def test_the_sweep_waits_for_a_daemon_still_exiting_s4_1(store: NarrationStore) 
     )
     assert report.previous == "exiting"
     assert len(calls) >= 4
+
+
+@pytest.mark.parametrize(
+    ("requested_at", "launched_at", "after"),
+    [
+        ("1970-01-01T00:16:40.002Z", 1000.0005, True),  # a later millisecond
+        ("1970-01-01T00:16:40.000Z", 1000.0005, True),  # the launch's own millisecond: may be after it
+        ("1970-01-01T00:16:39.999Z", 1000.0005, False),  # the millisecond before
+        ("1970-01-01T00:16:39.998Z", 1000.0, False),
+        ("1970-01-01T00:16:40.000Z", 1000.0, True),
+    ],
+)
+def test_a_stop_counts_as_posted_after_launch_to_its_millisecond_s4_1(
+    requested_at: str, launched_at: float, after: bool
+) -> None:
+    assert posted_after_launch(requested_at, launched_at) is after
 
 
 def test_the_sweep_leaves_every_command_to_the_daemon_s4_1(store: NarrationStore) -> None:

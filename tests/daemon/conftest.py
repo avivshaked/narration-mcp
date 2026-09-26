@@ -220,7 +220,8 @@ DaemonFactory = Callable[..., DaemonHarness]
 def run_daemon(
     config: Config, store: NarrationStore, platform: StandInPlatform, tmp_path: Path
 ) -> Iterator[DaemonFactory]:
-    """Starts daemons on threads, with fake workers; every one is stopped (``stop_now``) at teardown."""
+    """Starts daemons on threads, with fake workers; every one is stopped (``stop_now``) at teardown. A daemon
+    is launched when the factory makes it (``launched_at``, unless given), even with ``start=False``."""
     harnesses: list[DaemonHarness] = []
 
     def start(
@@ -229,6 +230,7 @@ def run_daemon(
         spec: dict[str, Any] | None = None,
         start: bool = True,
         broken_workers: bool = False,
+        launched_at: float | None = None,
         **overrides: Any,
     ) -> DaemonHarness:
         env = fake_env(tmp_path, spec)
@@ -264,6 +266,7 @@ def run_daemon(
             platform=platform,
             runner=runner,
             supervisor_factory=supervisor,
+            launched_at=launched_at,
         )
         harness = DaemonHarness(daemon, store)
         harnesses.append(harness)

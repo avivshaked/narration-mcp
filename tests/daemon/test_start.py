@@ -67,6 +67,17 @@ def test_a_detached_start_uses_the_platform_with_the_store_as_cwd_s4_1(tmp_path:
     assert env == {"A": "1"}
 
 
+def test_the_daemon_is_told_when_it_was_launched_s4_1(tmp_path: Path) -> None:
+    platform = StandInPlatform()
+    before = time.time()
+    start_detached(tmp_path / "store", tmp_path / "narration.toml", platform=platform, extra=["--poll-s", "1"])
+    after = time.time()
+    ((argv, _, _),) = platform.spawned
+    assert argv[-4:-2] == ["--poll-s", "1"], "the caller's options are kept"
+    assert argv[-2] == "--launched-at"
+    assert before <= float(argv[-1]) <= after
+
+
 def test_the_daemon_starts_without_the_variables_that_change_imports_s17(tmp_path: Path) -> None:
     platform = StandInPlatform()
     env = {
