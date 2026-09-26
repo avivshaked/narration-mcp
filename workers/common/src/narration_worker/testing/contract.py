@@ -1,0 +1,249 @@
+"""The worker contract tests (design Appendix A; plan.md WP16): every worker role runs these.
+
+Subclass ``WorkerContract`` once per worker, in a class whose name starts with ``Test``, and set ``role``::
+
+    from narration_worker.testing.contract import WorkerContract
+
+    class TestQwen3WorkerContract(WorkerContract):
+        role = "qwen3"
+
+The default ``worker_argv`` fixture starts ``python -m narration_worker --role <role> --store <tmp store>``
+with the running interpreter, so run the tests from the worker's own venv. Override fixtures to change what
+is started (``worker_argv``, ``worker_env``) or to enable the load round trip (``load_request``: a ``load``
+request that succeeds here; the default ``None`` skips that one test, as for a real model on a machine
+without it). Nothing here needs a model or a GPU.
+
+What the contract says, beyond the message shapes:
+
+- ``hello`` names the role, the protocol version, exactly the role's ops, and a complete fingerprint;
+- every reply echoes its request's id; a line without an integer id gets ``"id": null``;
+- malformed input and unknown ops get ``INVALID_REQUEST`` and the worker keeps serving;
+- model ops reply ``NOT_LOADED`` before ``load`` (and after ``unload``), before reading any file;
+- ``load`` with a snapshot directory that does not exist replies ``BACKEND_NOT_INSTALLED``;
+- ``shutdown`` replies, then the process exits with code 0; so does the end of input, without a reply;
+- stdout carries protocol replies and nothing else.
+"""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any, ClassVar
+
+import pytest
+
+from narration_worker.protocol import COMMON_OPS, FAKE_OPS, OPS_BY_ROLE, PROTOCOL_VERSION, Fingerprint, WorkerRole
+
+from .client import WorkerProcess, check_reply
+
+DETERMINISM: dict[str, Any] = {
+    "tf32": False,
+    "cudnn_deterministic": True,
+    "cudnn_benchmark": False,
+    "deterministic_algorithms": "warn_only",
+}
+
+
+def sample_requests(store_root: Path) -> dict[str, dict[str, Any]]:
+    """A well-formed request body for each model op, naming files that need not exist."""
+    scratch = store_root / "scratch" / "contract"
+    wav = str(scratch / "in.wav")
+    out = str(scratch / "out.wav")
+    voice = "sha256:" + "0" * 64
+    return {
+        "prepare_voice": {"voice_hash": voice, "ref_wav": wav, "ref_text": "Hello there.", "x_vector_only_mode": False},
+        "synthesize": {
+            "voice_hash": voice,
+            "engine_text": "Hello there.",
+            "language": "English",
+            "seed": 1,
+            "out_path": out,
+        },
+        "design": {
+            "description": "A calm voice.",
+            "design_text": "Hello there.",
+            "language": "English",
+            "seed": 1,
+            "out_path": out,
+        },
+        "transcribe": {"wav": wav, "language": "English", "word_timestamps": True, "long_form": True},
+        "embed": {"wav": wav, "device": "cpu"},
+        "f0": {"wav": wav, "fmin_hz": 50.0, "fmax_hz": 400.0},
+        "align": {"wav": wav, "tokens": ["H", "E", "L", "L", "O"]},
+        "profile": {"wav": wav, "out_dir": str(scratch / "profile"), "transcript": None},
+    }
+
+
+def missing_snapshot_load(store_root: Path) -> dict[str, Any]:
+    """A complete ``load`` request whose every snapshot directory is missing."""
+    ref = {"repo": "example/missing", "revision": "0" * 40, "snapshot_dir": str(store_root / "no-such-snapshot")}
+    return {
+        "device": "cpu",
+        "model": ref,
+        "models": {"asr": ref, "sv": ref, "aligner": ref},
+        "engine_profile_id": "contract-test",
+        "dtype": "bfloat16",
+        "attn_implementation": "sdpa",
+        "determinism": dict(DETERMINISM),
+        "settings": {"non_streaming_mode": False, "generation": {"max_new_tokens": 8192}},
+    }
+
+
+class WorkerContract:
+    """The contract tests; subclass per worker (see the module docstring)."""
+
+    role: ClassVar[WorkerRole]
+    timeout_s: ClassVar[float] = 120.0
+    """How long any single reply may take (a real worker imports torch when it starts)."""
+
+    # ------------------------------------------------------------------ fixtures to override
+    @pytest.fixture
+    def store_root(self, tmp_path: Path) -> Path:
+        root = tmp_path / "store"
+        (root / "scratch").mkdir(parents=True)
+        return root
+
+    @pytest.fixture
+    def worker_argv(self, store_root: Path) -> list[str]:
+        return [
+            sys.executable,
+            "-m",
+            "narration_worker",
+            "--role",
+            self.role,
+            "--store",
+            str(store_root),
+            "--cpu-threads",
+            "2",
+        ]
+
+    @pytest.fixture
+    def worker_env(self) -> dict[str, str] | None:
+        return None
+
+    @pytest.fixture
+    def load_request(self, store_root: Path) -> dict[str, Any] | None:
+        return None
+
+    @pytest.fixture
+    def worker(self, worker_argv: list[str], worker_env: dict[str, str] | None) -> Iterator[WorkerProcess]:
+        process = WorkerProcess(worker_argv, env=worker_env)
+        try:
+            process.start()
+            yield process
+        finally:
+            process.stop()
+
+    # ------------------------------------------------------------------ the contract
+    def test_hello_names_role_protocol_ops_and_fingerprint_appA(self, worker: WorkerProcess) -> None:
+        reply = worker.request("hello", timeout_s=self.timeout_s)
+        assert reply["ok"] is True, reply
+        assert reply["role"] == self.role
+        assert reply["protocol"] == PROTOCOL_VERSION
+        ops = reply["capabilities"]["ops"]
+        assert sorted(ops) == sorted(OPS_BY_ROLE[self.role]) and len(ops) == len(set(ops))
+        controls = reply["capabilities"].get("controls")
+        if controls is not None:
+            assert set(controls) == {"pace", "context", "instruct"}
+            assert all(isinstance(v, bool) for v in controls.values())
+        fingerprint = reply["fingerprint"]
+        assert set(fingerprint) == set(Fingerprint.__annotations__)
+        assert isinstance(fingerprint["python"], str) and fingerprint["python"].startswith("3.")
+        assert isinstance(fingerprint["platform"], str) and fingerprint["platform"]
+        assert all(isinstance(k, str) and isinstance(v, str) for k, v in fingerprint["packages"].items())
+        assert "narration-worker" in fingerprint["packages"]
+        for key in ("cuda", "cudnn", "gpu", "driver"):
+            assert fingerprint[key] is None or isinstance(fingerprint[key], str), key
+        assert fingerprint["cpu_threads"] == 2
+        assert all(isinstance(k, str) and isinstance(v, str) for k, v in fingerprint["env"].items())
+        assert fingerprint["env"].get("CUBLAS_WORKSPACE_CONFIG"), "CUBLAS_WORKSPACE_CONFIG must be set (s10.1)"
+
+    def test_every_reply_echoes_its_request_id_appA(self, worker: WorkerProcess) -> None:
+        for rid in (0, 7, 2**40, -3):
+            worker.send({"id": rid, "op": "hello"})
+            reply = worker.receive(self.timeout_s)
+            assert (reply["id"], reply["ok"]) == (rid, True)
+
+    def test_an_unknown_op_is_invalid_request_appA(self, worker: WorkerProcess) -> None:
+        foreign = sorted(set(FAKE_OPS) - set(OPS_BY_ROLE[self.role]))
+        for op in ["no_such_op", *foreign]:
+            reply = worker.request(op, timeout_s=self.timeout_s)
+            assert reply["ok"] is False and reply["error"]["code"] == "INVALID_REQUEST", (op, reply)
+
+    @pytest.mark.parametrize(
+        ("line", "expected_id"),
+        [
+            (b"this is not json", None),
+            (b"[1, 2, 3]", None),
+            (b"\xff\xfe\xfd", None),
+            (b'{"op": "hello"}', None),
+            (b'{"id": "1", "op": "hello"}', None),
+            (b'{"id": true, "op": "hello"}', None),
+            (b'{"id": 1, "op": "hello", "x": NaN}', None),
+            (b'{"id": 5}', 5),
+            (b'{"id": 6, "op": 7}', 6),
+        ],
+    )
+    def test_malformed_input_is_invalid_request_and_the_worker_keeps_serving_appA(
+        self, worker: WorkerProcess, line: bytes, expected_id: int | None
+    ) -> None:
+        worker.send_raw(line + b"\n")
+        reply = worker.receive(self.timeout_s)
+        assert reply["id"] == expected_id
+        assert reply["ok"] is False and reply["error"]["code"] == "INVALID_REQUEST"
+        worker.send_raw(b"\n")  # a blank line gets no reply
+        assert worker.request("hello", timeout_s=self.timeout_s)["ok"] is True
+
+    def test_model_ops_before_load_reply_not_loaded_appA(self, worker: WorkerProcess, store_root: Path) -> None:
+        samples = sample_requests(store_root)
+        for op in OPS_BY_ROLE[self.role]:
+            if op in COMMON_OPS:
+                continue
+            reply = worker.request(op, timeout_s=self.timeout_s, **samples[op])
+            assert reply["ok"] is False and reply["error"]["code"] == "NOT_LOADED", (op, reply)
+
+    def test_load_with_a_missing_snapshot_is_backend_not_installed_s14(
+        self, worker: WorkerProcess, store_root: Path
+    ) -> None:
+        reply = worker.request("load", timeout_s=self.timeout_s, **missing_snapshot_load(store_root))
+        assert reply["ok"] is False and reply["error"]["code"] == "BACKEND_NOT_INSTALLED", reply
+
+    def test_load_then_unload_appA(
+        self, worker: WorkerProcess, store_root: Path, load_request: dict[str, Any] | None
+    ) -> None:
+        if load_request is None:
+            pytest.skip(f"no loadable {self.role} models here: override the load_request fixture to run this")
+        loaded = worker.request("load", timeout_s=self.timeout_s, **load_request)
+        assert loaded["ok"] is True, loaded
+        assert isinstance(loaded["load_s"], int | float) and loaded["load_s"] >= 0
+        assert loaded["vram_mb"] is None or isinstance(loaded["vram_mb"], int)
+        assert worker.request("unload", timeout_s=self.timeout_s) == {"id": loaded["id"] + 1, "ok": True}
+        assert worker.request("unload", timeout_s=self.timeout_s)["ok"] is True
+        model_ops = [op for op in OPS_BY_ROLE[self.role] if op not in COMMON_OPS]
+        reply = worker.request(model_ops[0], timeout_s=self.timeout_s, **sample_requests(store_root)[model_ops[0]])
+        assert reply["ok"] is False and reply["error"]["code"] == "NOT_LOADED"
+
+    def test_shutdown_replies_then_exits_zero_appA(self, worker: WorkerProcess) -> None:
+        reply = worker.request("shutdown", timeout_s=self.timeout_s)
+        assert reply["ok"] is True
+        assert worker.wait(self.timeout_s) == 0
+
+    def test_end_of_input_exits_zero_appA(self, worker: WorkerProcess) -> None:
+        assert worker.request("hello", timeout_s=self.timeout_s)["ok"] is True
+        worker.close_stdin()
+        assert worker.wait(self.timeout_s) == 0
+        assert len(worker.lines) == 1
+
+    def test_stdout_is_protocol_only_appA(self, worker: WorkerProcess, store_root: Path) -> None:
+        worker.request("hello", timeout_s=self.timeout_s)
+        worker.request("no_such_op", timeout_s=self.timeout_s)
+        worker.send_raw(b"not json\n")
+        worker.receive(self.timeout_s)
+        worker.request("load", timeout_s=self.timeout_s, **missing_snapshot_load(store_root))
+        worker.request("unload", timeout_s=self.timeout_s)
+        worker.request("shutdown", timeout_s=self.timeout_s)
+        assert worker.wait(self.timeout_s) == 0
+        assert len(worker.lines) == 6, worker.lines
+        for line in worker.lines:
+            check_reply(line)
