@@ -20,19 +20,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Final
 
-import narration
-from narration import config as config_module
-from narration.config import Config, load_config
+from narration.config import CONFIG_ENV, CONFIG_FILE_NAME, Config, find_config, load_config
 from narration.contracts.errors import ConfigError
 
-CONFIG_NAME: Final = "narration.toml"
-CONFIG_ENV: Final = "NARRATION_CONFIG"
 LOG_NAME: Final = "narration-mcp.log"
 LOG_MAX_BYTES: Final = 5 * 1024 * 1024
 LOG_BACKUPS: Final = 3
@@ -40,34 +35,6 @@ EXIT_USAGE: Final = 2
 EXIT_ERROR: Final = 1
 
 log = logging.getLogger("narration.mcp")
-
-
-def find_config(explicit: Path | None) -> Path:
-    """The configuration file, by ``narration.config.find_config``'s rule; raises ``ConfigError`` saying
-    what to do when there is none.
-
-    The rule's own copy below serves only a build from before ``find_config`` was in ``narration.config``
-    (WP36 was built on such a base); the rebase onto ``main`` removes it.
-    """
-    finder = getattr(config_module, "find_config", None)
-    if finder is not None:
-        return finder(explicit)
-    if explicit is not None and str(explicit) != "":
-        candidate, source = explicit, "--config"
-    elif os.environ.get(CONFIG_ENV):
-        candidate, source = Path(os.environ[CONFIG_ENV]), CONFIG_ENV
-    else:
-        root = Path(narration.__file__).resolve().parents[2]
-        if not (root / "pyproject.toml").is_file():
-            raise ConfigError(f"no configuration given: pass --config <path to {CONFIG_NAME}> or set {CONFIG_ENV}")
-        candidate, source = root / CONFIG_NAME, "the service's folder"
-    candidate = candidate.expanduser().resolve()
-    if not candidate.is_file():
-        raise ConfigError(
-            f"no configuration file at {candidate} (from {source}); copy narration.example.toml to "
-            f"{CONFIG_NAME} and edit it, or pass --config <path>"
-        )
-    return candidate
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -79,7 +46,7 @@ def _parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         default=None,
-        help=f"the configuration file (default: the file {CONFIG_ENV} names, else {CONFIG_NAME} in the service's "
+        help=f"the configuration file (default: the file {CONFIG_ENV} names, else {CONFIG_FILE_NAME} in the service's "
         "folder)",
     )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))

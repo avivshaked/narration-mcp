@@ -21,7 +21,7 @@ CONFIG = Path("narration.toml")
 
 
 def with_start(monkeypatch: pytest.MonkeyPatch, **functions: Any) -> list[tuple[Any, ...]]:
-    """Stand in for ``narration.daemon.start``; returns the calls made to ``ensure_daemon``."""
+    """Stand in for ``narration.daemon.start``'s two calls; returns the calls made to ``ensure_daemon``."""
     calls: list[tuple[Any, ...]] = []
 
     def ensure_daemon(store: Any, config_path: Path, *, extra: tuple[str, ...] = ()) -> Any:
@@ -31,8 +31,8 @@ def with_start(monkeypatch: pytest.MonkeyPatch, **functions: Any) -> list[tuple[
             raise raising
         return SimpleNamespace(started=True, spawned_pid=42)
 
-    module = SimpleNamespace(ensure_daemon=ensure_daemon, running_daemon=functions.get("running", lambda s: None))
-    monkeypatch.setattr(launch, "_start_module", lambda: module)
+    monkeypatch.setattr(launch.daemon_start, "ensure_daemon", ensure_daemon)
+    monkeypatch.setattr(launch.daemon_start, "running_daemon", functions.get("running", lambda s: None))
     return calls
 
 
@@ -84,9 +84,3 @@ def test_no_config_file_means_no_daemon_can_be_started_s16(monkeypatch: pytest.M
     with_start(monkeypatch)
     error = unavailable(DetachedLauncher(None))
     assert (error.code, error.retryable) == (codes.DAEMON_UNAVAILABLE, True)
-
-
-def test_a_build_without_the_daemon_says_so_s4(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(launch, "_start_module", lambda: None)
-    assert DetachedLauncher(CONFIG).running(STORE) is None
-    assert unavailable(DetachedLauncher(CONFIG)).code == codes.DAEMON_UNAVAILABLE
