@@ -171,7 +171,14 @@ are tracked here but no version is tagged; nothing described below is installabl
     spectral centroid, HNR, CPPS) with a spectrogram and pitch picture, all without GPL code;
   - `align`: the forced alignment on the CPU.
 
+  After each op on the GPU it returns the memory PyTorch keeps cached, so between ops it holds only its
+  models on a shared GPU.
+
 ### Changed
+
+- A worker that runs out of GPU memory while CUDA creates its context or cuBLAS its handle ("CUDA error:
+  out of memory", `CUBLAS_STATUS_ALLOC_FAILED`) now reports `GPU_OOM`, as for any other allocation, so the
+  daemon unloads, waits and retries once instead of failing with `INTERNAL`.
 
 - The default design text (`[voice_design] design_text`, also the canary's design text in
   `material/canary/canary.v1`) is a new text written for the service: "Good bread asks for patience: the
