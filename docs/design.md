@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.10 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.11 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -70,6 +70,11 @@ applied here, each listed in the revision history below.*
   - The method id also covers the reaches, the wildcard and the versions of the rules.*
 - *Revision 5.10 (the same day) names the four reasons a `CUE_UNALIGNED` can carry
   (section 11.2 step 7), as contracts 1.6.3 define them.*
+- *Revision 5.11 (2026-09-27) describes the daemon as built (sections 4, 4.1 and 17).
+  - The daemon runs as `pythonw.exe` on Windows. The daemon and the workers start with `-P` and without
+    `PYTHONPATH`, `PYTHONHOME` or `PYTHONSTARTUP`; a worker starts in its own project folder.
+  - A daemon honours every stop posted after it was launched, and only those.
+  - A daemon about to exit checks once more for work, so no job is stranded.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -594,9 +599,9 @@ item, to add only if agents shortlist badly from the numbers.
 
 - One per role (`qwen3`, `qa`, and the optional `listen`), each in its own uv project
   (`workers/<role>/`), synced once at install (`uv sync --frozen`).
-- At runtime the daemon starts **the worker venv's `python.exe` directly**: `-m narration_worker --role
-  … --store …`, with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`. uv is not in the loop, so there are
-  fewer processes and no network path.
+- At runtime the daemon starts **the worker venv's `python.exe` directly**: `-P -m narration_worker
+  --role … --store …`, with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` (section 17 item 9). uv is
+  not in the loop, so there are fewer processes and no network path.
 - Models load from a local snapshot directory whose path contains the commit SHA.
 - Batch size is 1. Audio is exchanged as files in `store_root\scratch\` (Appendix A).
 - The workers are assigned to the daemon's Windows Job Object (kill-on-close), so they die with the
@@ -668,8 +673,8 @@ provides:
   holds the GPU.
 - **Detachment (Windows).** The front-end starts the daemon with
   `CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, with stdin, stdout and
-  stderr on `NUL` and all inherited handles closed (`close_fds=True`). The working directory is
-  `store_root`, and the daemon writes its own log.
+  stderr on `NUL` and all inherited handles closed (`close_fds=True`). The daemon's working directory
+  is `store_root`, and it writes its own log. A worker's working directory is its own project folder.
   - If the client's Job Object forbids breakaway, `CreateProcess` fails with access denied. The
     front-end then does **not** start a non-detached daemon, because it would die with the client
     mid-job. It returns `DAEMON_UNAVAILABLE` with the hint *"run `narration-admin daemon start` in a
@@ -680,16 +685,34 @@ provides:
 | Role | Image | Command-line marker |
 |---|---|---|
 | front-end | `python.exe` (child of the `narration-mcp.exe` uv launcher; BELIEVE) | `narration-mcp --config <path>` |
-| daemon | `python.exe` (server venv) | `-m narration.daemon --store <store_root>` |
-| Qwen worker | `python.exe` (worker venv) | `-m narration_worker --role qwen3 --store <store_root>` |
-| QA worker | `python.exe` (worker venv) | `-m narration_worker --role qa --store <store_root>` |
+| daemon | `pythonw.exe` on Windows, `python` elsewhere (server venv) | `-P -m narration.daemon --store <store_root>` |
+| Qwen worker | `python.exe` (worker venv) | `-P -m narration_worker --role qwen3 --store <store_root>` |
+| QA worker | `python.exe` (worker venv) | `-P -m narration_worker --role qa --store <store_root>` |
 
-  `store_root\run\daemon.json` (pid, start time, workers) exists while the daemon runs.
+  The marker to match is `-m <module> --store <store_root>`. `store_root\run\daemon.json` (pid, start
+  time, workers) exists while the daemon runs. A recorded daemon counts as running only if a process with
+  its pid was created no later than its start time (within 2 s), so a later process that reuses the pid is
+  never taken for it. The service never acts on a process by a bare pid: it stops the workers it started
+  through their own process handles and the daemon's Job Object.
 - **Stop.**
   - `narration-admin daemon stop`: stop claiming work, finish the in-flight segment, unload, exit.
     Queued jobs resume on the next start.
   - `daemon stop --now`: terminate the Job Object and re-queue the in-flight segment. All files are
     written to a temp name and renamed, so nothing partial is ever published.
+  - **A stop is for every daemon launched before it was asked.** A daemon honours a stop only if it was
+    posted after that daemon was launched. It honours it whether the stop is still pending or an exiting
+    daemon has already answered it `stopped: true`. The launcher passes the launch time (`--launched-at`),
+    and a stop in the launch's own millisecond counts as after it. An answered stop stamped later than the
+    daemon's own clock is not trusted, so a clock stepped back never stops every new daemon.
+    - So a daemon launched while the old one was exiting also stops, and the answer `stopped: true`
+      holds.
+    - A daemon launched later answers an older, still pending stop `stopped: false` and keeps serving.
+    - `daemon stop` posts a stop only when a daemon is running.
+  - A daemon about to exit for being idle says `stopping` first, then asks the job engine once more
+    whether work arrived. If it did, the daemon goes back to `idle`. The front-end commits a job before
+    it checks for a daemon, and starts one if the daemon says `stopping`. A daemon waiting to take over
+    gives up only when the holder is `idle` or `busy` again. So a job queued in that moment is never
+    stranded.
 
 ---
 
@@ -2084,6 +2107,14 @@ Client launch configuration, e.g. a `.mcp.json` for Claude Code:
 9. **Process hygiene.** Argument lists, never a shell. A detached daemon with `NUL` std handles and
    closed handles. Workers in a Job Object, without admin rights, at below-normal priority, with the CPU
    thread cap.
+   - The daemon and every worker are started as `<python> -P -m <module> …`. `-P` keeps the working
+     folder off `sys.path`, so a module there is never imported in place of the service's own.
+   - Their environment drops `PYTHONPATH`, `PYTHONHOME` and `PYTHONSTARTUP` (by name, ignoring case) and
+     keeps the rest, including `PATH`, the thread caps and the offline flags.
+   - A worker's working folder is its project folder (`[workers.<role>] project`), never the store root.
+   - On Windows, the daemon's and the workers' environments set `NoDefaultCurrentDirectoryInExePath=1`.
+     A library the Qwen worker imports runs a program through `cmd.exe`, which would otherwise look in
+     the working folder before `PATH`.
 10. **No approvals to protect.** The service keeps no lock, no voice registry and no approval, so there
     is nothing an agent could approve for itself. The operator commands (install, engine pins, gc,
     bench, daemon stop) are machine chores that change no caller's result; `gc` is a dry run by default.
