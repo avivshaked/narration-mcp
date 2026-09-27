@@ -2,7 +2,7 @@
 
 *Plan revision 3, 2026-09-27. Status: **Waves 0 and 1 merged; Wave 2 under way; first narration (M1, §6) is the priority.***
 
-**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.12**. It is the
+**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.13**. It is the
 bake-off's design copied into this repository, and differs only in two example paths and a header note.
 This plan cites it as "§n". Changes to it are proposed and approved in §1.5, and approved changes enter
 it as revision 5.2. Where this plan and the design disagree, the design wins, and the plan gets fixed.
@@ -531,8 +531,8 @@ because the bakeoff set no determinism switches. Spike (d) decides the tier and 
 | WP38 | Alignment benchmark + `bench alignment` | §11.2, spike (a) | WP15, WP18, WP20 | yes (renders); **H2, H3** |
 | WP39 | Phase 0 (c): length ladder for d2 and d4 | §3.2, §20 (c) | WP33 (or a spike harness), H1 | yes (40–100 min) |
 
-**WP22 QA worker.** `transcribe`: Whisper-large-v3, fp16, English, greedy, word timestamps, sequential
-long-form (30 s windows conditioned on the previous text), revision pinned. `embed`: WavLM-base-plus-sv on
+**WP22 QA worker.** `transcribe`: Whisper-large-v3, fp16, English, five beams (DC-14), word timestamps,
+sequential long-form (30 s windows, not conditioned on the previous text), revision pinned. `embed`: WavLM-base-plus-sv on
 the GPU, and on the CPU for the canary. `f0` and `profile` per **DC-1**, with no GPL code: pitch median
 and 10th–90th percentile range (Hz and semitones) from `librosa.pyin`, speaking rate, pause ratio,
 loudness, spectral centroid, HNR (Boersma's autocorrelation method) and CPPS; a spectrogram and a pitch

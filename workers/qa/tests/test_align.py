@@ -10,15 +10,18 @@ from __future__ import annotations
 import json
 import math
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import soundfile as sf
-import torch
 from narration_worker.protocol import WORKER_ERROR_CODES
 from narration_worker_qa import align as qa
+
+torch = pytest.importorskip("torch", reason="needs torch and transformers: the QA worker's full venv")
+pytest.importorskip("transformers", reason="needs torch and transformers: the QA worker's full venv")
 
 REPO = "facebook/wav2vec2-large-960h-lv60-self"
 REVISION = "54074b1c16f4de6a5ad59affb4caa8f2ea03a119"
@@ -200,7 +203,12 @@ PINNED_VOCABULARY = ("<pad>", "<s>", "</s>", "<unk>", "|", *"ETAONIHSRDLUMWCFGYP
 
 def _tiny_snapshot(root: Path, *, safetensors: bool = False) -> Path:
     """A real, tiny wav2vec2 CTC snapshot (random weights) with the pinned model's vocabulary. Its weights are
-    ``pytorch_model.bin``, as the pinned revision's are, or ``model.safetensors``."""
+    ``pytorch_model.bin``, as the pinned revision's are, or ``model.safetensors``.
+
+    Regression (WP22): transformers 5.17's ``save_pretrained(safe_serialization=False)`` still writes
+    ``model.safetensors``, so the ``bin`` cases tested safetensors twice. A real ``pytorch_model.bin`` is
+    written with ``torch.save``, and the test below checks which file is there.
+    """
     from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
 
     path = root / REVISION
@@ -216,7 +224,11 @@ def _tiny_snapshot(root: Path, *, safetensors: bool = False) -> Path:
         architectures=["Wav2Vec2ForCTC"],
     )
     torch.manual_seed(0)
-    Wav2Vec2ForCTC(config).save_pretrained(str(path), safe_serialization=safetensors)
+    model = Wav2Vec2ForCTC(config)
+    model.save_pretrained(str(path))
+    if not safetensors:
+        (path / "model.safetensors").unlink()
+        torch.save(model.state_dict(), str(path / "pytorch_model.bin"))
     Wav2Vec2FeatureExtractor().save_pretrained(str(path))
     vocab = {token: i for i, token in enumerate(PINNED_VOCABULARY)}
     (path / "vocab.json").write_text(json.dumps(vocab), encoding="utf-8")
@@ -280,6 +292,7 @@ def _remove_extractor(path: Path) -> None:
 def test_a_damaged_snapshot_is_backend_not_installed_s11_2(tmp_path: Path, damage: Any, safetensors: bool) -> None:
     # Regression (review F3): a missing or corrupt file raised out of load, and the worker replied INTERNAL.
     path = _tiny_snapshot(tmp_path, safetensors=safetensors)
+    assert _weights(path).name == ("model.safetensors" if safetensors else "pytorch_model.bin")
     damage(path)
     aligner = qa.Wav2Vec2Aligner(torch)
     with pytest.raises(qa.BackendMissing, match="install the models again") as caught:
@@ -308,7 +321,7 @@ def _set_config(path: Path, **members: Any) -> None:
     (path / "config.json").write_text(json.dumps(config | members), encoding="utf-8")
 
 
-def _set_vocab(path: Path, vocab: dict[str, int]) -> None:
+def _set_vocab(path: Path, vocab: Mapping[str, object]) -> None:
     (path / "vocab.json").write_text(json.dumps(vocab), encoding="utf-8")
 
 

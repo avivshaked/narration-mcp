@@ -30,6 +30,10 @@ What the contract says, beyond the message shapes:
 - malformed input and unknown ops get ``INVALID_REQUEST`` and the worker keeps serving;
 - model ops reply ``NOT_LOADED`` before ``load`` (and after ``unload``), before reading any file;
 - ``load`` with a snapshot directory that does not exist replies ``BACKEND_NOT_INSTALLED``;
+- a role that takes ``models`` (the QA models by use) checks each snapshot reference as
+  ``narration_worker.snapshots`` does (design section 4): its shape and absolute folder, then every folder's
+  presence before anything else, then a 40-hex revision naming its folder, each with its code and
+  ``details.field``;
 - a rendering role's ``load`` needs its ceiling, ``settings.generation.max_new_tokens`` (design section 10.1,
   DC-4): a load whose ``settings``, ``settings.generation`` or ceiling is missing or malformed, or whose
   ceiling is below 2, is ``INVALID_REQUEST`` with ``details.field`` naming that member, never defaulted;
@@ -59,6 +63,8 @@ from .client import WorkerProcess, check_reply
 
 CALL_CAP_OPS: tuple[str, ...] = ("synthesize", "design")
 """The ops that take their own ``max_new_tokens`` (design section 10.1, DC-4)."""
+QA_MODEL_OPS: tuple[str, ...] = ("transcribe", "embed", "align")
+"""The ops of a role whose ``load`` takes ``models`` by use (the QA models)."""
 DEFAULT_CEILING = 8192
 """The loaded ceiling when a ``load`` request gives no ``settings.generation.max_new_tokens``: the pinned Qwen
 snapshots' value (a real Qwen worker's ``load`` always passes it)."""
@@ -268,6 +274,37 @@ class WorkerContract:
     ) -> None:
         reply = worker.request("load", timeout_s=self.timeout_s, **missing_snapshot_load(store_root))
         assert reply["ok"] is False and reply["error"]["code"] == "BACKEND_NOT_INSTALLED", reply
+
+    def test_load_checks_snapshot_references_s4(self, worker: WorkerProcess, store_root: Path) -> None:
+        """Every worker checks a ``models`` reference the same way (``narration_worker.snapshots``), in this
+        order: its shape and an absolute folder; every folder's presence, before anything else; then a 40-hex
+        revision that names its folder. Each refusal has its code and ``details.field``."""
+        if not any(op in OPS_BY_ROLE[self.role] for op in QA_MODEL_OPS):
+            pytest.skip(f"the {self.role} role's load takes no models")
+        folder = store_root / "snapshots" / ("0" * 40)
+        folder.mkdir(parents=True)
+        ref = {"repo": "example/asr", "revision": "0" * 40, "snapshot_dir": str(folder)}
+        cases: list[tuple[object, str, str]] = [
+            ([ref], "INVALID_REQUEST", "models"),
+            ({"asr": {"repo": "example/asr"}}, "INVALID_REQUEST", "models.asr"),
+            ({"asr": ref | {"snapshot_dir": "relative"}}, "INVALID_REQUEST", "models.asr.snapshot_dir"),
+            (
+                {"asr": ref | {"revision": "x", "snapshot_dir": str(store_root / "none")}},
+                "BACKEND_NOT_INSTALLED",
+                "models.asr",
+            ),
+            (
+                {"asr": ref | {"revision": "x"}, "sv": ref | {"snapshot_dir": str(store_root / "none")}},
+                "BACKEND_NOT_INSTALLED",
+                "models.sv",
+            ),
+            ({"asr": ref | {"revision": "1" * 40}}, "INVALID_REQUEST", "models.asr.snapshot_dir"),
+            ({"asr": ref | {"revision": "main"}}, "INVALID_REQUEST", "models.asr.revision"),
+        ]
+        for models, code, field in cases:
+            reply = worker.request("load", timeout_s=self.timeout_s, device="cpu", models=models)
+            assert reply["ok"] is False and reply["error"]["code"] == code, (models, reply)
+            assert reply["error"].get("details", {}).get("field") == field, (models, reply)
 
     def test_load_then_unload_appA(
         self, worker: WorkerProcess, store_root: Path, load_request: dict[str, Any] | None

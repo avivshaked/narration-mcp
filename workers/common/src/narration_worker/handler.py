@@ -61,6 +61,18 @@ REVISION_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
 """A snapshot's revision in a ``load``: a 40-hex commit SHA, which names its folder (design section 4)."""
 DEVICE_PATTERN: Final = re.compile(r"cpu|cuda(:\d+)?")
 """The ``device`` a ``load`` accepts (``fullmatch``): ``cpu``, ``cuda`` or ``cuda:<n>``."""
+OOM_MESSAGES: Final = ("CUDA out of memory", "CUDA error: out of memory", "CUBLAS_STATUS_ALLOC_FAILED")
+"""What an exception's message says when CUDA ran out of memory, whatever the exception's type:
+
+- the caching allocator, ``torch.OutOfMemoryError``: "CUDA out of memory. Tried to allocate …";
+- a CUDA runtime call that could not allocate, such as creating the CUDA context on a full GPU: torch's CUDA
+  check reports it as "CUDA error: out of memory" (the runtime's text for ``cudaErrorMemoryAllocation``);
+- cuBLAS unable to create its handle or workspace on a full GPU: "CUDA error: CUBLAS_STATUS_ALLOC_FAILED when
+  calling `cublasCreate(handle)`".
+
+KNOW: the "CUDA error: " prefix, ``CUBLAS_STATUS_ALLOC_FAILED`` and "when calling `cublasCreate(handle)`" are
+strings in torch 2.11's CUDA libraries. BELIEVE: the runtime's text for an allocation failure is "out of memory".
+"""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -138,14 +150,14 @@ class WorkerHandler:
     def classify(self, exc: Exception) -> OpError | None:
         """Turn an unexpected exception into a protocol error, or ``None`` for ``INTERNAL``.
 
-        Recognises CUDA running out of memory (``torch.OutOfMemoryError``, or a ``RuntimeError`` whose
-        message says so) as ``GPU_OOM``; the daemon then unloads, waits and retries once (section 4).
+        Recognises CUDA running out of memory (``torch.OutOfMemoryError``, or an exception whose message says so:
+        ``OOM_MESSAGES``) as ``GPU_OOM``; the daemon then unloads, waits and retries once (section 4).
         """
         kind = type(exc)
         text = str(exc)
-        if (
-            kind.__name__ == "OutOfMemoryError" and kind.__module__.startswith("torch")
-        ) or "CUDA out of memory" in text:
+        if (kind.__name__ == "OutOfMemoryError" and kind.__module__.startswith("torch")) or any(
+            message in text for message in OOM_MESSAGES
+        ):
             return OpError(
                 "GPU_OOM", text[:2000] or "CUDA out of memory", {"type": f"{kind.__module__}.{kind.__name__}"}
             )

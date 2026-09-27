@@ -1,0 +1,27 @@
+{
+  "check": "WavLM-base-plus-sv: main's pytorch_model.bin against refs/pr/8's model.safetensors",
+  "ran_at": "2026-09-27T13:05:10+00:00",
+  "main": {
+    "revision": "feb593a6c23c1cc3d9510425c29b0a14d2b07b1e",
+    "files": [
+      "config.json",
+      "preprocessor_config.json",
+      "pytorch_model.bin"
+    ],
+    "tensors": 266
+  },
+  "refs_pr_8": {
+    "revision": "1bfd64eca136543feb28c5ffaf05381c6af33121",
+    "files": [
+      "model.safetensors"
+    ],
+    "tensors": 266
+  },
+  "only_in_main": [],
+  "only_in_refs_pr_8": [],
+  "differing_tensors": [],
+  "dtypes": [
+    "torch.float32"
+  ],
+  "identical": true
+}

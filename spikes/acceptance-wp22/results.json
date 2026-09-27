@@ -1,0 +1,482 @@
+{
+  "check": "WP22 acceptance: the QA worker reproduces the bakeoff's eval numbers",
+  "ran_at": "2026-09-27T13:41:09+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "transformers": "5.17.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "models": {
+    "asr": [
+      "openai/whisper-large-v3",
+      "06f233fe06e710322aca913c1bc4249a0d71fce1"
+    ],
+    "sv": [
+      "microsoft/wavlm-base-plus-sv",
+      "feb593a6c23c1cc3d9510425c29b0a14d2b07b1e"
+    ]
+  },
+  "tolerances": {
+    "similarity": 0.002,
+    "wer": 0.01
+  },
+  "worker": {
+    "load_s": 3.693,
+    "vram_mb": 3606,
+    "seconds": 317.6
+  },
+  "takes": {
+    "d2 seed1": {
+      "ours": {
+        "wer": 0.0859,
+        "worst_seg_wer": 0.2105,
+        "spk_consist": 0.9808,
+        "spk_to_ref": 0.9776,
+        "words": 271,
+        "words_without_times": 0,
+        "seconds": 47.8
+      },
+      "bakeoff": {
+        "wer": 0.0859,
+        "worst_seg_wer": 0.2105,
+        "spk_consist": 0.9808,
+        "spk_to_ref": 0.9775
+      },
+      "delta": {
+        "wer": 0.0,
+        "worst_seg_wer": 0.0,
+        "spk_consist": 0.0,
+        "spk_to_ref": 0.0001
+      }
+    },
+    "d2 seed2": {
+      "ours": {
+        "wer": 0.0547,
+        "worst_seg_wer": 0.2,
+        "spk_consist": 0.9893,
+        "spk_to_ref": 0.9839,
+        "words": 270,
+        "words_without_times": 0,
+        "seconds": 49.0
+      },
+      "bakeoff": {
+        "wer": 0.0547,
+        "worst_seg_wer": 0.2,
+        "spk_consist": 0.9893,
+        "spk_to_ref": 0.9839
+      },
+      "delta": {
+        "wer": 0.0,
+        "worst_seg_wer": 0.0,
+        "spk_consist": 0.0,
+        "spk_to_ref": 0.0
+      }
+    },
+    "d2 seed3": {
+      "ours": {
+        "wer": 0.0742,
+        "worst_seg_wer": 0.1579,
+        "spk_consist": 0.9874,
+        "spk_to_ref": 0.9831,
+        "words": 270,
+        "words_without_times": 0,
+        "seconds": 76.8
+      },
+      "bakeoff": {
+        "wer": 0.0742,
+        "worst_seg_wer": 0.1579,
+        "spk_consist": 0.9874,
+        "spk_to_ref": 0.9831
+      },
+      "delta": {
+        "wer": 0.0,
+        "worst_seg_wer": 0.0,
+        "spk_consist": 0.0,
+        "spk_to_ref": 0.0
+      }
+    },
+    "d4 seed1": {
+      "ours": {
+        "wer": 0.0586,
+        "worst_seg_wer": 0.2,
+        "spk_consist": 0.9888,
+        "spk_to_ref": 0.9663,
+        "words": 269,
+        "words_without_times": 0,
+        "seconds": 45.3
+      },
+      "bakeoff": {
+        "wer": 0.0586,
+        "worst_seg_wer": 0.2,
+        "spk_consist": 0.9888,
+        "spk_to_ref": 0.9663
+      },
+      "delta": {
+        "wer": 0.0,
+        "worst_seg_wer": 0.0,
+        "spk_consist": 0.0,
+        "spk_to_ref": 0.0
+      }
+    },
+    "d4 seed2": {
+      "ours": {
+        "wer": 0.0586,
+        "worst_seg_wer": 0.2,
+        "spk_consist": 0.9877,
+        "spk_to_ref": 0.9694,
+        "words": 269,
+        "words_without_times": 0,
+        "seconds": 43.0
+      },
+      "bakeoff": {
+        "wer": 0.0586,
+        "worst_seg_wer": 0.2,
+        "spk_consist": 0.9877,
+        "spk_to_ref": 0.9694
+      },
+      "delta": {
+        "wer": 0.0,
+        "worst_seg_wer": 0.0,
+        "spk_consist": 0.0,
+        "spk_to_ref": 0.0
+      }
+    },
+    "d4 seed3": {
+      "ours": {
+        "wer": 0.0547,
+        "worst_seg_wer": 0.2105,
+        "spk_consist": 0.9924,
+        "spk_to_ref": 0.9687,
+        "words": 271,
+        "words_without_times": 0,
+        "seconds": 43.4
+      },
+      "bakeoff": {
+        "wer": 0.0547,
+        "worst_seg_wer": 0.2105,
+        "spk_consist": 0.9924,
+        "spk_to_ref": 0.9687
+      },
+      "delta": {
+        "wer": 0.0,
+        "worst_seg_wer": 0.0,
+        "spk_consist": 0.0,
+        "spk_to_ref": 0.0
+      }
+    }
+  },
+  "voicelock": {
+    "rows": 52,
+    "max_abs_delta": 0.0001,
+    "mean_abs_delta": 1e-05,
+    "by_row": [
+      {
+        "row": 1,
+        "spk_sim": 0.7284,
+        "bakeoff": 0.7283
+      },
+      {
+        "row": 2,
+        "spk_sim": 0.9491,
+        "bakeoff": 0.9491
+      },
+      {
+        "row": 3,
+        "spk_sim": 0.92,
+        "bakeoff": 0.9199
+      },
+      {
+        "row": 4,
+        "spk_sim": 0.6043,
+        "bakeoff": 0.6043
+      },
+      {
+        "row": 5,
+        "spk_sim": 0.7288,
+        "bakeoff": 0.7288
+      },
+      {
+        "row": 6,
+        "spk_sim": 0.8906,
+        "bakeoff": 0.8905
+      },
+      {
+        "row": 7,
+        "spk_sim": 0.7506,
+        "bakeoff": 0.7506
+      },
+      {
+        "row": 8,
+        "spk_sim": 0.7921,
+        "bakeoff": 0.7921
+      },
+      {
+        "row": 9,
+        "spk_sim": 0.9122,
+        "bakeoff": 0.9122
+      },
+      {
+        "row": 10,
+        "spk_sim": 0.8316,
+        "bakeoff": 0.8316
+      },
+      {
+        "row": 11,
+        "spk_sim": 0.921,
+        "bakeoff": 0.921
+      },
+      {
+        "row": 12,
+        "spk_sim": 0.9123,
+        "bakeoff": 0.9123
+      },
+      {
+        "row": 13,
+        "spk_sim": 0.8615,
+        "bakeoff": 0.8615
+      },
+      {
+        "row": 14,
+        "spk_sim": 0.8044,
+        "bakeoff": 0.8044
+      },
+      {
+        "row": 15,
+        "spk_sim": 0.7189,
+        "bakeoff": 0.7188
+      },
+      {
+        "row": 16,
+        "spk_sim": 0.9197,
+        "bakeoff": 0.9197
+      },
+      {
+        "row": 17,
+        "spk_sim": 0.9318,
+        "bakeoff": 0.9318
+      },
+      {
+        "row": 18,
+        "spk_sim": 0.8124,
+        "bakeoff": 0.8124
+      },
+      {
+        "row": 19,
+        "spk_sim": 0.8878,
+        "bakeoff": 0.8878
+      },
+      {
+        "row": 20,
+        "spk_sim": 0.8949,
+        "bakeoff": 0.8949
+      },
+      {
+        "row": 21,
+        "spk_sim": 0.8625,
+        "bakeoff": 0.8625
+      },
+      {
+        "row": 22,
+        "spk_sim": 0.8289,
+        "bakeoff": 0.8289
+      },
+      {
+        "row": 23,
+        "spk_sim": 0.9031,
+        "bakeoff": 0.9031
+      },
+      {
+        "row": 24,
+        "spk_sim": 0.8654,
+        "bakeoff": 0.8654
+      },
+      {
+        "row": 25,
+        "spk_sim": 0.8564,
+        "bakeoff": 0.8564
+      },
+      {
+        "row": 26,
+        "spk_sim": 0.8841,
+        "bakeoff": 0.8841
+      },
+      {
+        "row": 27,
+        "spk_sim": 0.9123,
+        "bakeoff": 0.9123
+      },
+      {
+        "row": 28,
+        "spk_sim": 0.9072,
+        "bakeoff": 0.9072
+      },
+      {
+        "row": 29,
+        "spk_sim": 0.8501,
+        "bakeoff": 0.8501
+      },
+      {
+        "row": 30,
+        "spk_sim": 0.9425,
+        "bakeoff": 0.9425
+      },
+      {
+        "row": 31,
+        "spk_sim": 0.8785,
+        "bakeoff": 0.8785
+      },
+      {
+        "row": 32,
+        "spk_sim": 0.8625,
+        "bakeoff": 0.8625
+      },
+      {
+        "row": 33,
+        "spk_sim": 0.9284,
+        "bakeoff": 0.9284
+      },
+      {
+        "row": 34,
+        "spk_sim": 0.8713,
+        "bakeoff": 0.8713
+      },
+      {
+        "row": 35,
+        "spk_sim": 0.9362,
+        "bakeoff": 0.9362
+      },
+      {
+        "row": 36,
+        "spk_sim": 0.9125,
+        "bakeoff": 0.9125
+      },
+      {
+        "row": 37,
+        "spk_sim": 0.9318,
+        "bakeoff": 0.9318
+      },
+      {
+        "row": 38,
+        "spk_sim": 0.8976,
+        "bakeoff": 0.8976
+      },
+      {
+        "row": 39,
+        "spk_sim": 1.0,
+        "bakeoff": 1.0
+      },
+      {
+        "row": 40,
+        "spk_sim": 0.9418,
+        "bakeoff": 0.9418
+      },
+      {
+        "row": 41,
+        "spk_sim": 0.9666,
+        "bakeoff": 0.9666
+      },
+      {
+        "row": 42,
+        "spk_sim": 0.9552,
+        "bakeoff": 0.9552
+      },
+      {
+        "row": 43,
+        "spk_sim": 0.9901,
+        "bakeoff": 0.9901
+      },
+      {
+        "row": 44,
+        "spk_sim": 0.9918,
+        "bakeoff": 0.9918
+      },
+      {
+        "row": 45,
+        "spk_sim": 0.9919,
+        "bakeoff": 0.9919
+      },
+      {
+        "row": 46,
+        "spk_sim": 0.9901,
+        "bakeoff": 0.9901
+      },
+      {
+        "row": 47,
+        "spk_sim": 0.9838,
+        "bakeoff": 0.9838
+      },
+      {
+        "row": 48,
+        "spk_sim": 0.9818,
+        "bakeoff": 0.9818
+      },
+      {
+        "row": 49,
+        "spk_sim": 0.9998,
+        "bakeoff": 0.9998
+      },
+      {
+        "row": 50,
+        "spk_sim": 0.9949,
+        "bakeoff": 0.9949
+      },
+      {
+        "row": 51,
+        "spk_sim": 0.9944,
+        "bakeoff": 0.9944
+      },
+      {
+        "row": 52,
+        "spk_sim": 0.9916,
+        "bakeoff": 0.9916
+      }
+    ]
+  },
+  "canary_cpu_path": {
+    "d2": {
+      "cosine_cpu_to_cuda": 1.0
+    },
+    "d4": {
+      "cosine_cpu_to_cuda": 1.0
+    }
+  },
+  "bakeoff_recipe": {
+    "decoding": "the ASR pipeline's defaults (num_beams 5), language and task only",
+    "d2 seed1": {
+      "wer": 0.0859,
+      "worst_seg_wer": 0.2105
+    },
+    "d2 seed2": {
+      "wer": 0.0547,
+      "worst_seg_wer": 0.2
+    },
+    "d2 seed3": {
+      "wer": 0.0742,
+      "worst_seg_wer": 0.1579
+    },
+    "d4 seed1": {
+      "wer": 0.0586,
+      "worst_seg_wer": 0.2
+    },
+    "d4 seed2": {
+      "wer": 0.0586,
+      "worst_seg_wer": 0.2
+    },
+    "d4 seed3": {
+      "wer": 0.0547,
+      "worst_seg_wer": 0.2105
+    }
+  },
+  "failures": [],
+  "accepted": true
+}

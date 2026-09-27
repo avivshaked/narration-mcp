@@ -88,10 +88,12 @@ INSTALL_HINT: Final = "install the models again (narration-admin install)"
 # ---------------------------------------------------------------------- errors
 
 
-class AlignerError(Exception):
-    """A failure the ``align`` op reports as ``ok: false``; ``code`` is the protocol's error code.
+class QaError(Exception):
+    """A failure a QA op reports as ``ok: false``; ``code`` is the protocol's error code.
 
-    ``AlignOp`` turns it into the worker's ``OpError`` (``op_error``).
+    The worker's handler turns it into ``OpError`` (``op_error``). The classes live here, with the aligner,
+    because this module must stay loadable on its own by path (the server's tests load it that way to check
+    its constants), so it cannot import from its siblings; ``asr``, ``sv`` and ``voice`` import from it.
     """
 
     code: ClassVar[WorkerErrorCode] = "INTERNAL"
@@ -102,39 +104,43 @@ class AlignerError(Exception):
         self.details: dict[str, object] = dict(details or {})
 
 
-class AlignmentFailure(AlignerError):
+AlignerError = QaError
+"""The aligner's name for ``QaError`` (WP15)."""
+
+
+class AlignmentFailure(QaError):
     """The guard failed or ``forced_align`` raised: ``ALIGNMENT_ERROR``, with ``details`` {reason, frames,
     tokens, repeats} (and the exception's type and message when one was raised)."""
 
     code: ClassVar[WorkerErrorCode] = "ALIGNMENT_ERROR"
 
 
-class InvalidRequest(AlignerError):
-    """A token outside the model's vocabulary, or a load request the aligner cannot serve."""
+class InvalidRequest(QaError):
+    """A token outside the model's vocabulary, or a load request the worker cannot serve."""
 
     code: ClassVar[WorkerErrorCode] = "INVALID_REQUEST"
 
 
-class UnreadableAudio(AlignerError):
+class UnreadableAudio(QaError):
     """A file soundfile cannot read, or one with non-finite samples."""
 
     code: ClassVar[WorkerErrorCode] = "UNSUPPORTED_AUDIO"
 
 
-class BackendMissing(AlignerError):
+class BackendMissing(QaError):
     """The snapshot directory or one of its files is missing or damaged, or it is not the pinned kind of model
-    (a wav2vec2 CTC model with the English character vocabulary)."""
+    (for the aligner, a wav2vec2 CTC model with the English character vocabulary)."""
 
     code: ClassVar[WorkerErrorCode] = "BACKEND_NOT_INSTALLED"
 
 
-class NotLoaded(AlignerError):
-    """``align`` before ``load`` (or after ``unload``)."""
+class NotLoaded(QaError):
+    """An op before ``load`` (or after ``unload``), or one whose model the last ``load`` did not name."""
 
     code: ClassVar[WorkerErrorCode] = "NOT_LOADED"
 
 
-def op_error(error: AlignerError) -> OpError:
+def op_error(error: QaError) -> OpError:
     """The worker's ``OpError`` for ``error``: the same code, message and details."""
     return OpError(error.code, error.message, error.details)
 
@@ -283,7 +289,7 @@ def _read_json(path: Path, what: str) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise _load_error(exc, f"the aligner's {what} cannot be read: {path}", {"path": str(path)}) from exc
+        raise load_error(exc, f"the aligner's {what} cannot be read: {path}", {"path": str(path)}) from exc
 
 
 def snapshot_vocabulary(revision: str, snapshot_dir: str | Path, device: str = DEVICE) -> tuple[Path, dict[str, int]]:
@@ -343,7 +349,7 @@ def check_ctc_config(path: Path, vocab: Mapping[str, int]) -> None:
         )
 
 
-def _load_error(exc: BaseException, what: str, details: Mapping[str, object]) -> AlignerError:
+def load_error(exc: BaseException, what: str, details: Mapping[str, object]) -> QaError:
     """A file of the snapshot that cannot be read or loaded, as ``narration_worker`` classifies one.
 
     A file another process holds (``is_transient_load_error``: an antivirus scanning the weights, say) is
@@ -352,26 +358,47 @@ def _load_error(exc: BaseException, what: str, details: Mapping[str, object]) ->
     """
     error = f"{type(exc).__name__}: {exc}"[:2000]
     if is_transient_load_error(exc):
-        return AlignerError(
+        return QaError(
             f"{what}, because another process holds a file ({error}); try again",
             {**details, "error": error, "transient": True},
         )
     return BackendMissing(f"{what} ({error}); {INSTALL_HINT}", {**details, "error": error})
 
 
-def _is_broken_file(exc: BaseException) -> bool:
-    """Whether ``from_pretrained`` failed on a missing or damaged file, not on memory or a bug.
+BROKEN_FILE_MESSAGES: Final = (
+    "PytorchStreamReader failed",
+    "Trying to resize storage that is not resizable",
+    "ignore_mismatched_sizes",
+    "size mismatch for",
+)
+"""The ``RuntimeError`` messages that mean a snapshot's weights are damaged or do not fit its ``config.json``.
 
-    KNOW (transformers 5.17.0, torch 2.11): a missing file or an unreadable ``config.json`` raises
-    ``OSError``; garbage in ``pytorch_model.bin`` raises ``UnpicklingError``; a truncated one ``RuntimeError``
-    (PytorchStreamReader); a damaged ``model.safetensors`` ``SafetensorError``. A ``RuntimeError`` about
-    memory is not a broken file.
+KNOW (transformers 5.17.0, torch 2.11; ``tests/test_loading.py`` damages real tiny snapshots):
+
+- torch's zip reader on a truncated or corrupt ``pytorch_model.bin``: "PytorchStreamReader failed reading zip
+  archive: failed finding central directory" or "... invalid header or archive is corrupted";
+- a ``pytorch_model.bin`` whose tensor data is corrupt: "Trying to resize storage that is not resizable";
+- weights whose shapes differ from the config's: transformers' "You set ``ignore_mismatched_sizes`` to
+  ``False``, thus raising an error", or torch's own ``load_state_dict`` wording, "size mismatch for <name>".
+"""
+
+
+def is_broken_file(exc: BaseException) -> bool:
+    """Whether ``from_pretrained`` failed on a missing, damaged or mismatched file (or one another process
+    holds), rather than on memory or a bug.
+
+    KNOW (transformers 5.17.0, torch 2.11): a missing file, an unreadable ``config.json`` or a truncated
+    ``pytorch_model.bin`` read through a memory map raises ``OSError``; an empty ``pytorch_model.bin``
+    ``EOFError``; garbage in one ``UnpicklingError``; a damaged ``model.safetensors`` ``SafetensorError``; and
+    the damage in ``BROKEN_FILE_MESSAGES`` a ``RuntimeError`` with that message. Any other ``RuntimeError``
+    (running out of memory, a bug in a library) is not a broken install: telling the user to reinstall would
+    send them the wrong way, so it propagates and the request loop reports it (``GPU_OOM`` or ``INTERNAL``).
     """
-    if isinstance(exc, OSError | EOFError | pickle.UnpicklingError):
+    if is_transient_load_error(exc) or isinstance(exc, OSError | EOFError | pickle.UnpicklingError):
         return True
     if type(exc).__name__ == "SafetensorError":
         return True
-    return isinstance(exc, RuntimeError) and "memory" not in str(exc).lower()
+    return isinstance(exc, RuntimeError) and any(message in str(exc) for message in BROKEN_FILE_MESSAGES)
 
 
 class Wav2Vec2Aligner:
@@ -413,9 +440,9 @@ class Wav2Vec2Aligner:
                 str(path), local_files_only=True, weights_only=True, dtype=self._torch.float32
             )
         except Exception as exc:
-            if not _is_broken_file(exc):
+            if not is_broken_file(exc):
                 raise
-            raise _load_error(exc, f"the aligner's snapshot {path.name} cannot be loaded", {"path": str(path)}) from exc
+            raise load_error(exc, f"the aligner's snapshot {path.name} cannot be loaded", {"path": str(path)}) from exc
         model.eval()
         self._extractor, self._model = extractor, model
         self._vocab = vocab
@@ -567,15 +594,16 @@ class AlignOp:
     def handle(self, request: Request) -> dict[str, Any]:
         """The ``align`` op: the ``AlignReply`` members other than ``id`` and ``ok``.
 
-        ``NOT_LOADED`` comes first, before any member is read. Then ``wav`` must be an absolute path inside the
-        store naming a readable file, and ``tokens`` a list of labels in the model's alphabet. The guard or
-        ``forced_align`` failing is ``ALIGNMENT_ERROR``, with ``details`` {reason, frames, tokens, repeats}.
+        ``NOT_LOADED`` comes first, before any member is read. Then ``tokens`` must be a list of strings, and
+        ``wav`` an absolute path inside the store naming a readable file (the members before the file, as every QA
+        op checks them); each token must be a label in the model's alphabet. The guard or ``forced_align``
+        failing is ``ALIGNMENT_ERROR``, with ``details`` {reason, frames, tokens, repeats}.
         """
         aligner = self._aligner
         if aligner is None or not aligner.loaded:
             raise OpError("NOT_LOADED", "align needs the aligner loaded: send load first")
-        path = self._handler.input_file(request, "wav")
         tokens = require_str_list(request, "tokens")
+        path = self._handler.input_file(request, "wav")
         try:
             return aligner.align_file(path, tokens)
         except AlignerError as exc:

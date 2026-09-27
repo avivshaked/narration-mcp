@@ -1,0 +1,418 @@
+{
+  "spike": "h+i (QA half)",
+  "design_sections": [
+    "20 (h)",
+    "20 (i)",
+    "4",
+    "11.1"
+  ],
+  "ran_at": "2026-09-27T13:42:30+00:00",
+  "software": {
+    "python": "3.12.10",
+    "os": "Windows",
+    "packages": {
+      "transformers": "5.17.0",
+      "torch": "2.11.0+cu128",
+      "torchaudio": "2.11.0+cu128",
+      "numpy": "2.5.3",
+      "soundfile": "0.14.0",
+      "scipy": "1.18.1"
+    },
+    "cuda": "12.8",
+    "cudnn": "91900",
+    "gpu": "one 24 GB consumer NVIDIA GPU, shared with other jobs"
+  },
+  "determinism": {
+    "torch": true,
+    "tf32": false,
+    "cudnn_deterministic": true,
+    "cudnn_benchmark": false,
+    "deterministic_algorithms": "warn_only",
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8"
+  },
+  "cuda_context_mb_estimate": 436,
+  "cuda_context_note": "device-level used memory before and after this process started CUDA (NVML); other jobs on the shared GPU can move it, so it is an estimate",
+  "audio": {
+    "slice_40s": {
+      "take": "d2 seed1",
+      "seconds": 40.0
+    },
+    "whole_take": {
+      "take": "d2 seed1",
+      "seconds": 119.02
+    }
+  },
+  "models": {
+    "asr": {
+      "repo": "openai/whisper-large-v3",
+      "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+      "snapshot_named_by_sha": true,
+      "first_load": {
+        "load_s": 2.58,
+        "memory_after_load": {
+          "allocated_mb": 2944,
+          "reserved_mb": 3186,
+          "max_allocated_mb": 2944,
+          "max_reserved_mb": 3186,
+          "device_free_mb": 19740,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 3184,
+        "device_free_drop_mb": 3184
+      },
+      "transcribe": {
+        "slice_40s": {
+          "seconds": 9.42,
+          "peak_max_allocated_mb": 9814,
+          "peak_max_reserved_mb": 10348,
+          "reserved_after_mb": 3640,
+          "warnings": [],
+          "rtf": 0.2355,
+          "words": 106,
+          "words_with_times": 106,
+          "last_word_end_s": 39.98
+        },
+        "whole_take": {
+          "seconds": 38.02,
+          "peak_max_allocated_mb": 9816,
+          "peak_max_reserved_mb": 10452,
+          "reserved_after_mb": 3640,
+          "warnings": [],
+          "rtf": 0.3194,
+          "words": 271,
+          "words_with_times": 271,
+          "last_word_end_s": 118.96
+        }
+      },
+      "second_load_alone": {
+        "load_s": 2.84,
+        "memory_after_load": {
+          "allocated_mb": 2995,
+          "reserved_mb": 3238,
+          "max_allocated_mb": 2995,
+          "max_reserved_mb": 3238,
+          "device_free_mb": 19644,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 3182,
+        "device_free_drop_mb": 3182
+      },
+      "weights_verified": {
+        "files": 11,
+        "mismatched": [],
+        "hash_s": 2.1
+      }
+    },
+    "sv": {
+      "repo": "microsoft/wavlm-base-plus-sv",
+      "revision": "feb593a6c23c1cc3d9510425c29b0a14d2b07b1e",
+      "snapshot_named_by_sha": true,
+      "first_load": {
+        "load_s": 0.41,
+        "memory_after_load": {
+          "allocated_mb": 3331,
+          "reserved_mb": 3606,
+          "max_allocated_mb": 3331,
+          "max_reserved_mb": 3606,
+          "device_free_mb": 19320,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 420,
+        "device_free_drop_mb": 420
+      },
+      "embed_cuda": {
+        "slice_40s": {
+          "seconds": 0.25,
+          "peak_max_allocated_mb": 4395,
+          "peak_max_reserved_mb": 4896,
+          "reserved_after_mb": 3640,
+          "warnings": [
+            "UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead."
+          ]
+        },
+        "whole_take": {
+          "seconds": 0.58,
+          "peak_max_allocated_mb": 5567,
+          "peak_max_reserved_mb": 6434,
+          "reserved_after_mb": 3640,
+          "warnings": [
+            "UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead."
+          ]
+        }
+      },
+      "embed_cpu": {
+        "slice_40s": {
+          "seconds_including_any_copy_load": 2.64,
+          "cosine_to_cuda": 1.0
+        },
+        "whole_take": {
+          "seconds_including_any_copy_load": 9.79,
+          "cosine_to_cuda": 1.0
+        }
+      },
+      "second_load_alone": {
+        "load_s": 0.24,
+        "memory_after_load": {
+          "allocated_mb": 438,
+          "reserved_mb": 474,
+          "max_allocated_mb": 438,
+          "max_reserved_mb": 474,
+          "device_free_mb": 22408,
+          "device_total_mb": 24563
+        },
+        "reserved_added_mb": 418,
+        "device_free_drop_mb": 418
+      },
+      "weights_verified": {
+        "files": 3,
+        "mismatched": [],
+        "hash_s": 0.3
+      }
+    }
+  },
+  "group_memory_after_load": {
+    "allocated_mb": 3331,
+    "reserved_mb": 3606,
+    "max_allocated_mb": 3331,
+    "max_reserved_mb": 3606,
+    "device_free_mb": 19320,
+    "device_total_mb": 24563
+  },
+  "by_length": {
+    "resident_allocated_mb": 3364,
+    "transcribe": [
+      {
+        "seconds": 10.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1247,
+        "seconds_taken": 3.45
+      },
+      {
+        "seconds": 10.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 4851,
+        "seconds_taken": 4.42
+      },
+      {
+        "seconds": 20.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1292,
+        "seconds_taken": 6.26
+      },
+      {
+        "seconds": 20.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 5851,
+        "seconds_taken": 4.84
+      },
+      {
+        "seconds": 30.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1308,
+        "seconds_taken": 5.54
+      },
+      {
+        "seconds": 30.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6450,
+        "seconds_taken": 6.92
+      },
+      {
+        "seconds": 60.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1309,
+        "seconds_taken": 10.35
+      },
+      {
+        "seconds": 60.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6450,
+        "seconds_taken": 12.26
+      },
+      {
+        "seconds": 90.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1310,
+        "seconds_taken": 14.61
+      },
+      {
+        "seconds": 90.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6451,
+        "seconds_taken": 17.63
+      },
+      {
+        "seconds": 119.0,
+        "word_timestamps": false,
+        "peak_above_resident_mb": 1310,
+        "seconds_taken": 19.09
+      },
+      {
+        "seconds": 119.0,
+        "word_timestamps": true,
+        "peak_above_resident_mb": 6452,
+        "seconds_taken": 22.69
+      }
+    ],
+    "embed": [
+      {
+        "seconds": 10.0,
+        "as_built_window_s": 60,
+        "as_built_windows": 1,
+        "as_built_peak_above_resident_mb": 126,
+        "as_built_peak_reserved_mb": 3774,
+        "as_built_seconds_taken": 0.06,
+        "as_built_cosine_to_one_pass": 1.0,
+        "one_pass_peak_above_resident_mb": 126,
+        "one_pass_peak_reserved_mb": 3774,
+        "one_pass_seconds_taken": 0.04,
+        "windows_30s": {
+          "windows": 1,
+          "peak_above_resident_mb": 126,
+          "cosine_to_one_pass": 1.0,
+          "equals_embed": null
+        },
+        "windows_60s": {
+          "windows": 1,
+          "peak_above_resident_mb": 126,
+          "cosine_to_one_pass": 1.0,
+          "equals_embed": true
+        }
+      },
+      {
+        "seconds": 20.0,
+        "as_built_window_s": 60,
+        "as_built_windows": 1,
+        "as_built_peak_above_resident_mb": 288,
+        "as_built_peak_reserved_mb": 3986,
+        "as_built_seconds_taken": 0.06,
+        "as_built_cosine_to_one_pass": 1.0,
+        "one_pass_peak_above_resident_mb": 288,
+        "one_pass_peak_reserved_mb": 3986,
+        "one_pass_seconds_taken": 0.06,
+        "windows_30s": {
+          "windows": 1,
+          "peak_above_resident_mb": 288,
+          "cosine_to_one_pass": 1.0,
+          "equals_embed": null
+        },
+        "windows_60s": {
+          "windows": 1,
+          "peak_above_resident_mb": 288,
+          "cosine_to_one_pass": 1.0,
+          "equals_embed": true
+        }
+      },
+      {
+        "seconds": 30.0,
+        "as_built_window_s": 60,
+        "as_built_windows": 1,
+        "as_built_peak_above_resident_mb": 602,
+        "as_built_peak_reserved_mb": 4328,
+        "as_built_seconds_taken": 0.1,
+        "as_built_cosine_to_one_pass": 1.0,
+        "one_pass_peak_above_resident_mb": 602,
+        "one_pass_peak_reserved_mb": 4328,
+        "one_pass_seconds_taken": 0.09,
+        "windows_30s": {
+          "windows": 1,
+          "peak_above_resident_mb": 602,
+          "cosine_to_one_pass": 1.0,
+          "equals_embed": null
+        },
+        "windows_60s": {
+          "windows": 1,
+          "peak_above_resident_mb": 602,
+          "cosine_to_one_pass": 1.0,
+          "equals_embed": true
+        }
+      },
+      {
+        "seconds": 60.0,
+        "as_built_window_s": 60,
+        "as_built_windows": 1,
+        "as_built_peak_above_resident_mb": 2234,
+        "as_built_peak_reserved_mb": 6472,
+        "as_built_seconds_taken": 0.28,
+        "as_built_cosine_to_one_pass": 1.0,
+        "one_pass_peak_above_resident_mb": 2234,
+        "one_pass_peak_reserved_mb": 6472,
+        "one_pass_seconds_taken": 0.27,
+        "windows_30s": {
+          "windows": 2,
+          "peak_above_resident_mb": 602,
+          "cosine_to_one_pass": 0.999039,
+          "equals_embed": null
+        },
+        "windows_60s": {
+          "windows": 1,
+          "peak_above_resident_mb": 2234,
+          "cosine_to_one_pass": 1.0,
+          "equals_embed": true
+        }
+      },
+      {
+        "seconds": 90.0,
+        "as_built_window_s": 60,
+        "as_built_windows": 2,
+        "as_built_peak_above_resident_mb": 1290,
+        "as_built_peak_reserved_mb": 5154,
+        "as_built_seconds_taken": 0.33,
+        "as_built_cosine_to_one_pass": 0.998083,
+        "one_pass_peak_above_resident_mb": 4894,
+        "one_pass_peak_reserved_mb": 9430,
+        "one_pass_seconds_taken": 0.54,
+        "windows_30s": {
+          "windows": 3,
+          "peak_above_resident_mb": 602,
+          "cosine_to_one_pass": 0.996473,
+          "equals_embed": null
+        },
+        "windows_60s": {
+          "windows": 2,
+          "peak_above_resident_mb": 1290,
+          "cosine_to_one_pass": 0.998083,
+          "equals_embed": true
+        }
+      },
+      {
+        "seconds": 119.0,
+        "as_built_window_s": 60,
+        "as_built_windows": 2,
+        "as_built_peak_above_resident_mb": 2197,
+        "as_built_peak_reserved_mb": 6434,
+        "as_built_seconds_taken": 0.52,
+        "as_built_cosine_to_one_pass": 0.997583,
+        "one_pass_peak_above_resident_mb": 8446,
+        "one_pass_peak_reserved_mb": 13260,
+        "one_pass_seconds_taken": 0.85,
+        "windows_30s": {
+          "windows": 4,
+          "peak_above_resident_mb": 595,
+          "cosine_to_one_pass": 0.993649,
+          "equals_embed": null
+        },
+        "windows_60s": {
+          "windows": 2,
+          "peak_above_resident_mb": 2197,
+          "cosine_to_one_pass": 0.997583,
+          "equals_embed": true
+        }
+      }
+    ]
+  },
+  "memory_after_unload": {
+    "allocated_mb": 51,
+    "reserved_mb": 56,
+    "max_allocated_mb": 5561,
+    "max_reserved_mb": 6434,
+    "device_free_mb": 22826,
+    "device_total_mb": 24563
+  },
+  "network_attempts": [],
+  "loopback_connections": 0,
+  "offline_env": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1"
+  }
+}

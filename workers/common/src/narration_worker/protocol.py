@@ -246,7 +246,8 @@ class DesignRequest(Request):
 
 # ---------------------------------------------------------------- qa: transcribe / embed / f0 / align / profile
 class TranscribeRequest(Request):
-    """Whisper-large-v3: fp16, English, greedy, word timestamps, sequential long-form (section 11.1)."""
+    """Whisper-large-v3: fp16, English, five beams not conditioned on the previous window and no temperature
+    fallback (DC-14, ADR 0004), word timestamps, sequential long-form (section 11.1)."""
 
     wav: str
     language: str

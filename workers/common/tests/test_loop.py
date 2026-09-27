@@ -138,6 +138,39 @@ def test_cuda_out_of_memory_is_gpu_oom_s4(tmp_path: Path) -> None:
     assert reply["error"]["code"] == "GPU_OOM"
 
 
+@pytest.mark.parametrize(
+    "exc",
+    [
+        RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"),
+        RuntimeError("CUDA error: out of memory\nCUDA kernel errors might be asynchronously reported"),
+        RuntimeError("CUDA error: CUBLAS_STATUS_ALLOC_FAILED when calling `cublasCreate(handle)`"),
+        OutOfMemoryError("CUDA out of memory."),
+    ],
+    ids=["allocator", "runtime_allocation", "cublas_handle", "torch_type"],
+)
+def test_every_way_cuda_reports_running_out_of_memory_is_gpu_oom_s4(tmp_path: Path, exc: Exception) -> None:
+    # Regression (WP22 review): creating the CUDA context or a cuBLAS handle on a full GPU raised a
+    # RuntimeError that was reported INTERNAL, so the daemon did not unload, wait and retry.
+    handler = _QaDouble(WorkerContext(role="qa", store_root=tmp_path, cpu_threads=2))
+    error = handler.classify(exc)
+    assert error is not None and error.code == "GPU_OOM"
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        RuntimeError("CUDA error: an illegal memory access was encountered"),
+        RuntimeError("DefaultCPUAllocator: not enough memory: you tried to allocate 1073741824 bytes"),
+        RuntimeError("CUDA error: invalid device ordinal"),
+        ValueError("out of memory"),
+    ],
+    ids=["illegal_access", "cpu_allocator", "device_ordinal", "bare_words"],
+)
+def test_other_failures_are_not_gpu_oom_s4(tmp_path: Path, exc: Exception) -> None:
+    handler = _QaDouble(WorkerContext(role="qa", store_root=tmp_path, cpu_threads=2))
+    assert handler.classify(exc) is None
+
+
 def test_a_reply_json_cannot_hold_becomes_internal_appA(tmp_path: Path) -> None:
     _, [reply], _ = _run(tmp_path, b'{"id":1,"op":"align"}')
     assert reply["id"] == 1
