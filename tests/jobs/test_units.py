@@ -6,6 +6,8 @@ from __future__ import annotations
 import dataclasses
 import errno
 import hashlib
+import sqlite3
+import threading
 import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -22,7 +24,7 @@ from narration.contracts.worker import WORKER_ERROR_CODES
 from narration.jobs import admission
 from narration.jobs.core import LOST_STATE, worker_code
 from narration.jobs.gpu import GroupNeed, NoProbe, NvmlProbe, Residency
-from narration.jobs.leases import kept
+from narration.jobs.leases import THREAD_NAME, LeaseKeeper
 from narration.jobs.pins import ModelPin, ProfileError, QaPins, call_cap, ceiling, qwen_load_payload
 from narration.jobs.plan import (
     GenerateRequest,
@@ -34,7 +36,7 @@ from narration.jobs.plan import (
     requested_attempts,
 )
 from narration.jobs.voice import MAX_CLIP_BYTES, clip_path, require_synthetic, stage_clip
-from narration.store import LeaseLostError, NarrationStore
+from narration.store import LeaseLostError, NarrationStore, db
 from narration.text import TextPipeline
 from tests.store.standin import StandInPlatform
 
@@ -566,30 +568,95 @@ def test_the_worker_codes_the_engine_reacts_to_are_the_protocols_app_a() -> None
 
 
 class _Lease:
-    def __init__(self, lost_after: int) -> None:
-        self.key = "sha256:" + "e" * 64
+    """A lease that counts its renewals, over a real one or none; lost after ``lost_after`` renewals."""
+
+    def __init__(self, lost_after: int = 1_000_000, inner: Any = None, key: str = "sha256:" + "e" * 64) -> None:
+        self.key = key
         self.renewals = 0
         self._lost_after = lost_after
+        self._inner = inner
 
     def renew(self, ttl_s: float) -> None:
         self.renewals += 1
         if self.renewals >= self._lost_after:
             raise LeaseLostError("another holder has it")
+        if self._inner is not None:
+            self._inner.renew(ttl_s)
 
     def release(self) -> None:
-        return None
+        if self._inner is not None:
+            self._inner.release()
 
 
-def test_a_kept_lease_is_renewed_until_its_work_ends_or_it_is_lost_s4() -> None:
-    lease = _Lease(lost_after=1000)
-    with kept(lease, ttl_s=5.0, every_s=0.02):
-        time.sleep(0.3)
+def _until(done: Any, timeout_s: float = 20.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while not done():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.005)
+
+
+def _keeper_threads() -> int:
+    return sum(1 for t in threading.enumerate() if t.name == THREAD_NAME and t.is_alive())
+
+
+@pytest.fixture
+def keeper() -> Iterator[LeaseKeeper]:
+    k = LeaseKeeper()
+    try:
+        yield k
+    finally:
+        k.close()
+
+
+def test_a_kept_lease_is_renewed_until_its_work_ends_or_it_is_lost_s4(keeper: LeaseKeeper) -> None:
+    lease = _Lease()
+    with keeper.kept(lease, ttl_s=5.0, every_s=0.02):
+        _until(lambda: lease.renewals >= 3)
     renewed = lease.renewals
-    assert renewed >= 3
     time.sleep(0.1)
     assert lease.renewals == renewed  # not after the work ended
 
     lost = _Lease(lost_after=2)
-    with kept(lost, ttl_s=5.0, every_s=0.02):
-        time.sleep(0.3)  # the work goes on; the keeper stops at the lost lease
+    with keeper.kept(lost, ttl_s=5.0, every_s=0.02):
+        _until(lambda: lost.renewals >= 2)
+        time.sleep(0.1)  # the work goes on; the keeper stops renewing the lost lease
     assert lost.renewals == 2
+
+
+def test_one_keeper_renews_every_lease_on_one_thread_s4(keeper: LeaseKeeper) -> None:
+    before = _keeper_threads()
+    leases = [_Lease(key=f"sha256:{i:064x}") for i in range(5)]
+    with keeper.kept(leases[0], ttl_s=5.0, every_s=0.01), keeper.kept(leases[1], ttl_s=5.0, every_s=0.03):
+        _until(lambda: leases[0].renewals >= 3 and leases[1].renewals >= 3)  # both, side by side
+    for lease in leases[2:]:
+        with keeper.kept(lease, ttl_s=5.0, every_s=0.01):
+            _until(lambda lease=lease: lease.renewals >= 1)
+    assert _keeper_threads() - before == 1
+    keeper.close()
+    assert not keeper.running
+    assert _keeper_threads() == before
+    with keeper.kept(leases[0], ttl_s=5.0, every_s=0.01):  # work after a close starts the thread again
+        renewed = leases[0].renewals
+        _until(lambda: leases[0].renewals > renewed)
+
+
+def test_kept_leases_add_at_most_one_store_connection_s4(
+    store: NarrationStore, keeper: LeaseKeeper, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The store opens a connection per thread and keeps it until it closes (the leak a thread per lease had).
+    opened: list[str] = []
+    connect = db.connect
+
+    def counting(path: Path) -> sqlite3.Connection:
+        opened.append(threading.current_thread().name)
+        return connect(path)
+
+    monkeypatch.setattr(db, "connect", counting)
+    for i in range(20):
+        status, real = store.claim(f"sha256:{i:064x}", "narrationd", ttl_s=5.0)
+        assert status == "claimed" and real is not None
+        lease = _Lease(inner=real, key=real.key)
+        with keeper.kept(lease, ttl_s=5.0, every_s=0.005):
+            _until(lambda lease=lease: lease.renewals >= 2)
+        lease.release()
+    assert opened == [THREAD_NAME]

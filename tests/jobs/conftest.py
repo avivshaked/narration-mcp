@@ -113,6 +113,7 @@ class World:
         changes: dict[str, Any] = dict(parts)
         if probe is not None:
             changes["probe"] = probe
+        self.engine.close()
         self.engine = JobEngine(self.config, dataclasses.replace(base, **changes))
         self.runner = EngineRunner(self.engine)
 
@@ -167,5 +168,6 @@ def world(tmp_path: Path, anchor: tuple[float, ...]) -> Iterator[World]:
     try:
         yield w
     finally:
+        w.engine.close()
         w.pool.close()
         w.store.close()

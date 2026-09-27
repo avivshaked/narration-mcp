@@ -72,6 +72,16 @@ class Registry:
         """The handler for ``kind``, or None when this build does not run it."""
         return self.handlers.get(kind)
 
+    def close(self) -> None:
+        """Close each handler that has a ``close`` (the job engine stops the thread that renews its leases),
+        once each. The runner calls it at shutdown, after the last step."""
+        seen: set[int] = set()
+        for handler in self.handlers.values():
+            close = getattr(handler, "close", None)
+            if id(handler) not in seen and callable(close):
+                seen.add(id(handler))
+                close()
+
     @classmethod
     def of(cls, engine: JobEngine) -> Registry:
         """The registry of this build: the job engine runs ``generate`` and ``analyse``."""

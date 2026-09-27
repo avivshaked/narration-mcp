@@ -129,10 +129,14 @@ class EngineRunner:
         return any(job.status == "queued" for job in host.store.queued_jobs())
 
     def shutdown(self, host: RunnerHost, reason: ShutdownReason) -> None:
-        """Give back the job held, if any, and remove its scratch files."""
-        if self._job is None:
-            return
-        self._let_go(host, f"the daemon stopped ({reason})")
+        """Give back the job held, if any, and remove its scratch files; then close the handlers
+        (``Registry.close``)."""
+        try:
+            if self._job is not None:
+                self._let_go(host, f"the daemon stopped ({reason})")
+        finally:
+            if self._registry is not None:
+                self._registry.close()
 
     # ------------------------------------------------------------------ claiming
     def _claim(self, host: RunnerHost) -> bool:

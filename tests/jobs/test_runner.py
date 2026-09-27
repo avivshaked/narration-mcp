@@ -10,7 +10,7 @@ import pytest
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import JobRecord
-from narration.jobs import default_runner
+from narration.jobs import default_runner, stages
 from narration.jobs.handlers import Registry
 from narration.jobs.host import RunnerHost
 from narration.jobs.runner import EngineRunner
@@ -40,6 +40,20 @@ def test_has_work_ignores_jobs_that_are_not_queued_s4_1(world: World) -> None:
     job = world.submit(LAMPS)
     assert world.store.claim_job(job.job_id, "another-daemon") is not None
     assert not world.runner.has_work(world.host)
+
+
+def test_shutdown_stops_the_thread_that_renews_the_engines_leases_s4(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stages, "LEASE_RENEW_S", 0.02)
+    world.faults({"kind": "delay", "op": "synthesize", "seconds": 0.2})
+    job = world.submit(LAMPS)
+    world.run()
+    assert world.job(job.job_id).status == "completed"
+    assert world.engine.core.leases.running  # it waits, idle, for the next job's leases
+
+    world.runner.shutdown(world.host, "idle")
+    assert not world.engine.core.leases.running
 
 
 def test_the_daemons_default_runner_fails_jobs_it_cannot_score_s4(world: World) -> None:

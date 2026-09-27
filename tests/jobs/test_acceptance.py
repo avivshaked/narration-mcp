@@ -6,6 +6,7 @@ Every worker is the fake role; every text is invented for these tests.
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 from collections import Counter
@@ -17,6 +18,7 @@ from narration import keys
 from narration.contracts import codes
 from narration.contracts.models import JobRecord
 from narration.jobs import stages
+from narration.store import db
 
 from .conftest import World, make_world
 from .support import ENGINE_HASH, KETTLE, LAMPS, ORCHARD, voice_hash
@@ -97,6 +99,7 @@ def test_two_holders_share_a_paragraph_through_its_lease_s4(
         assert a.take_id == b.take_id
         assert sorted([a.fresh, b.fresh]) == [False, True]
     finally:
+        other.engine.close()
         other.pool.close()
         other.store.close()
 
@@ -186,6 +189,28 @@ def test_a_render_keeps_its_lease_for_as_long_as_it_runs_s4(world: World, monkey
     probe.join(timeout=60)
     assert seen == ["in_flight"]  # the render still held its key
     assert world.job(job.job_id).status == "completed"
+
+
+def test_the_leases_an_engine_keeps_share_one_store_connection_s4(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The store opens a database connection per thread and keeps it until the store closes, so a keeper
+    # thread per piece of work would leave one connection behind per piece.
+    monkeypatch.setattr(stages, "LEASE_RENEW_S", 0.02)
+    world.faults({"kind": "delay", "op": "synthesize", "seconds": 0.3})  # each render outlasts several renewals
+    opened: list[str] = []
+    connect = db.connect
+
+    def counting(path: Path) -> sqlite3.Connection:
+        opened.append(threading.current_thread().name)
+        return connect(path)
+
+    monkeypatch.setattr(db, "connect", counting)
+    job = world.submit(LAMPS, KETTLE, ORCHARD)
+    world.run()
+    assert world.job(job.job_id).status == "completed"
+    assert world.pool.calls[("qwen", "synthesize")] >= 3
+    assert len(opened) <= 1, opened  # the one keeper thread's, however many leases it renewed
 
 
 # ======================================================================== retakes, and never again on resubmission

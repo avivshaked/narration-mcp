@@ -48,7 +48,6 @@ from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 from .core import LOST_STATE, EngineCore, worker_code
 from .gpu import GroupNeed, Readiness
 from .host import GROUP_ROLES, ResidencyError, RunnerHost
-from .leases import kept
 from .pins import call_cap, generation, qwen_load_payload
 from .state import Attempt, JobRun, Outcome, SegmentWork, label
 
@@ -57,9 +56,9 @@ log = logging.getLogger(__name__)
 RENDER_LEASE_S: Final = 300.0
 POST_LEASE_S: Final = 300.0
 SCORE_LEASE_S: Final = 300.0
-"""A lease's TTL. It is renewed every ``LEASE_RENEW_S`` while its work runs (``leases.kept``), so the TTL only
-bounds how long a lease outlives a daemon that died; its successor, under the same holder name, may claim
-the key again at once."""
+"""A lease's TTL. It is renewed every ``LEASE_RENEW_S`` while its work runs (the engine's ``LeaseKeeper``), so
+the TTL only bounds how long a lease outlives a daemon that died; its successor, under the same holder name,
+may claim the key again at once."""
 LEASE_RENEW_S: Final = 60.0
 PREPARE_TIMEOUT_S: Final = 300.0
 QA_TIMEOUT_S: Final = 900.0
@@ -251,7 +250,7 @@ class Stages:
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
-                    with kept(lease, ttl_s=RENDER_LEASE_S, every_s=LEASE_RENEW_S):
+                    with core.leases.kept(lease, ttl_s=RENDER_LEASE_S, every_s=LEASE_RENEW_S):
                         need = self.qwen_need(run)
                         if not self.ready(host, run, need):
                             return "waited" if not host.should_stop() else "stopped"
@@ -374,7 +373,7 @@ class Stages:
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
-                    with kept(lease, ttl_s=POST_LEASE_S, every_s=LEASE_RENEW_S):
+                    with core.leases.kept(lease, ttl_s=POST_LEASE_S, every_s=LEASE_RENEW_S):
                         found = self._deliver(host, run, seg, attempt, render, delivery_key)
                 finally:
                     lease.release()
@@ -427,7 +426,7 @@ class Stages:
                 return "worked"
             if status == "claimed" and lease is not None:
                 try:
-                    with kept(lease, ttl_s=SCORE_LEASE_S, every_s=LEASE_RENEW_S):
+                    with core.leases.kept(lease, ttl_s=SCORE_LEASE_S, every_s=LEASE_RENEW_S):
                         if not self.ready(host, run, self.qa_need()):
                             return "waited" if not host.should_stop() else "stopped"
                         core.phase(host, run, "scoring")

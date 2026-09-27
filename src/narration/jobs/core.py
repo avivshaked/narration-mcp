@@ -23,6 +23,7 @@ from .admission import Throughput
 from .gpu import NoProbe, Residency, VramProbe
 from .hooks import EngineGuard, NoGuard
 from .host import RunnerHost
+from .leases import LeaseKeeper
 from .pins import QaPins
 from .state import JobRun
 from .voice import PathCheck
@@ -70,8 +71,9 @@ def worker_code(exc: WorkerFailure) -> WorkerErrorCode:
 
 class EngineCore:
     """The config and parts, and the state one engine keeps across the jobs it runs: which model group is
-    resident (``residency``), how fast work goes (``throughput``), and the canary outcome of the Qwen load in
-    use (``canary``), which every render made on that load records."""
+    resident (``residency``), how fast work goes (``throughput``), the canary outcome of the Qwen load in
+    use (``canary``), which every render made on that load records, and the keeper that renews its work's
+    leases on one thread (``leases``)."""
 
     def __init__(self, config: Config, parts: EngineParts) -> None:
         self.config = config
@@ -80,6 +82,7 @@ class EngineCore:
         self.residency.need_mb["qa"] = parts.qa_pins.vram_need_mb
         self.throughput = Throughput()
         self.canary: CanaryStatus = "not_run"
+        self.leases = LeaseKeeper()
 
     def phase(self, host: RunnerHost, run: JobRun, phase: JobPhase) -> None:
         """Set the job's phase, and tell the daemon when it changes."""

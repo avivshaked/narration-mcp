@@ -98,6 +98,11 @@ class JobEngine:
         """The canary outcome of the Qwen load in use, which every render made on it records."""
         return self.core.canary
 
+    def close(self) -> None:
+        """Stop the thread that renews the engine's leases (``leases.LeaseKeeper``). The runner calls it at
+        shutdown, after the last step; work started later starts the thread again."""
+        self.core.leases.close()
+
     # ------------------------------------------------------------------ planning
     def open(self, host: RunnerHost, job: JobRecord) -> JobRun:
         """Plan a claimed job from its request and the cache. Raises ``NarrationError`` for a job-level problem."""
