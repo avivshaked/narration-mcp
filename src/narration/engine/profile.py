@@ -415,6 +415,18 @@ def next_profile_id(existing: Sequence[str], kind: EngineKind) -> str:
     return f"{family}.p{max(numbers, default=0) + 1}"
 
 
+OBSERVED_KEYS: Final = ("gpu", "driver", "cuda", "cudnn")
+"""What of the machine a re-pin compares with the pinned profile's ``observed``: a change in any of them can
+change the numbers a render produces without any pinned file changing (section 10.1), so ``engine repin``
+pins a new profile. Python is recorded but not compared: its version is the venv's, which the lock pins."""
+
+
+def machine_differences(pinned: Mapping[str, Any], found: Mapping[str, Any]) -> tuple[str, ...]:
+    """The ``OBSERVED_KEYS`` in which the machine a worker runs on differs from the one a profile was pinned
+    on (a value missing on one side and not the other counts)."""
+    return tuple(k for k in OBSERVED_KEYS if pinned.get(k) != found.get(k))
+
+
 def observed(hello: HelloReply | None) -> dict[str, Any]:
     """What the worker observed of the machine, recorded with the pin and never hashed: the GPU, the driver,
     CUDA, cuDNN and Python."""

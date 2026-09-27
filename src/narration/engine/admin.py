@@ -6,9 +6,10 @@
 - ``engine pin``: record the engine profiles this installation matches and design the canary on this machine
   (``pinning``). A profile already pinned and still matched is kept; one that differs is refused, and the
   message says to re-pin.
-- ``engine repin``: make a new profile the one in use for each engine whose installation differs.
+- ``engine repin``: make a new profile the one in use for each engine whose installation or machine (GPU,
+  driver, CUDA, cuDNN) differs; ``--force``: for both engines, whatever changed.
 - ``engine bridge <old> <new>``: how similar the canary and the calibration corpus sound under two profiles.
-- ``engine show``: the profiles pinned, which are in use, their tier and canary.
+- ``engine show``: the profiles pinned, which are in use, their tier and canary threshold.
 
 **The interface is the dispatcher's** (``narration.admin.cli``): each command's ``handler(admin, args)``
 returns the exit code, and takes the configuration, the platform and the store from ``admin``, which finds the
@@ -36,7 +37,7 @@ from narration.contracts.serial import to_json
 from narration.jobs.gpu import VramProbe
 from narration.platform import ProcessPlatform
 
-from .canary import gate_facts
+from .canary import engine_kind, gate_facts
 from .installed import probe_for
 from .pinning import BridgeReport, EngineReport, Mode, PinRefused, Starter, SupervisedStarter, bridge, pin
 from .profile import FAMILIES, QWEN_PACKAGES, QWEN_VRAM_MB
@@ -78,6 +79,12 @@ def register(subparsers: Subparsers, env: Environment | None = None) -> None:
 
     repin_parser = commands.add_parser(
         "repin", help="make a new engine profile the one in use where the installation changed (new render keys)"
+    )
+    repin_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="give both engines new profiles and fresh canaries even when nothing is seen to have changed "
+        "(new render keys; voices are measured again)",
     )
     repin_parser.add_argument("--json", action="store_true", help="print the result as JSON")
     repin_parser.set_defaults(handler=_pin_handler("repin", env))
@@ -124,7 +131,14 @@ def run_pin(admin: Admin, args: argparse.Namespace, *, mode: Mode, env: Environm
             raise _refused(name, short, "Wait until the GPU has room (or free it), then run this again.")
         try:
             with env.starter(config, platform) as starter:
-                reports = pin(config, admin.store(), mode=mode, starter=starter, packages=env.packages)
+                reports = pin(
+                    config,
+                    admin.store(),
+                    mode=mode,
+                    starter=starter,
+                    packages=env.packages,
+                    force=bool(getattr(args, "force", False)),
+                )
         except PinRefused as exc:
             raise _refused(name, exc.message, exc.hint) from exc
         except (WorkerFailure, WorkerCrashed, WorkerTimeout) as exc:
@@ -155,7 +169,9 @@ def run_bridge(admin: Admin, args: argparse.Namespace, *, env: Environment) -> i
 
 
 def run_show(admin: Admin, args: argparse.Namespace) -> int:
-    """``engine show``: the profiles pinned, which are in use, their tier and canary. Creates no store."""
+    """``engine show``: the profiles pinned, which are in use, their tier and canary threshold (and whether it is
+    the floor). The calibration similarities are printed by ``engine pin`` and ``repin``; a ``CanaryPin`` does
+    not record them. Creates no store."""
     rows: list[dict[str, Any]] = []
     if admin.store_exists():
         store = admin.store()
@@ -167,6 +183,7 @@ def run_show(admin: Admin, args: argparse.Namespace) -> int:
                 "in_use_for": next(
                     (k for k, c in current.items() if c and c.engine_profile_id == p.engine_profile_id), None
                 ),
+                "kind": engine_kind(p),
                 "model": f"{p.model_repo}@{p.model_revision}",
                 "tier": p.tier,
                 "observed": to_json(p.observed),
@@ -181,7 +198,20 @@ def run_show(admin: Admin, args: argparse.Namespace) -> int:
     else:
         for row in rows:
             use = f"in use for {row['in_use_for']}" if row["in_use_for"] else "not in use"
-            admin.say(f"{row['engine_profile_id']}  {row['hash']}  {use}  tier {row['tier']}")
+            canary = row["canary"]
+            if canary is None:
+                gate = "no canary"
+            else:
+                gate = f"canary threshold {canary['threshold']:.4f}"
+                if canary["threshold_floored"]:
+                    gate += " (the floor)"
+            admin.say(f"{row['engine_profile_id']}  {row['hash']}  {use}  tier {row['tier']}  {gate}")
+        if any(r["kind"] == "design" and r["canary"] is not None for r in rows):
+            admin.say(
+                "VoiceDesign's gate is a drift alarm: another seed designs another voice, so its threshold is low. "
+                "Base's gate guards every take."
+            )
+        admin.say(f"Calibration similarities: `{PROGRAM} engine pin --json` prints them when it pins.")
     return EXIT_OK
 
 
@@ -231,6 +261,10 @@ def _print_pin(admin: Admin, reports: Sequence[EngineReport], *, as_json: bool) 
             facts.append(f"canary threshold {r.threshold:.4f}")
         if r.changed:
             facts.append("changed: " + ", ".join(r.changed))
+        if r.updated:
+            facts.append("updated: " + ", ".join(r.updated))
+        if r.calibration:
+            facts.append("calibration " + ", ".join(f"{c:.4f}" for c in r.calibration))
         admin.say(f"{r.engine_profile_id}  " + "  ".join(facts))
     if any(r.action == "new" and r.changed for r in reports):
         admin.say("New render keys: voices must be measured again under the new profile (measure_voice).")

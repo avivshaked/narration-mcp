@@ -159,6 +159,26 @@ def test_a_changed_installation_is_refused_and_repin_makes_the_new_profile_s10_1
     assert "qwen3-base-1.7b.p1 -> qwen3-base-1.7b.p2" in ran.out and "cannot render here: weights" in ran.out
 
 
+def test_repin_force_repins_both_engines_s10_1(cli: Cli) -> None:
+    cli("engine", "pin")
+    ran = cli("engine", "repin", "--force")
+    assert ran.code == EXIT_OK, ran.err
+    assert "qwen3-design-1.7b.p2  new" in ran.out and "qwen3-base-1.7b.p2  new" in ran.out
+    assert "changed: forced" in ran.out and "measured again" in ran.out
+
+
+def test_engine_show_prints_each_gates_tier_and_threshold_s10_1(cli: Cli) -> None:
+    pinned = cli("engine", "pin")
+    assert "calibration " in pinned.out  # the similarities, as the pin measured them
+    ran = cli("engine", "show")
+    assert ran.code == EXIT_OK
+    lines = {line.split()[0]: line for line in ran.out.splitlines() if line.startswith("qwen3-")}
+    assert "tier bit_exact  canary threshold 0." in lines["qwen3-base-1.7b.p1"]
+    # The fake designs an unrelated voice for another seed: VoiceDesign's threshold is the floor, and says so.
+    assert "canary threshold 0.1000 (the floor)" in lines["qwen3-design-1.7b.p1"]
+    assert "VoiceDesign's gate is a drift alarm" in ran.out and "engine pin --json" in ran.out
+
+
 def test_bridge_of_an_unknown_profile_says_how_to_list_them_s10_1(cli: Cli) -> None:
     cli("engine", "pin")
     ran = cli("engine", "bridge", "qwen3-base-1.7b.p1", "qwen3-base-1.7b.p9")

@@ -15,8 +15,9 @@ import pytest
 
 from narration.config import Config, EnginesConfig, QwenBaseConfig
 from narration.contracts import names
-from narration.contracts.models import CanaryMaterial
+from narration.contracts.models import CanaryMaterial, EngineProfile
 from narration.engine.canary import CALIBRATION_SEEDS, CANARY_MARGIN, THRESHOLD_FLOOR, find_canary, material_id
+from narration.engine.drift import DriftCheck
 from narration.engine.models import QWEN_BASE, QWEN_DESIGN
 from narration.engine.pinning import PinRefused, bridge, pin, plan
 from narration.platform.testing import StandInPlatform
@@ -37,7 +38,7 @@ class Pinned:
     starter: CountingStarter
     material: CanaryMaterial
 
-    def pin(self, mode: Any = "pin", config: Config | None = None) -> Any:
+    def pin(self, mode: Any = "pin", config: Config | None = None, *, force: bool = False) -> Any:
         return pin(
             config or self.install.config,
             self.store,
@@ -45,7 +46,13 @@ class Pinned:
             starter=self.starter,
             packages=WORKER_PACKAGES,
             device="cpu",
+            force=force,
         )
+
+    def current(self, kind: Any) -> EngineProfile:
+        profile = self.store.current_engine_profile(kind)
+        assert profile is not None and profile.canary is not None
+        return profile
 
 
 @pytest.fixture
@@ -155,8 +162,80 @@ def test_repin_makes_a_new_profile_the_one_in_use_and_keeps_the_other_s10_1(pinn
 
 
 def test_repin_with_nothing_changed_keeps_both_s10_1(pinned: Pinned) -> None:
+    """Nothing changed, not even the machine the worker sees: both profiles are kept, and no canary is made."""
     pinned.pin()
+    before = {k: pinned.current(k) for k in ("design", "base")}
+    pinned.starter.started.clear()
     assert [r.action for r in pinned.pin("repin")] == ["keep", "keep"]
+    assert pinned.starter.started == ["qwen3"]  # one worker, to see the machine; no QA, no canary renders
+    assert {k: pinned.current(k) for k in ("design", "base")} == before
+
+
+def test_repin_after_a_driver_update_pins_a_new_profile_with_a_fresh_canary_s10_1(pinned: Pinned) -> None:
+    """Section 10.1's case: nothing pinned changed, but the machine did, so the canary may no longer repeat.
+    pin keeps what is pinned; repin sees the machine and pins that engine anew."""
+    pinned.pin()
+    base = pinned.current("base")
+    assert base.canary is not None
+    older = dataclasses.replace(base, observed={**base.observed, "driver": "an older driver"})
+    pinned.store.put_engine_profile(older)  # as if pinned before the driver update
+
+    assert [r.action for r in pinned.pin()] == ["keep", "keep"]  # pin never replaces a pin
+
+    reports = {r.kind: r for r in pinned.pin("repin")}
+    assert reports["design"].action == "keep"
+    assert (reports["base"].action, reports["base"].engine_profile_id) == ("new", BASE_P2)
+    assert reports["base"].changed == ("machine driver",)
+    fresh = pinned.current("base")
+    assert fresh.engine_profile_id == BASE_P2 and fresh.hash != base.hash  # new render keys
+    assert fresh.observed == base.observed  # this machine's, as the worker reports it
+    assert fresh.canary is not None and fresh.canary.pinned_at >= base.canary.pinned_at
+    assert Path(fresh.canary.clip.path).parent.name == BASE_P2
+    # Seen again, the machine is the one pinned: a second repin keeps it.
+    assert [r.action for r in pinned.pin("repin")] == ["keep", "keep"]
+
+
+def test_repin_force_gives_both_engines_new_profiles_s10_1(pinned: Pinned) -> None:
+    """The operator's way out when a gate keeps failing for a reason nothing here sees."""
+    first = {r.kind: r for r in pinned.pin()}
+    reports = {r.kind: r for r in pinned.pin("repin", force=True)}
+    assert {k: (r.action, r.changed) for k, r in reports.items()} == {
+        "design": ("new", ("forced",)),
+        "base": ("new", ("forced",)),
+    }
+    assert reports["design"].engine_profile_id == "qwen3-design-1.7b.p2"
+    assert reports["base"].engine_profile_id == BASE_P2
+    assert all(reports[k].hash != first[k].hash for k in reports)
+    with pytest.raises(ValueError, match="only repin"):
+        pinned.pin("pin", force=True)
+
+
+def test_a_moved_models_root_is_recorded_on_the_next_pin_s10_1(pinned: Pinned, tmp_path: Path) -> None:
+    """The snapshot folder is a local path outside the hash: a pin after the models root moved keeps the
+    profile and records where its files are now, so the next load finds them."""
+    pinned.pin()
+    before = pinned.current("base")
+    moved = tmp_path / "models-moved"
+    pinned.install.models_root.rename(moved)
+    config = dataclasses.replace(
+        pinned.install.config, server=dataclasses.replace(pinned.install.config.server, models_root=moved)
+    )
+    pinned.starter.started.clear()
+
+    reports = {r.kind: r for r in pinned.pin("pin", config)}
+    assert {k: (r.action, r.updated) for k, r in reports.items()} == {
+        "design": ("keep", ("snapshot_dir",)),
+        "base": ("keep", ("snapshot_dir",)),
+    }
+    after = pinned.current("base")
+    assert Path(after.snapshot_dir) == QWEN_BASE.snapshot_dir(moved)
+    assert (after.engine_profile_id, after.hash, after.canary) == (
+        before.engine_profile_id,
+        before.hash,
+        before.canary,
+    )
+    assert pinned.starter.started == []  # nothing rendered
+    assert DriftCheck().weights(after) == []  # the fingerprint check finds the files where they are now
 
 
 def test_a_changed_canary_text_needs_a_repin_dc3(pinned: Pinned) -> None:

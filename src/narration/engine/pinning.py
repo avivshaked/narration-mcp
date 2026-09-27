@@ -19,10 +19,17 @@ The worker is checked against the profile before anything is rendered: a venv th
 (``drift.DriftCheck.fingerprint``) is refused with what to do.
 
 **pin** changes nothing that is already pinned. A profile whose installation still matches is kept; one that
-differs (weights, lock, settings, the canary's text) is refused, with the fields that differ. **repin** makes
-a new profile (the next id) for each engine whose installation differs, and makes it current: its hash
-differs, so every render key differs, measurements are made again, and a caller that sends
-``expect_engine_profile`` gets ``ENGINE_CHANGED`` until it accepts the new hash. Neither changes a cached file.
+differs (weights, lock, settings, the canary's text) is refused, with the fields that differ. A kept profile
+whose snapshot folder moved (a new ``[server] models_root``, same files) gets its ``snapshot_dir`` updated in
+place: it is a local path, outside the hash.
+
+**repin** makes a new profile (the next id) for each engine whose installation differs, and makes it current:
+its hash differs, so every render key differs, measurements are made again, and a caller that sends
+``expect_engine_profile`` gets ``ENGINE_CHANGED`` until it accepts the new hash. It also starts the Qwen worker
+to see the machine: an engine pinned on another GPU, driver, CUDA or cuDNN (``profile.OBSERVED_KEYS``, the
+change section 10.1 names) gets a new profile and a fresh canary too, though no pinned file changed.
+``repin --force`` gives both engines new profiles whatever changed: the operator's way out when a gate fails
+for a reason nothing here can see. Neither changes a cached file.
 
 **bridge** renders the canary and the calibration corpus's paragraphs under an old and a new profile, in the
 old profile's canary voice, and reports how similar each pair is, so the owner can judge whether a re-pin will
@@ -81,6 +88,7 @@ from .profile import (
     QWEN_PACKAGES,
     FileHashes,
     build_profile,
+    machine_differences,
     next_profile_id,
     observed,
     pin_differences,
@@ -169,6 +177,8 @@ class Plan:
     profile: EngineProfile
     current: EngineProfile | None
     changed: tuple[str, ...] = ()
+    updated: tuple[str, ...] = ()
+    """For ``keep``: the unhashed fields of the current profile to update in place (``snapshot_dir``)."""
 
 
 def plan(
@@ -179,10 +189,16 @@ def plan(
     *,
     hashes: FileHashes | None = None,
     packages: Sequence[str] = QWEN_PACKAGES,
+    machine: Mapping[str, Any] | None = None,
+    force: bool = False,
 ) -> dict[EngineKind, Plan]:
-    """What ``pin`` or ``repin`` would do for each engine (see the module docstring). Raises ``PinRefused``
-    when ``pin`` finds an installation that differs from what is pinned; raises ``EngineSetupError`` when
-    what a profile is built from is missing."""
+    """What ``pin`` or ``repin`` would do for each engine (see the module docstring). ``machine`` is what the
+    Qwen worker observes of this machine (``profile.observed``; repin only): an engine pinned on another is
+    re-pinned. ``force`` (repin only) re-pins both engines. Raises ``PinRefused`` when ``pin`` finds an
+    installation that differs from what is pinned; raises ``EngineSetupError`` when what a profile is built
+    from is missing."""
+    if (force or machine is not None) and mode != "repin":
+        raise ValueError("only repin compares the machine or can be forced")
     hashes = hashes if hashes is not None else FileHashes()
     ids = [p.engine_profile_id for p in store.list_engine_profiles()]
     plans: dict[EngineKind, Plan] = {}
@@ -204,11 +220,18 @@ def plan(
         changed = list(pin_differences(current, built))
         if current.canary is not None and current.canary.material != material_id(material):
             changed.append("canary material")
+        if not changed and force:
+            changed.append("forced")
+        if not changed and machine is not None:
+            changed += [f"machine {k}" for k in machine_differences(current.observed, machine)]
         if not changed:
-            action: Action = "keep" if current.canary is not None else "canary"
-            plans[kind] = Plan(
-                kind=kind, action=action, profile=current if action == "keep" else built, current=current
-            )
+            if current.canary is None:
+                plans[kind] = Plan(kind=kind, action="canary", profile=built, current=current)
+                continue
+            kept, updated = current, ()
+            if built.snapshot_dir != current.snapshot_dir:  # the models root moved; the files are the same
+                kept, updated = dataclasses.replace(current, snapshot_dir=built.snapshot_dir), ("snapshot_dir",)
+            plans[kind] = Plan(kind=kind, action="keep", profile=kept, current=current, updated=updated)
             continue
         if mode == "pin":
             raise PinRefused(
@@ -264,6 +287,7 @@ class EngineReport:
     repeat_sha256: tuple[str, ...] = ()
     threshold: float | None = None
     calibration: tuple[float, ...] = ()
+    updated: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         """The report as JSON values."""
@@ -273,6 +297,7 @@ class EngineReport:
             "engine_profile_id": self.engine_profile_id,
             "hash": self.hash,
             "changed": list(self.changed),
+            "updated": list(self.updated),
             "tier": self.tier,
             "raw_sha256": self.raw_sha256,
             "repeat_sha256": list(self.repeat_sha256),
@@ -292,12 +317,22 @@ def pin(
     hashes: FileHashes | None = None,
     packages: Sequence[str] = QWEN_PACKAGES,
     clock: Callable[[], float] = time.time,
+    force: bool = False,
 ) -> tuple[EngineReport, ...]:
-    """``engine pin`` (``mode="pin"``) or ``engine repin``: see the module docstring. Returns what was done
-    for each engine. Raises ``PinRefused``, ``EngineSetupError`` (``BACKEND_NOT_INSTALLED``), and what a
-    worker raises (``WorkerFailure``, ``WorkerCrashed``, ``WorkerTimeout``); nothing is stored then."""
+    """``engine pin`` (``mode="pin"``) or ``engine repin`` (``force``: both engines anew): see the module
+    docstring. Returns what was done for each engine. Raises ``PinRefused``, ``EngineSetupError``
+    (``BACKEND_NOT_INSTALLED``), and what a worker raises (``WorkerFailure``, ``WorkerCrashed``,
+    ``WorkerTimeout``); nothing new is pinned then."""
     material = material if material is not None else find_canary(config)
-    plans = plan(config, store, mode, material, hashes=hashes, packages=packages)
+    hashes = hashes if hashes is not None else FileHashes()
+    plans = plan(config, store, mode, material, hashes=hashes, packages=packages, force=force)
+    if mode == "repin" and any(p.action == "keep" for p in plans.values()):
+        machine = _observe(starter, list(plans.values()))
+        plans = plan(config, store, mode, material, hashes=hashes, packages=packages, machine=machine)
+    for p in plans.values():
+        if p.action == "keep" and p.updated:
+            store.put_engine_profile(p.profile)
+            log.info("engine profile %s: updated %s", p.profile.engine_profile_id, ", ".join(p.updated))
     todo = [plans[k] for k in KINDS if plans[k].action != "keep"]
     if not todo:
         return tuple(_kept(plans[k]) for k in KINDS)
@@ -327,7 +362,14 @@ def _kept(p: Plan) -> EngineReport:
         tier=profile.tier,
         raw_sha256=pin_.raw_sha256 if pin_ is not None else None,
         threshold=pin_.threshold if pin_ is not None else None,
+        updated=p.updated,
     )
+
+
+def _observe(starter: Starter, plans: Sequence[Plan]) -> dict[str, Any]:
+    """What a fresh Qwen worker observes of this machine (its ``hello``), started as the pin starts it."""
+    with _worker(starter, "qwen3", cublas=_cublas(plans)) as qwen:
+        return observed(qwen.hello)
 
 
 @contextmanager
