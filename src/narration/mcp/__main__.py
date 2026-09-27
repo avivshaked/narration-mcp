@@ -80,7 +80,7 @@ def serve(config: Config, *, log_level: str = "INFO") -> int:
 
     import anyio
 
-    from narration.backend import DetachedLauncher, NarrationBackend
+    from narration.backend import backend_for
     from narration.platform import get_platform
     from narration.store import NarrationStore
 
@@ -101,12 +101,7 @@ def serve(config: Config, *, log_level: str = "INFO") -> int:
         print(f"narration-mcp: cannot open the store at {root}: {exc}", file=sys.stderr)
         return EXIT_ERROR
     try:
-        backend = NarrationBackend(
-            config,
-            store,
-            platform,
-            launcher=DetachedLauncher(config.path, autostart=config.daemon.autostart),
-        )
+        backend = backend_for(config, store, platform)
         front = build_front_end(backend, retention=config.retention, log_path=log_path)
         log.info("serving on stdio (store %s)", root)
         anyio.run(front.run_stdio)

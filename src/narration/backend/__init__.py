@@ -10,13 +10,15 @@ jobs to the store, starts the daemon (``launch``), and reads jobs, results and s
 - ``assemble``: ``get_results`` for a generation job, restamped for the request (section 7.5);
 - ``views``: ``get_job`` and ``get_server_status``, with DC-2's numbers;
 - ``resources``: the ``narration://`` resources (section 7.7);
-- ``launch``: the daemon's autostart.
+- ``launch``: the daemon's autostart;
+- ``measures``: whether a voice is measured (WP33's rules);
+- ``steps``: the DESIGN step's tools and ``audition_pronunciation``.
 """
 
 from __future__ import annotations
 
 from .launch import DaemonLauncher, DetachedLauncher
 from .planning import AnalysisPins
-from .service import NarrationBackend
+from .service import NarrationBackend, backend_for
 
-__all__ = ["AnalysisPins", "DaemonLauncher", "DetachedLauncher", "NarrationBackend"]
+__all__ = ["AnalysisPins", "DaemonLauncher", "DetachedLauncher", "NarrationBackend", "backend_for"]

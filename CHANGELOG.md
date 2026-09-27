@@ -16,6 +16,12 @@ are tracked here but no version is tagged; nothing described below is installabl
   trend, and stops at the first rung the voice does not read reliably. It publishes `measurement.json`
   with `max_segment_chars`, `max_segment_seconds`, the pace curve and the ladder table. Every take comes
   from the cache when it can, so a measurement that stopped resumes where it was.
+- `narration-admin render --voice <clip> --transcript <text> --text <text> [--out <wav>]` renders one
+  text in a voice from the terminal. It goes through the service's own `submit_job`, so every check
+  applies (a synthetic, measured voice; the clip's path and sha256; the limits). It waits for the job,
+  prints each take's verdict, delivery file and cue times, and copies the suggested take to `--out`.
+  `--dry-run` only plans; `--json` prints the results as `get_results` returns them. Running the same
+  command again while its job runs waits for that job.
 - The same request sent again while its earlier job is being cancelled now makes a new job, instead of
   returning the job that is ending. A job being cancelled also stops holding its `idempotency_key`.
 - `narration-mcp` now serves the real tools over the store and the daemon. It finds its configuration

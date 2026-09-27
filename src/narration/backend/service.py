@@ -64,7 +64,7 @@ from narration.text import TextPipeline, segment_too_long
 from . import views
 from .assemble import assemble, consistency_of, measured_error
 from .clips import ClipRef, admit_clip, check_synthetic, refield
-from .launch import DAEMON_RETRY_S, DaemonLauncher
+from .launch import DAEMON_RETRY_S, DaemonLauncher, DetachedLauncher
 from .measures import Measurements, StoreMeasurements
 from .planning import AnalysisPins, plan_request
 from .requests import (
@@ -919,6 +919,16 @@ def with_retry_after(exc: NarrationError) -> NarrationError:
     )
 
 
+def backend_for(
+    config: Config, store: Store, platform: Platform, *, launcher: DaemonLauncher | None = None
+) -> NarrationBackend:
+    """The service's backend over its store, as ``narration-mcp`` and ``narration-admin render`` run it: the
+    daemon is started detached with this configuration file, when ``[daemon] autostart`` says so."""
+    if launcher is None:
+        launcher = DetachedLauncher(config.path, autostart=config.daemon.autostart)
+    return NarrationBackend(config, store, platform, launcher=launcher)
+
+
 async def _report(progress: ProgressCallback, job: JobRecord) -> None:
     """One progress notification: done and total audio seconds (the total may grow with retakes)."""
     total = job.progress.total_s if job.progress.total_s > 0 else None
@@ -941,4 +951,4 @@ def _publish_text(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
-__all__ = ["POLL_S", "RELEASE_WAIT_S", "NarrationBackend"]
+__all__ = ["POLL_S", "RELEASE_WAIT_S", "NarrationBackend", "backend_for"]
