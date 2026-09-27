@@ -45,8 +45,8 @@ runs the same day (12:57, 13:11 and 13:29 UTC) measured every peak below to the 
 | Weights re-hashed against the manifest | 11 files, 0 mismatched | 3 files, 0 mismatched |
 
 - **The group resident:** 3331 MB allocated, 3606 MB reserved. After unload: 56 MB reserved.
-- **CUDA context:** about 440–450 MB (the device-level change when the process started CUDA; an estimate,
-  since other jobs share the device).
+- **CUDA context:** 436 MB in this run, 448 MB in the earlier ones (the device-level change when the process
+  started CUDA; an estimate, since other jobs share the device).
 - **Load times were measured with a warm OS file cache**, as in the Qwen half.
 - **Speed:** transcription of 119 s with word times takes about 22 s (0.19 × real time) and embedding it 0.5 s
   on the GPU; on the CPU, embedding 40 s takes about 2.5 s, the first call included (it loads the CPU copy).
@@ -79,13 +79,18 @@ The windows' count is in brackets; each cosine is to the one-pass embedding of t
   0.9976 at 119 s. Audio of up to 60 s is embedded exactly as before, in one pass.
 - **Why 60 s, not 30 s** (`spikes/acceptance-wp22/windows.json`): the bakeoff's voicelock evidence compares
   clips of up to 37 s, embedded in one pass. With 30 s windows 3 of its 52 rows moved by more than the
-  acceptance's 0.002 (at most 0.0057); with 60 s windows every row is reproduced, and the acceptance passes
-  (`spikes/acceptance-wp22/results.json`, 2026-09-27 13:41 UTC).
+  acceptance's 0.002 (at most 0.0057); with 60 s windows every row is reproduced, and the acceptance passes.
+  Two runs show it: `spikes/acceptance-wp22/results.json` (2026-09-27 13:32–13:41 UTC) was made with 60 s
+  windows but **before** the release after each op (next section) was added; the GPU test
+  `test_acceptance_matches_the_bakeoff_eval_s11_1`, which runs the same script, passed on the final code,
+  release included (13:46–13:53 UTC; its output was not kept).
 
 ### What stays reserved between ops
 
 PyTorch's caching allocator keeps the blocks an op freed. In the 13:29 UTC run, before the worker returned
-them, the whole take transcribed and then embedded left **14.2 GB reserved for 5.6 GB allocated**: the
+them (its `results.json` is in commit `05114c0`, "DC-15 at 60 s passes the acceptance; cosines measured":
+`models.sv.embed_cuda.whole_take` and `models.asr.transcribe.whole_take`), the whole take transcribed and
+then embedded left **14.2 GB reserved for 5.6 GB allocated**: the
 allocator could not reuse Whisper's freed blocks for WavLM's shapes, so the process's footprint on the shared
 GPU grew past the group's need. The worker now calls `torch.cuda.empty_cache()` after each GPU op
 (`narration_worker_qa.gpu`). In this run:
@@ -98,8 +103,8 @@ GPU grew past the group's need. The worker now calls `torch.cuda.empty_cache()` 
 | embed 119 s | 5567 MB | 6434 MB | 3640 MB |
 
 So the footprint between ops is the resident models' (3.6 GB), and during an op that op's own peak: at most
-10.5 GB reserved, in transcription. The 13:29 run, without the release, reached 11.4 GB reserved in
-transcription and 14.2 GB in the embedding after it. Results do not change: the kernels are deterministic.
+10.5 GB reserved, in transcription. The 13:29 run (commit `05114c0`), without the release, reached 11.4 GB
+reserved in transcription and 14.2 GB in the embedding after it. Results do not change: the kernels are deterministic.
 
 ## What this gives the engine profile (`vram_need_mb`)
 
@@ -110,7 +115,7 @@ Both ops' peaks are bounded (transcription by Whisper's 30 s window, embedding b
 
 - the largest footprint is transcription with word times: 9.8 GB allocated, 10.5 GB reserved, the resident
   models included;
-- plus the CUDA context, about 450 MB: **about 10.9 GB on the device**.
+- plus the CUDA context, 436–448 MB: **about 10.9 GB on the device**.
 
 **`vram_need_mb` = 11500** (the lead's decision, on these numbers): the measured 10.9 GB and a margin of about
 5 % for the allocator. The plan's ASSUMEd ~5 GB was an underestimate: word times and five beams cost most of it.
