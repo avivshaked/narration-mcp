@@ -1,10 +1,10 @@
 # WP36 The caller's guidance in the tool texts (readiness audit item 1.1)
-State: review        Updated: 2026-09-27T22:10+01:00
+State: review        Updated: 2026-09-27T22:12+01:00
 
-Branch `wp/36-guidance` (PR #40), on `main` at 4e0d85f (WP45 merged). `main` has since gained one docs-only
-commit; I did not rebase again, because a rebase would need a force push. Text only, except for the hint
-selection in `mcp/validation.py`. The audit ids it answers: mcp-2, qa-4, cf-7, cf-2, mcp-1, rt-1, mcp-7,
-mcp-8, rt-6, cf-10, mcp-10, mcp-11, triage-9 and cf-11.
+Branch `wp/36-guidance` (PR #40), on `main` at 4e0d85f (WP45 merged). `main` has since gained two
+docs-only commits (2a069e0, 8aa11ec); I did not rebase again, because a rebase would need a force push.
+Text only, except for the hint selection in `mcp/validation.py`. The audit ids it answers: mcp-2, qa-4,
+cf-7, cf-2, mcp-1, rt-1, mcp-7, mcp-8, rt-6, cf-10, mcp-10, mcp-11, triage-9 and cf-11.
 
 ## Done
 - **Names as hints (mcp-2, qa-4, cf-7).** The server instructions, the `submit_job` and `check_text`
@@ -19,7 +19,8 @@ mcp-8, rt-6, cf-10, mcp-10, mcp-11, triage-9 and cf-11.
     unless you need word times"; "use suggested_take_id: takes[] also lists failed and replaced attempts".
   - `narration://jobs/{job_id}/report` exists (`contracts/names.py`, `backend/resources.py`). Where it is
     offered as the smaller read (`get_results`, the resource's description), the text says what it holds:
-    each segment's suggested take and every take's verdict and flags, but no file paths and no cue times.
+    each segment's suggested take and every take's verdict and flags, but no file paths and no full cue
+    timings (only the spans it lists under "Listen first").
     Those come from `get_results` or `narration://takes/{take_id}`.
 - **Tier 4.** A suggestion of tier 4 is the best of the failed takes (`qa/suggest.py`). The
   `suggested_take_id` schema description, `get_results` and `narrate_script` step 7 say: every take failed QA
@@ -88,13 +89,34 @@ mcp-8, rt-6, cf-10, mcp-10, mcp-11, triage-9 and cf-11.
   - It covers `voices allow` (WP45), and stopping the daemon before reconnecting the client after a change.
   - Placeholders only.
 - CHANGELOG line under Unreleased / Changed.
+- **PR #40's last round.**
+  - No error hint offers a tool this build cannot run. `VOICE_NOT_SYNTHETIC`, `REF_TEXT_MISMATCH` and the
+    transcript check's own hint (`measure/transcript.py`), and the voice's `transcript` description, name
+    `design_voice` only as "where design_voice is available", which stays true after WP34. A test scans
+    `codes.ERRORS` and every literal `hint=` under `src/narration` for the tools in `NOT_IN_THIS_BUILD`.
+  - A field sent inside `controls` is told to leave `controls` out, since every control is refused
+    (`CONTROL_UNSUPPORTED`); it is no longer shown the refused fields as accepted. The test checks the
+    whole hint.
+  - The report resource's texts say "no file paths and no full cue timings": `report.md` lists the
+    spans to listen to first, with their times, and no other cue times.
+  - The README says the next job starts the daemon again only with `[daemon] autostart` on.
+  - `dry_run` says that scored attempts are counted only when the service knows its QA pins; until
+    PR #41, `backend_for` passes none, so `segments_cached` is 0 and every attempt counts in
+    `analyses_needed`.
 
 ## Tests
 - The full default suite ran once, early: `uv run python -m pytest` gave 3737 passed and 15 skipped
   (platform and Developer Mode skips, and one "engine.admin is in this build"), with 19 deselected. That was
   before the later edits. **While the owner narrates, the full suite is left to CI**, as the lead asked; I
   ran only targeted suites after it.
-- On the final code (the PR #40 review fixes):
+- On the final code (PR #40's last round), targeted only, while the owner narrates:
+  - `uv run python -m pytest tests/mcp tests/contracts tests/measure/test_transcript.py
+    tests/measure/test_handler.py`: 559 passed;
+  - `ruff check` and `ruff format --check`: clean; `basedpyright` on the changed files (`codes.py`,
+    `schemas.py`, `validation.py`, `descriptions.py`, `measure/transcript.py`, `test_descriptions.py`):
+    0 errors;
+  - the instructions are 1993 characters and `get_results`' description 2008, both within 2048.
+- On the PR #40 review fixes before that:
   - `uv run python -m pytest tests/mcp tests/contracts`: 534 passed;
   - `uv run python -m pytest tests/backend/test_steps.py tests/admin/test_render.py`: 34 passed. These
     exercise the touched schemas and hint.
@@ -113,7 +135,7 @@ mcp-8, rt-6, cf-10, mcp-10, mcp-11, triage-9 and cf-11.
   - BELIEVE: it holds tool descriptions to the same length. Its telemetry slices them at that constant, but
     I did not find the cut itself.
   - The instructions are 1993 characters with the three tools marked, and 1924 with none. The longest tool
-    description is `get_results`, at 1956. A test holds every text to `CLIENT_TEXT_LIMIT`.
+    description is `get_results`, at 2008. A test holds every text to `CLIENT_TEXT_LIMIT`.
   - So the instructions leave the three per-tool rules (§7.1) and the backoff rule to the tool
     descriptions, which all carry them.
 - **The negation lint does not apply to these texts.** KNOW: it lints voice descriptions (§3.5). No test

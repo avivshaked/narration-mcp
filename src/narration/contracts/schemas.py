@@ -112,8 +112,8 @@ _VOICE: Final[Schema] = {
             "type": "string",
             "minLength": 1,
             "maxLength": 600,
-            "description": "the exact words spoken in the clip, copied character for character from where the "
-            "clip came from (design_voice's candidate, or the record kept with the clip); never retyped",
+            "description": "the exact words spoken in the clip, copied character for character from the record "
+            "kept with it (where design_voice is available, the candidate's transcript); never retyped",
         },
     },
 }
@@ -591,9 +591,9 @@ def _submit_job_input() -> Schema:
                         "default": False,
                         "description": "true: plan only, and the text echo; nothing is queued or rendered. The plan "
                         "covers the requested attempts (retakes are not planned): segments_cached (segments whose "
-                        "every attempt is already scored), renders_needed, deliveries_needed, analyses_needed "
-                        "(every attempt, when the installation's QA pins are not known), est_audio_s and "
-                        "est_wall_s",
+                        "every attempt is already scored), renders_needed, deliveries_needed, analyses_needed, "
+                        "est_audio_s and est_wall_s. Scored attempts are counted when the service knows its QA "
+                        "pins; otherwise segments_cached is 0 and every attempt counts in analyses_needed",
                     },
                     "takes": {
                         "type": "integer",

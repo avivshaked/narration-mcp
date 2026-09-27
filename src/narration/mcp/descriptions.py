@@ -83,8 +83,8 @@ REPORT_RESOURCE: Final = (
 )
 REPORT_HOLDS: Final = (
     "narration://jobs/{job_id}/report holds each segment's suggested take and every take's verdict and flags, "
-    "with no file paths or cue times: use it to review a large job, then take paths and cue times from "
-    "get_results or narration://takes/{take_id}."
+    "but no file paths and no full cue timings (only the spans it lists to listen to first): use it to review a "
+    "large job, then take paths and cue timings from get_results or narration://takes/{take_id}."
 )
 """What the report resource holds (``qa.report.report_md``), for the texts that offer it as the smaller read."""
 TIER_4: Final = (
@@ -312,8 +312,8 @@ RESOURCE_DESCRIPTIONS: Final[dict[str, str]] = {
     "measurement": "A voice's measurements, one per engine profile.",
     "job": "A job, as get_job returns it. Subscribable (2026-07-28 clients, through subscriptions/listen).",
     "job report": "A job's report, in Markdown: per segment, the suggested take, every take's verdict and its "
-    "flags. Much smaller than get_results for a large job, but with no file paths or cue times: take those from "
-    "get_results or narration://takes/{take_id}.",
+    "flags, and the spans to listen to first. Much smaller than get_results for a large job, but with no file "
+    "paths and no full cue timings: take those from get_results or narration://takes/{take_id}.",
     "take": "A take: its delivery file, its render and its analyses.",
 }
 

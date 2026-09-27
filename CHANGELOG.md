@@ -292,9 +292,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   respelling with `submit_job` meanwhile. `VOICE_NOT_SYNTHETIC`'s hint says that only a person allows a
   clip, with `narration-admin voices allow`, and that the daemon is restarted first, then the client
   reconnected. An upper-case `sha256` is told to lower-case it, and a top-level option such as `takes` is
-  pointed to `options.takes`. The README starts the server with the environment's Python
-  (`-m narration.mcp`) and says to start the daemon from a terminal when the client cannot. Nothing that
-  enters a cache key changed, so no voice needs measuring again.
+  pointed to `options.takes`; a field sent inside `controls` is told to leave `controls` out. The README
+  starts the server with the environment's Python (`-m narration.mcp`) and says to start the daemon from
+  a terminal when the client cannot. Nothing that enters a cache key changed, so no voice needs
+  measuring again.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set

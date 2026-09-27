@@ -232,8 +232,11 @@ def test_a_field_is_never_pointed_into_the_refused_controls_s3_3() -> None:
     inside = {**VALID_ARGUMENTS["submit_job"]["segments"][0], "controls": {"factor": 1.0}}
     error = _refusal("submit_job", {**VALID_ARGUMENTS["submit_job"], "segments": [inside]})
     assert error.field == "segments[0].controls.factor"
-    assert error.hint is not None and error.hint.startswith("Remove segments[0].controls.factor;")
-    assert "Move" not in error.hint, "never pointed further into the refused controls"
+    assert error.hint == (
+        "Remove segments[0].controls.factor. No current engine supports any control, so every field of "
+        "segments[0].controls is refused (CONTROL_UNSUPPORTED): leave segments[0].controls out "
+        "(design section 3.3)."
+    ), "never pointed further into the refused controls, nor shown its refused fields as accepted"
 
 
 @pytest.mark.parametrize(("tool", "field"), [("submit_job", "voice"), ("profile_voice", "audio")])
@@ -253,6 +256,33 @@ def test_voice_not_synthetic_says_to_restart_the_daemon_and_reconnect_s17_4() ->
     assert "Only a person allows a clip" in hint and "a calling agent must not run the command" in hint
     assert "with [daemon] autostart on" in hint
     assert hint.index("daemon stop") < hint.index("/mcp"), "the daemon first (WP45's restart advice)"
+
+
+def _hints() -> Iterator[tuple[str, str]]:
+    """Every hint the source writes out: the default hint of each code in ``codes.ERRORS``, and every literal
+    ``hint=`` given to an error anywhere under ``src/narration`` (the text of an f-string without its
+    fields)."""
+    for code, error in codes.ERRORS.items():
+        yield code, error.hint
+    package = Path(narration.keys.__file__).parents[1]
+    for source in sorted(package.rglob("*.py")):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.keyword) and node.arg == "hint":
+                parts = [
+                    p.value for p in ast.walk(node.value) if isinstance(p, ast.Constant) and isinstance(p.value, str)
+                ]
+                if parts:
+                    yield f"{source.relative_to(package).as_posix()}:{node.value.lineno}", "".join(parts)
+
+
+def test_no_error_hint_offers_a_tool_this_build_cannot_run_s7() -> None:
+    """A hint may name a tool that is not in this build only as "where <tool> is available", so it is true
+    before that tool lands and after."""
+    hints = dict(_hints())
+    assert codes.VOICE_NOT_SYNTHETIC in hints and "measure/transcript.py" in " ".join(hints), "the scan is live"
+    for where, hint in hints.items():
+        for tool in NOT_IN_THIS_BUILD:
+            assert tool not in hint.replace(f"where {tool} is available", ""), f"{where} offers {tool}"
 
 
 # ---------------------------------------------------------------- keys (section 10.2)

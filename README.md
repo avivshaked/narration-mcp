@@ -116,9 +116,9 @@ folder of your clone.
    The server clones only voices this service designed, or clips whose sha256 is in `[voices]
    allow_sha256`. The same command with `voices allow <clip.wav>` adds a clip designed elsewhere to that
    list, after you confirm that it is synthetic. The daemon and the server read `narration.toml` only
-   when they start. After a change, stop the daemon first (the same command with `daemon stop`; the next
-   job, or `daemon start`, starts it again), then reconnect the client to the server (`/mcp` in Claude
-   Code).
+   when they start. After a change, stop the daemon first (the same command with `daemon stop`; with
+   `[daemon] autostart` on, the next job starts it again, otherwise `daemon start` does), then reconnect
+   the client to the server (`/mcp` in Claude Code).
 4. In a session, call `measure_voice` on your voice clip once. Then call `submit_job`, poll `get_job`,
    and read the takes with `get_results`. The server's instructions tell the calling agent how to use the
    tools well: among other things, to send every invented name as a pronunciation hint (the term alone

@@ -68,9 +68,14 @@ TEXT_MODE_HINT: Final = (
     'Send text_mode "spoken" or leave it out, and write numbers, units and symbols as the words to be spoken: '
     'v1 speaks text as sent and has no normaliser for "written" text (design section 9.2).'
 )
+CONTROLS_REFUSED: Final = (
+    "No current engine supports any control, so every field of {field} is refused (CONTROL_UNSUPPORTED): "
+    "leave {field} out (design section 3.3)."
+)
 REFUSED_HOMES: Final = frozenset({"controls"})
-"""Object fields whose every property is refused, so a misplaced field is never pointed into them, nor, when
-it was sent inside one, further in (``controls.factor`` is never pointed to ``controls.pace.factor``)."""
+"""Object fields whose every property is refused, so a misplaced field is never pointed into them. A field sent
+inside one is told to leave the whole object out (``CONTROLS_REFUSED``), never pointed further in, and never
+shown the object's fields as accepted."""
 SHA256_HINT: Final = (
     "Send {field} as the file's sha256 in 64 lower-case hex digits. Some tools print it in upper case "
     "(PowerShell's Get-FileHash does): lower-case it."
@@ -224,10 +229,12 @@ def _describe(error: ValidationError) -> list[_Failure]:
         failures: list[_Failure] = []
         for name in extra:
             field = field_path([*parts, name])
-            inside_refused = any(part in REFUSED_HOMES for part in parts)
-            home = None if inside_refused else nested_home(schema, name)
+            cut = next((i for i, part in enumerate(parts) if part in REFUSED_HOMES), None)
+            home = None if cut is not None else nested_home(schema, name)
             if name in INSTRUCTION_LIKE_FIELDS:
                 hint = f"Remove {field}: it is not an input of this service. {SECTION_3_3}"
+            elif cut is not None:
+                hint = f"Remove {field}. {CONTROLS_REFUSED.format(field=field_path(parts[: cut + 1]))}"
             elif home is not None:
                 moved = field_path([*parts, home, name])
                 hint = f"Move {field} into {field_path([*parts, home])}: send it as {moved}."
