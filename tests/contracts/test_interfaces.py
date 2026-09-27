@@ -108,7 +108,7 @@ def test_the_aligner_core_takes_the_workers_error_and_gives_the_guards_facts_s11
 
 
 def test_a_worker_client_gives_its_hello_reply_app_a() -> None:
-    # Contracts 1.6.3: the job engine reads the loaded worker's hello (its fingerprint) for the engine guard and
+    # Contracts 1.6.5 (WP31): the job engine reads the loaded worker's hello (its fingerprint) for the engine guard and
     # each render's observed facts, through the protocol rather than an attribute it hopes for.
     hello = inspect.getattr_static(interfaces.WorkerClient, "hello")
     assert isinstance(hello, property)
@@ -116,7 +116,7 @@ def test_a_worker_client_gives_its_hello_reply_app_a() -> None:
 
 
 def test_a_job_records_result_holds_the_jobs_advice_s8() -> None:
-    # Contracts 1.6.3: for generate and analyse, JobRecord.result is the per-job advice (section 8): the
+    # Contracts 1.6.5 (WP31): for generate and analyse, JobRecord.result is the per-job advice (section 8): the
     # suggestions and the consistency report.
     doc = inspect.getdoc(models.JobRecord) or ""
     for word in ("suggestions", "consistency", "segment_id", "take_id"):
