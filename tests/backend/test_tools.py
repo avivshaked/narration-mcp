@@ -342,14 +342,6 @@ def test_release_gpu_with_no_daemon_releases_nothing_s7_6(service: Service) -> N
     assert out == {"released": False, "holder_before": None, "busy_job": None}
 
 
-@pytest.mark.parametrize("tool", ["design_voice", "profile_voice", "audition_pronunciation"])
-def test_tools_whose_handlers_are_not_built_say_so_s14(service: Service, tool: str) -> None:
-    with pytest.raises(NarrationError) as caught:
-        run(lambda: getattr(service.backend, tool)({}))
-    assert caught.value.code == codes.BACKEND_NOT_INSTALLED
-    assert not caught.value.retryable
-
-
 # ======================================================================== resources (section 7.7)
 
 

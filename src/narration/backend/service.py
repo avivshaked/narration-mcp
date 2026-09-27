@@ -15,8 +15,9 @@ It reads jobs, results and status back from the store. There are no sockets: the
 - Errors are ``NarrationError`` with the section 14 code, the field and a hint; every retryable one carries
   ``retry_after_s`` (DC-2). The service suggests; the caller decides.
 
-The tools of the DESIGN step (``design_voice``, ``profile_voice``) and ``audition_pronunciation`` answer
-``BACKEND_NOT_INSTALLED`` until their job handlers exist (WP34, WP35).
+The tools of the DESIGN step (``design_voice``, ``profile_voice``) and ``audition_pronunciation`` check a
+request and queue its job only when the daemon runs that kind (``RUNNABLE_KINDS``). Until their handlers
+exist (WP34, WP35), they answer ``BACKEND_NOT_INSTALLED``.
 """
 
 from __future__ import annotations
@@ -24,10 +25,11 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import math
 import os
 import secrets
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, ParamSpec, TypeVar
 
@@ -49,10 +51,11 @@ from narration.contracts.models import (
     Progress,
     SegmentText,
 )
-from narration.contracts.names import TERMINAL_JOB_STATUSES, JobKind, JobStatus, Priority
+from narration.contracts.names import TERMINAL_JOB_STATUSES, EngineKind, JobKind, JobStatus, Priority
 from narration.contracts.serial import to_json
 from narration.jobs import admission
 from narration.jobs.plan import VoiceSpec, estimated_audio_s
+from narration.lint import NegationLinter
 from narration.post import delivery_tools
 from narration.qa import Scorer
 from narration.store.store import utc_iso
@@ -73,6 +76,7 @@ from .requests import (
     segments_of,
     voice_of,
 )
+from .steps import audition_request, design_identity, design_request
 
 log = logging.getLogger(__name__)
 
@@ -88,11 +92,16 @@ REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
 MEASUREMENT_JSON: Final = "measurement.json"
 GENERATION_KINDS: Final = ("generate", "analyse")
-NOT_YET_BUILT: Final = {
-    "design_voice": "WP34",
-    "profile_voice": "WP34",
-    "audition_pronunciation": "WP35",
+RUNNABLE_KINDS: Final[frozenset[JobKind]] = frozenset({"generate", "analyse", "measure"})
+"""The job kinds this build's daemon runs. The front-end queues no other: a job of a kind with no handler
+would fail in the daemon, so its tool answers ``BACKEND_NOT_INSTALLED`` at once instead. ``design`` and
+``profile`` join with WP34's handlers, ``pronunciation`` with WP35's."""
+KIND_OF_TOOL: Final[dict[str, JobKind]] = {
+    "design_voice": "design",
+    "profile_voice": "profile",
+    "audition_pronunciation": "pronunciation",
 }
+HANDLER_WP: Final[dict[str, str]] = {"design": "WP34", "profile": "WP34", "pronunciation": "WP35"}
 
 
 class NarrationBackend:
@@ -102,6 +111,8 @@ class NarrationBackend:
     status (``launch.DetachedLauncher``). ``pins`` gives the QA models' and the aligner's pins when the
     installation has them (``planning.AnalysisPins``): with them, a plan also looks the analysis layer up.
     ``measurements`` answers whether a voice is measured (``measures.StoreMeasurements``: WP33's rules).
+    ``kinds`` are the job kinds the daemon runs (``RUNNABLE_KINDS``); a tool whose kind is not among them
+    answers ``BACKEND_NOT_INSTALLED``.
     ``clock`` is Unix seconds (the rate cap, job times); ``poll_s`` is the long-poll's interval.
     """
 
@@ -114,6 +125,7 @@ class NarrationBackend:
         launcher: DaemonLauncher,
         pins: Callable[[], AnalysisPins | None] | None = None,
         measurements: Measurements | None = None,
+        kinds: Collection[JobKind] = RUNNABLE_KINDS,
         text: TextPlanner | None = None,
         scorer: Scorer | None = None,
         clock: Callable[[], float] = time.time,
@@ -125,6 +137,8 @@ class NarrationBackend:
         self.launcher = launcher
         self._pins = pins if pins is not None else (lambda: None)
         self.measurements: Measurements = measurements if measurements is not None else StoreMeasurements(store, config)
+        self.kinds = frozenset(kinds)
+        self.linter = NegationLinter()
         self.text: TextPlanner = text if text is not None else TextPipeline(config.text)
         self.scorer = scorer if scorer is not None else Scorer(config.measurement)
         self.clock = clock
@@ -160,12 +174,19 @@ class NarrationBackend:
         return self.measurements.voice_hash(voice)
 
     def _base_profile(self) -> EngineProfile:
-        profile = self.store.current_engine_profile("base")
+        return self._engine_profile("base")
+
+    def _engine_profile(self, kind: EngineKind) -> EngineProfile:
+        """The engine profile pinned for ``base`` (cloning) or ``design`` work; ``BACKEND_NOT_INSTALLED``
+        before ``narration-admin engine pin``."""
+        profile = self.store.current_engine_profile(kind)
         if profile is None:
+            what = "cloning voices (Qwen Base)" if kind == "base" else "designing voices (Qwen VoiceDesign)"
             raise NarrationError(
                 codes.BACKEND_NOT_INSTALLED,
-                "no engine profile is pinned for cloning voices (Qwen Base)",
+                f"no engine profile is pinned for {what}",
                 hint="Ask the operator to run narration-admin install, then narration-admin engine pin.",
+                details={"engine": kind},
             )
         return profile
 
@@ -268,11 +289,13 @@ class NarrationBackend:
         idempotency_key: str | None,
         segments_total: int = 0,
         result: dict[str, Any] | None = None,
+        identity: Mapping[str, Any] | None = None,
     ) -> JobRecord:
         """Queue a job, or return the queued or running job of the same request (section 7.3), which is not
         held to the rate cap or the queue's length; then make sure a daemon serves the store, after the job is
-        committed (``launch``). A job being cancelled is ending, so the same request again is a new job."""
-        sha = request_sha256(kind, stored)
+        committed (``launch``). A job being cancelled is ending, so the same request again is a new job.
+        ``identity`` is what the request's identity hashes, when it is not the whole stored request."""
+        sha = request_sha256(kind, identity if identity is not None else stored)
         queued = self.store.queued_jobs()
         job = self._identical(queued, kind, sha)
         if job is None:
@@ -486,7 +509,7 @@ class NarrationBackend:
             return self._generation_results(job, block, include_words, include_transcripts)
         if job.kind == "measure":
             return self._measure_results(job, block)
-        return {"job": block}
+        return {"job": block, **self._step_results(job)}
 
     async def get_results(self, args: Mapping[str, Any]) -> dict[str, Any]:
         """``get_results`` (section 7.5)."""
@@ -568,6 +591,28 @@ class NarrationBackend:
             path = self.store.measurement_dir(voice_hash, profile_id) / MEASUREMENT_JSON
             out["measurement_result"] = {"path": str(result.get("path") or path), "measurement": to_json(measurement)}
         return out
+
+    def _step_results(self, job: JobRecord) -> dict[str, Any]:
+        """The results of a DESIGN-step job or an audition, from what its handler (WP34, WP35) left:
+        ``design``, the candidates the store holds under the job's ``design_id``; ``profile``, the profile
+        its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
+        ``audition``. Nothing while the job has left none."""
+        result = job.result or {}
+        if job.kind == "design":
+            design_id = str(job.request.get("design_id", ""))
+            if not design_id:
+                return {}
+            candidates = self.store.get_design(design_id)
+            return {"design": {"design_id": design_id, "candidates": [to_json(c) for c in candidates]}}
+        if job.kind == "profile":
+            sha, version = result.get("audio_sha256"), result.get("profile_version")
+            if isinstance(sha, str) and isinstance(version, str):
+                profile = self.store.get_profile(sha, version)
+                if profile is not None:
+                    return {"profile": to_json(profile)}
+            return {}
+        audition = result.get("audition")
+        return {"audition": audition} if job.kind == "pronunciation" and isinstance(audition, dict) else {}
 
     # ================================================================ cancel_job (sections 7.6, 8)
     def cancel_job_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
@@ -771,27 +816,81 @@ class NarrationBackend:
         """``release_gpu`` (section 7.6)."""
         return await self._thread(self.release_gpu_sync, args)
 
-    # ================================================================ the tools whose handlers come later
-    def _not_built(self, tool: str) -> NarrationError:
-        return NarrationError(
-            codes.BACKEND_NOT_INSTALLED,
-            f"{tool} is not in this build of the service yet",
-            hint="Update the service; the narration tools (measure_voice, check_text, submit_job) work meanwhile.",
-            details={"tool": tool, "work_package": NOT_YET_BUILT[tool]},
-            retryable=False,
+    # ================================================================ the DESIGN step and auditions (3.1, 3.6, 7.6)
+    def _require_kind(self, tool: str) -> None:
+        """``BACKEND_NOT_INSTALLED`` for a tool whose job kind this build's daemon does not run."""
+        kind = KIND_OF_TOOL[tool]
+        if kind not in self.kinds:
+            raise NarrationError(
+                codes.BACKEND_NOT_INSTALLED,
+                f"{tool} is not in this build of the service yet",
+                hint="Update the service; the narration tools (measure_voice, check_text, submit_job) work meanwhile.",
+                details={"tool": tool, "work_package": HANDLER_WP[kind]},
+                retryable=False,
+            )
+
+    def _submitted(self, job: JobRecord) -> dict[str, Any]:
+        """A step tool's answer: the job, its status and DC-2's ``poll_after_s``."""
+        _, _, poll = views.job_timing(job, self.store.queued_jobs())
+        return {"job_id": job.job_id, "status": job.status, "poll_after_s": poll}
+
+    def design_voice_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """``design_voice``: lint the description (warn, never refuse), check the design text, then queue a
+        ``design`` job under a new ``design_id``; the same design while its job is active keeps its id."""
+        self._require_kind("design_voice")
+        self._engine_profile("design")
+        stored = design_request(args, self.config, self.text)
+        lint = self.linter.lint(stored["description"])
+        self._check_disk()
+        minted = self.keys.new_design_id()
+        job = self._enqueue(
+            "design",
+            {**stored, "design_id": minted},
+            identity=design_identity(stored),
+            label=str(args["name"]),
+            priority="batch",
+            idempotency_key=None,
         )
+        design_id = str(job.request.get("design_id", minted))
+        return {**self._submitted(job), "design_id": design_id, "lint": to_json(lint)}
 
     async def design_voice(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        """``design_voice`` (section 3.1): its job handler comes with WP34."""
-        raise self._not_built("design_voice")
+        """``design_voice`` (sections 3.1, 3.5)."""
+        return await self._thread(self.design_voice_sync, args)
+
+    def profile_voice_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """``profile_voice``: check the audio's path, sha256 and format (any WAV the owner can read, section
+        17.3), then queue a ``profile`` job."""
+        self._require_kind("profile_voice")
+        audio = args["audio"]
+        clip = ClipRef(path=str(audio["path"]), sha256=str(audio["sha256"]))
+        self._check_disk()
+        admit_clip(self.store, self.platform, clip, max_seconds=math.inf, keep=False, field="audio")
+        job = self._enqueue("profile", {"audio": dict(audio)}, label=None, priority="batch", idempotency_key=None)
+        return self._submitted(job)
 
     async def profile_voice(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        """``profile_voice`` (section 3.6): its job handler comes with WP34."""
-        raise self._not_built("profile_voice")
+        """``profile_voice`` (section 3.6)."""
+        return await self._thread(self.profile_voice_sync, args)
+
+    def audition_pronunciation_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """``audition_pronunciation``: check the term, variants and carrier, and the voice as a clone's
+        (section 17.4; it need not be measured), copy the clip into the store, then queue a
+        ``pronunciation`` job."""
+        self._require_kind("audition_pronunciation")
+        stored = audition_request(args, self.text)
+        self._base_profile()
+        voice = voice_of(args)
+        clip = ClipRef(path=voice.path, sha256=voice.sha256)
+        check_synthetic(self.store, self.config.voices.allow_sha256, clip, field="voice")
+        self._check_disk()
+        admit_clip(self.store, self.platform, clip, max_seconds=self.config.limits.max_clip_seconds, keep=True)
+        job = self._enqueue("pronunciation", stored, label=None, priority="batch", idempotency_key=None)
+        return self._submitted(job)
 
     async def audition_pronunciation(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        """``audition_pronunciation`` (section 7.6): its job handler comes with WP35."""
-        raise self._not_built("audition_pronunciation")
+        """``audition_pronunciation`` (section 7.6)."""
+        return await self._thread(self.audition_pronunciation_sync, args)
 
     # ================================================================ resources (section 7.7)
     async def read_resource(self, uri: str) -> ResourceContent:
