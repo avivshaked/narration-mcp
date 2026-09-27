@@ -9,7 +9,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 import psutil
@@ -31,6 +31,30 @@ LAUNCHER = (
     "print(__import__('os').getpid(), child.pid, flush=True)\n"
     "child.wait()\n"
 )
+
+
+CLOCK_CATCH_UP_S = 5.0
+"""How long ``a_time_after_creation`` waits for the wall clock to reach a creation time (a tick is 15.625 ms)."""
+
+
+def a_time_after_creation(pid: int, *, wall: Callable[[], float] = time.time) -> float:
+    """A reading of ``wall`` no earlier than the creation of process ``pid``: a time a status could honestly
+    give as ``started_at``, as a real daemon's is (it reads its clock after its interpreter has started).
+
+    Reading ``time.time()`` just after the child exists is not enough, and made these tests flaky on Windows.
+    There, Python 3.12's ``time.time`` is ``GetSystemTimeAsFileTime``, which moves once per timer tick (15.625
+    ms unless some program asks for finer), while psutil's ``create_time`` is exact to well under a
+    millisecond. So a reading taken within a tick of the creation can name an earlier moment, and
+    ``capture_daemon`` rightly refuses a status that says the daemon ran before it was created. This waits
+    until the clock has passed the creation time.
+    """
+    created = psutil.Process(pid).create_time()
+    deadline = time.monotonic() + CLOCK_CATCH_UP_S
+    while (now := wall()) < created:
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"the wall clock did not reach process {pid}'s creation in {CLOCK_CATCH_UP_S} s")
+        time.sleep(0.001)
+    return now
 
 
 def status_of(pid: int, started_at: float) -> DaemonStatus:
@@ -90,13 +114,14 @@ def test_the_daemon_that_wrote_its_status_is_captured_with_its_launcher_and_kill
     with child(LAUNCHER) as launcher:
         assert launcher.stdout is not None
         launcher_pid, daemon_pid = map(int, launcher.stdout.readline().split())
-        owned = capture_daemon(status_of(daemon_pid, started_at=time.time()), launcher_pid=launcher_pid)
+        status = status_of(daemon_pid, started_at=a_time_after_creation(daemon_pid))
+        owned = capture_daemon(status, launcher_pid=launcher_pid)
         assert owned is not None and owned.daemon is not None and owned.launcher is not None
         assert (owned.daemon.pid, owned.launcher.pid) == (daemon_pid, launcher_pid)
         # A wrong launcher: this test process, which is alive and is neither the daemon nor its parent. (Not
         # ``launcher.pid + 1``: where pids are sequential, that is the daemon itself, which a capture accepts as
-        # its own launcher.)
-        assert capture_daemon(status_of(daemon_pid, started_at=time.time()), launcher_pid=psutil.Process().pid) is None
+        # its own launcher.) The same status was just accepted, so only the launcher can be why it is refused.
+        assert capture_daemon(status, launcher_pid=psutil.Process().pid) is None
         owned.kill()
         assert not owned.running()
         assert launcher.wait(timeout=30) is not None
@@ -115,11 +140,28 @@ def test_a_status_written_in_the_millisecond_the_daemon_started_proves_it() -> N
         owned.kill()
 
 
+def test_a_status_time_from_a_clock_a_tick_behind_the_creation_waits_for_it() -> None:
+    """The Windows CI flake, pinned with a clock that lags: its first reading is a tick before the daemon's
+    creation, which ``capture_daemon`` refuses; ``a_time_after_creation`` takes the first reading that is not."""
+    with child(LAUNCHER) as launcher:
+        assert launcher.stdout is not None
+        launcher_pid, daemon_pid = map(int, launcher.stdout.readline().split())
+        created = psutil.Process(daemon_pid).create_time()
+        tick_behind = created - 0.015625
+        assert capture_daemon(status_of(daemon_pid, started_at=tick_behind), launcher_pid=launcher_pid) is None
+        readings = iter([tick_behind, created - 0.0005, created + 0.0002])
+        started_at = a_time_after_creation(daemon_pid, wall=lambda: next(readings))
+        assert started_at == created + 0.0002
+        owned = capture_daemon(status_of(daemon_pid, started_at=started_at), launcher_pid=launcher_pid)
+        assert owned is not None and owned.daemon is not None and owned.daemon.pid == daemon_pid
+        owned.kill()
+
+
 def test_a_recorded_identity_is_reattached_only_on_an_exact_creation_time() -> None:
     with child(LAUNCHER) as launcher:
         assert launcher.stdout is not None
         launcher_pid, daemon_pid = map(int, launcher.stdout.readline().split())
-        owned = capture_daemon(status_of(daemon_pid, started_at=time.time()), launcher_pid=launcher_pid)
+        owned = capture_daemon(status_of(daemon_pid, started_at=a_time_after_creation(daemon_pid)), launcher_pid)
         assert owned is not None
         identity = owned.identity()
         again = reattach(identity)
