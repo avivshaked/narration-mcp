@@ -170,6 +170,9 @@ are tracked here but no version is tagged; nothing described below is installabl
   recorded (hashed again unless `--quick`), that each worker venv matches its `uv.lock`, the NVIDIA GPU
   (a machine without one is told plainly that it cannot run jobs), and the engine pin. Each problem says
   what to do next; the exit code is 1 when a check fails.
+- `narration-admin gc [--apply] [--json]`: a dry run by default that lists what retention no longer keeps;
+  `--apply` removes it. `narration-admin verify [--json]`: hashes the store's immutable files and the
+  installed model files again, and runs the database's integrity check; it changes nothing.
 
 ### Changed
 
