@@ -88,7 +88,8 @@ The windows' count is in brackets; each cosine is to the one-pass embedding of t
 ### What stays reserved between ops
 
 PyTorch's caching allocator keeps the blocks an op freed. In the 13:29 UTC run, before the worker returned
-them (its `results.json` is in commit `05114c0`, "DC-15 at 60 s passes the acceptance; cosines measured":
+them (its `results.json` is in commit `edfa6e8`, "docs(qa): DC-15 at 60 s passes the acceptance; cosines
+measured", which a rebase would renumber:
 `models.sv.embed_cuda.whole_take` and `models.asr.transcribe.whole_take`), the whole take transcribed and
 then embedded left **14.2 GB reserved for 5.6 GB allocated**: the
 allocator could not reuse Whisper's freed blocks for WavLM's shapes, so the process's footprint on the shared
@@ -103,7 +104,7 @@ GPU grew past the group's need. The worker now calls `torch.cuda.empty_cache()` 
 | embed 119 s | 5567 MB | 6434 MB | 3640 MB |
 
 So the footprint between ops is the resident models' (3.6 GB), and during an op that op's own peak: at most
-10.5 GB reserved, in transcription. The 13:29 run (commit `05114c0`), without the release, reached 11.4 GB
+10.5 GB reserved, in transcription. The 13:29 run (commit `edfa6e8`), without the release, reached 11.4 GB
 reserved in transcription and 14.2 GB in the embedding after it. Results do not change: the kernels are deterministic.
 
 ## What this gives the engine profile (`vram_need_mb`)
