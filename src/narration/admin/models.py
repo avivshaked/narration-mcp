@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from narration.engine.models import snapshot_dir  # the engine's rule for where a pinned snapshot lives
+
 from .cli import names_the_module
 
 MANIFEST_NAME: Final = "manifest.json"
@@ -67,11 +69,6 @@ def inside(folder: Path, path: str, where: str) -> Path:
     if not target.resolve().is_relative_to(folder.resolve()):
         raise ValueError(f"{where}: {path!r} resolves outside the model's folder")
     return target
-
-
-def snapshot_dir(models_root: Path, repo: str, revision: str) -> Path:
-    """``<models_root>/models--<org>--<name>/snapshots/<revision>`` (section 4)."""
-    return models_root / ("models--" + repo.replace("/", "--")) / "snapshots" / revision
 
 
 def pinned_revisions() -> dict[str, str] | None:

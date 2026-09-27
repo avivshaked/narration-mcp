@@ -303,6 +303,22 @@ def check_models(config: Config, pins: dict[str, str] | None, *, hash_files: boo
                     "Set [alignment] model to a pinned aligner (narration.example.toml names the default).",
                 )
             )
+        else:  # pinned; can the cue aligner run it as configured? Asked as the job engine asks it (WP32).
+            from narration.contracts.errors import NarrationError
+            from narration.engine.qa import aligner_method_id
+
+            try:
+                aligner_method_id(config)
+            except NarrationError as exc:
+                findings.append(
+                    Finding(
+                        "models",
+                        "fail",
+                        f"the aligner cannot run: {exc.message}",
+                        "Set [alignment] model and device as design section 16 shows (narration.example.toml "
+                        "names the default); until then every job fails with BACKEND_NOT_INSTALLED.",
+                    )
+                )
     for repo, revision in wanted:
         name = f"{repo}@{revision[:12]}"
         if not snapshot_dir(root, repo, revision).is_dir():
