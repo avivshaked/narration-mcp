@@ -138,7 +138,10 @@ class JobRun:
     voice_hash: str
     clip: Path
     profile: EngineProfile
-    measurement: MeasurementRecord
+    measurement: MeasurementRecord | None
+    """The voice's finished measurement, which a generation job's takes are judged against. None for a kind
+    that scores takes without one (``measure_voice``'s own takes), whose stages say what they are judged
+    against instead (``Stages.scoring_facts``)."""
     measured_error: MeasuredError | None
     scratch: Path
     segments: list[SegmentWork] = field(default_factory=list)
