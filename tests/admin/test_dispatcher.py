@@ -71,7 +71,7 @@ def module(package: Path, name: str, source: str) -> str:
 
 def test_every_operator_command_of_section_7_1_is_listed_s7_1() -> None:
     listed = build_parser().format_help()
-    for name in ("install", "engine", "gc", "verify", "bench", "daemon", "doctor", "render"):
+    for name in ("install", "engine", "gc", "verify", "bench", "daemon", "doctor", "render", "voices"):
         assert name in listed
     assert [g.name for g in COMMAND_GROUPS] == [
         "install",
@@ -82,6 +82,7 @@ def test_every_operator_command_of_section_7_1_is_listed_s7_1() -> None:
         "daemon",
         "doctor",
         "render",
+        "voices",
     ]
 
 

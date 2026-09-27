@@ -10,6 +10,14 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices] allow_sha256`,
+  instead of hashing it and editing `narration.toml` by hand. It reads the clip through the service's
+  path check, refuses a file that is not a WAV, prints the clip's path, length and sha256, and asks you
+  to confirm that the clip is synthetic, not a recording of a real person (`--yes` confirms in a script;
+  no answer changes nothing). The hash goes into the configuration file with a comment naming the clip;
+  every other line and comment is kept, and the file is replaced whole or not at all. It ends by saying
+  to restart `narration-mcp` and the daemon, which read the list when they start. `narration-admin
+  voices list` prints the list. Neither is an MCP tool, so no caller can allow a voice.
 - `measure_voice`'s job (`narration.measure`): it checks the clip's transcript with the speech recogniser
   (`REF_TEXT_MISMATCH` if the clip does not say it), renders the calibration set and builds the voice's
   anchor and similarity baseline, then climbs the length ladder from the shortest rung, fits the pace
