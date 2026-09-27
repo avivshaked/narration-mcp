@@ -91,49 +91,70 @@ def material_roots(config: Config | None = None) -> list[Path]:
     return roots
 
 
-def load_canary(root: Path, set_id: str = CANARY_SET) -> CanaryMaterial:
-    """The canary's text, checked against its manifest (``MaterialError`` when a file is missing, malformed
-    or not the bytes the manifest lists). ``sha256`` is the manifest's, so it names the set's exact content."""
-    folder = root / "canary" / set_id
+def read_set(root: Path, kind: str, set_id: str) -> tuple[dict[str, Any], str, dict[str, bytes]]:
+    """A material set's manifest, the manifest's sha256 and every file it lists, each checked against the
+    manifest (``MaterialError`` when a file is missing, malformed or not the bytes the manifest lists)."""
+    folder = root / kind / set_id
     try:
         manifest_bytes = (folder / "manifest.json").read_bytes()
         manifest = json.loads(manifest_bytes.decode("utf-8"))
+        files: dict[str, bytes] = {}
         for entry in manifest["files"]:
             data = (folder / entry["path"]).read_bytes()
             if hashlib.sha256(data).hexdigest() != entry["sha256"]:
                 raise MaterialError(f"{folder / entry['path']} is not the file its manifest lists")
-        canary = json.loads((folder / "canary.json").read_text(encoding="utf-8"))
+            files[str(entry["path"])] = data
+    except MaterialError:
+        raise
+    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
+        raise MaterialError(f"the material set {folder} cannot be read: {exc}") from exc
+    return manifest, hashlib.sha256(manifest_bytes).hexdigest(), files
+
+
+def load_canary(root: Path, set_id: str = CANARY_SET) -> CanaryMaterial:
+    """The canary's text, checked against its manifest (``read_set``). ``sha256`` is the manifest's, so it
+    names the set's exact content."""
+    manifest, sha, files = read_set(root, "canary", set_id)
+    try:
+        canary = json.loads(files["canary.json"].decode("utf-8"))
         voice, gate = canary["voice"], canary["gate"]
         return CanaryMaterial(
             set_id=str(manifest["set"]),
             status=manifest["status"],
-            sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+            sha256=sha,
             description=str(voice["description"]),
             design_text=str(voice["design_text"]),
             design_seed=int(voice["seed"]),
             gate_text=str(gate["text"]),
             gate_seed=int(gate["seed"]),
         )
-    except MaterialError:
-        raise
-    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
-        raise MaterialError(f"the canary material {folder} cannot be read: {exc}") from exc
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
+        raise MaterialError(f"the canary material {root / 'canary' / set_id} cannot be read: {exc}") from exc
+
+
+def find_set(config: Config | None, kind: str, set_id: str) -> Path:
+    """The first material folder (``material_roots``) that has the set; ``BACKEND_NOT_INSTALLED`` when none
+    does, since the service's own files are then incomplete."""
+    for root in material_roots(config):
+        if (root / kind / set_id / "manifest.json").is_file():
+            return root
+    raise EngineSetupError(
+        f"the service's material set {kind}/{set_id} is missing",
+        hint="Restore the service's files (a fresh checkout of the same version); nothing was rendered.",
+    )
 
 
 def find_canary(config: Config | None = None, set_id: str = CANARY_SET) -> CanaryMaterial:
-    """The canary's text from the first material folder that has it (``material_roots``); a missing or damaged
-    set is ``BACKEND_NOT_INSTALLED``, since the service's own files are then incomplete."""
-    problems: list[str] = []
-    for root in material_roots(config):
-        if (root / "canary" / set_id / "manifest.json").is_file():
-            try:
-                return load_canary(root, set_id)
-            except MaterialError as exc:
-                problems.append(str(exc))
-    raise EngineSetupError(
-        "the service's canary material is missing or damaged" + (f": {problems[0]}" if problems else ""),
-        hint="Restore the service's files (a fresh checkout of the same version); nothing was rendered.",
-    )
+    """The canary's text from the first material folder that has it; a missing or damaged set is
+    ``BACKEND_NOT_INSTALLED``."""
+    root = find_set(config, "canary", set_id)
+    try:
+        return load_canary(root, set_id)
+    except MaterialError as exc:
+        raise EngineSetupError(
+            f"the service's canary material is damaged: {exc}",
+            hint="Restore the service's files (a fresh checkout of the same version); nothing was rendered.",
+        ) from exc
 
 
 def material_id(material: CanaryMaterial) -> str:
@@ -189,37 +210,49 @@ def render(
     for byte, ADR 0002). For VoiceDesign: design from the description and design text. For Base: prepare
     ``clip`` (its ``transcript``, the design text by default) and speak the gate text. Every call passes its
     own cap (DC-4)."""
-    out.parent.mkdir(parents=True, exist_ok=True)
     if engine_kind(profile) == "design":
-        text = material.design_text
-        qwen.request(
-            "design",
-            {
-                "description": material.description,
-                "design_text": text,
-                "language": names.LANGUAGE,
-                "seed": seed,
-                "max_new_tokens": call_cap(profile, text),
-                "out_path": str(out),
-            },
-            timeout_s=RENDER_TIMEOUT_S,
-        )
-        return sha256_file(out)
+        return design(qwen, profile, description=material.description, text=material.design_text, seed=seed, out=out)
     if clip is None:
         raise ValueError("the Base canary clones the canary clip: pass clip")
     ref_text = transcript if transcript is not None else material.design_text
-    voice_hash = canary_voice_hash(clip.sha256, ref_text)
+    return clone(qwen, profile, clip=clip, transcript=ref_text, text=material.gate_text, seed=seed, out=out)
+
+
+def design(qwen: WorkerClient, profile: EngineProfile, *, description: str, text: str, seed: int, out: Path) -> str:
+    """Design a voice speaking ``text`` on a loaded VoiceDesign worker; the raw WAV's sha256."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    qwen.request(
+        "design",
+        {
+            "description": description,
+            "design_text": text,
+            "language": names.LANGUAGE,
+            "seed": seed,
+            "max_new_tokens": call_cap(profile, text),
+            "out_path": str(out),
+        },
+        timeout_s=RENDER_TIMEOUT_S,
+    )
+    return sha256_file(out)
+
+
+def clone(
+    qwen: WorkerClient, profile: EngineProfile, *, clip: AudioRef, transcript: str, text: str, seed: int, out: Path
+) -> str:
+    """Clone ``clip`` (ICL, with its ``transcript``) speaking ``text`` on a loaded Base worker; the raw WAV's
+    sha256. The voice is prepared each time: a load clears the worker's prepared voices."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    voice_hash = canary_voice_hash(clip.sha256, transcript)
     qwen.request(
         "prepare_voice",
         {
             "voice_hash": voice_hash,
             "ref_wav": clip.path,
-            "ref_text": ref_text,
+            "ref_text": transcript,
             "x_vector_only_mode": X_VECTOR_ONLY_MODE,
         },
         timeout_s=PREPARE_TIMEOUT_S,
     )
-    text = material.gate_text
     qwen.request(
         "synthesize",
         {

@@ -44,6 +44,14 @@ are tracked here but no version is tagged; nothing described below is installabl
   The daemon's job engine is now assembled with the cue aligner and the pinned QA models (Whisper
   large-v3, WavLM-base-plus-sv, the wav2vec2 aligner), so jobs no longer fail with
   `BACKEND_NOT_INSTALLED` once the models are installed and the engine is pinned.
+- `narration-admin engine pin | repin | bridge | show`. `pin` records the Base and VoiceDesign engine
+  profiles and designs the service's canary on this machine from the text in `material/canary/`: no
+  canary audio ships. It repeats the canary render in one worker and in a fresh one to decide the
+  determinism tier (`bit_exact` or `similar`), and calibrates the canary's similarity threshold with
+  three more seeds. `pin` keeps what is pinned and refuses an installation that has changed; `repin`
+  makes a new profile the one in use (new render keys; voices are measured again); `bridge` reports how
+  similar the canary and the calibration corpus sound under two profiles. They run only while no
+  daemon holds the store and the GPU has room for Qwen.
 - The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
   then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
   `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same
