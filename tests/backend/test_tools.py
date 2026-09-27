@@ -29,6 +29,7 @@ from narration.contracts.schemas import TOOLS_BY_NAME
 from narration.contracts.serial import from_json
 from narration.jobs.plan import VoiceSpec
 from narration.jobs.voice import clip_path
+from narration.measure import load_corpus, measurement_key_of
 from narration.text import TextPipeline
 from tests.jobs.support import (
     ENGINE_HASH,
@@ -43,7 +44,7 @@ from tests.jobs.support import (
 )
 
 from .conftest import Service
-from .support import daemon_status, write_wav
+from .support import daemon_status, make_backend, write_wav
 
 
 def valid(tool: str, structured: dict[str, Any]) -> dict[str, Any]:
@@ -425,6 +426,28 @@ def test_the_default_measurements_hash_a_voice_as_the_job_engine_does_s10_2(serv
     with pytest.raises(NarrationError) as caught:
         measurements.require("vh_" + "0" * 16, profile)
     assert (caught.value.code, caught.value.field) == (codes.VOICE_NOT_MEASURED, "voice")
+
+
+def test_only_a_current_measurement_is_answered_at_once_s7_6(service: Service) -> None:
+    """WP33's rule: a stored measurement is current when its key is the one a new measurement would have
+    now (the service's corpus and ladder settings), so a stale one is measured again."""
+    store, config = service.world.store, service.world.config
+    measurements = StoreMeasurements(store, config)
+    profile = store.current_engine_profile("base")
+    assert profile is not None
+    vh = voice_hash(service.world.clip_sha256)
+    stale = store.get_measurement(vh, profile.engine_profile_id)
+    assert stale is not None
+    assert measurements.current(vh, profile) is None, "the test measurement names another corpus"
+    key = measurement_key_of(
+        voice_hash=vh, profile=profile, corpus=load_corpus(config.measurement.corpus), config=config
+    )
+    store.put_measurement(dataclasses.replace(stale, measurement_key=key))
+    found = measurements.current(vh, profile)
+    assert found is not None and found.measurement_key == key
+    backend, _, _ = make_backend(service.world)
+    backend.measurements = measurements
+    assert backend.measure_voice_sync({"voice": service.voice()})["status"] == "completed"
 
 
 # ======================================================================== DC-2 on every tool
