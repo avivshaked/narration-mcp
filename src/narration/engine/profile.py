@@ -19,10 +19,11 @@ clone path (``qwen3-base-1.7b.pN``) and VoiceDesign (``qwen3-design-1.7b.pN``). 
   deterministic algorithms warn-only (section 10.1; ADR 0002), the capabilities, the licence and the VRAM the
   group needs (spike h: about 5.8 GB for a 30 s render).
 
-**The hash** (``profile_hash``) is ``sha256:`` over RFC 8785 canonical JSON of every field except the five the
+**The hash** (``profile_hash``) is ``sha256:`` over RFC 8785 canonical JSON of every field except the six the
 contract leaves out: ``hash``, ``snapshot_dir`` (a local path), ``observed`` (the GPU, driver, CUDA and cuDNN
-the pin ran on), ``tier`` (the repeat test's outcome on this machine) and ``canary`` (made on this machine,
-DC-3). The id is hashed, so a re-pin is a new id with a new hash. The object is built member by member
+the pin ran on), ``tier`` (the repeat test's outcome on this machine), ``canary`` (made on this machine, DC-3)
+and ``vram_need_mb`` (what the GPU scheduler waits for; it changes no audio, DC-16). The id is hashed, so a
+re-pin is a new id with a new hash. The object is built member by member
 (``hashed_object``), never from the record's serialised form.
 
 **The profile in use** is the store's (``current_profile``): ``narration-admin engine pin`` records it and
