@@ -8,7 +8,9 @@ A schema failure is ``INVALID_ARGUMENT`` (section 14: "schema or semantic failur
 bound: ``maxItems`` or ``maxLength`` on ``segments``, ``cues``, ``hints`` or ``text`` is ``LIMIT_EXCEEDED``
 (section 14: "request-size limits (segments, cues, characters, hints)"), with a hint to split or shorten.
 Neither is retryable. Messages never repeat the caller's values: they name the field and the rule, and the
-hint says what to change.
+hint says what to change. Two common slips get a hint of their own: a ``sha256`` that fails its pattern (often
+upper-case hex) is told to send 64 lower-case hex digits, and a field sent one level too high (a top-level
+``takes``) is told which object takes it (``options.takes``).
 
 The validator is Draft 2020-12 with three JSON rules made exact, so that what passes here is what the schema
 says: ``integer`` is an int and never a float such as ``2.0``; ``number`` is finite (no NaN or infinity);
@@ -65,6 +67,12 @@ SECTION_3_3: Final = (
 TEXT_MODE_HINT: Final = (
     'Send text_mode "spoken" or leave it out, and write numbers, units and symbols as the words to be spoken: '
     'v1 speaks text as sent and has no normaliser for "written" text (design section 9.2).'
+)
+REFUSED_HOMES: Final = frozenset({"controls"})
+"""Object fields whose every property is refused, so a misplaced field is never pointed into them."""
+SHA256_HINT: Final = (
+    "Send {field} as the file's sha256 in 64 lower-case hex digits. Some tools print it in upper case "
+    "(PowerShell's Get-FileHash does): lower-case it."
 )
 
 # Keywords whose failure is reported before others at the same depth: an unknown field first (the section
@@ -158,6 +166,18 @@ def _json_list(values: Iterable[Any]) -> str:
     return ", ".join(json.dumps(v, ensure_ascii=False) for v in values)
 
 
+def nested_home(schema: Mapping[str, Any], name: str) -> str | None:
+    """The object property of ``schema`` that accepts a field ``name`` this level refuses, if one does: a
+    top-level ``takes`` belongs in ``options``. None when no object property here has such a field.
+    ``controls`` is never a home: every control is refused (``CONTROL_UNSUPPORTED``, section 3.3)."""
+    for home, sub in schema.get("properties", {}).items():
+        if home in REFUSED_HOMES or not isinstance(sub, Mapping) or sub.get("type") != "object":
+            continue
+        if name in sub.get("properties", {}):
+            return str(home)
+    return None
+
+
 def _required_branches(error: ValidationError) -> list[str] | None:
     """For an ``anyOf`` whose branches are only ``required`` lists (a segment's cues or text), their names."""
     branches = error.validator_value
@@ -203,8 +223,12 @@ def _describe(error: ValidationError) -> list[_Failure]:
         failures: list[_Failure] = []
         for name in extra:
             field = field_path([*parts, name])
+            home = nested_home(schema, name)
             if name in INSTRUCTION_LIKE_FIELDS:
                 hint = f"Remove {field}: it is not an input of this service. {SECTION_3_3}"
+            elif home is not None:
+                moved = field_path([*parts, home, name])
+                hint = f"Move {field} into {field_path([*parts, home])}: send it as {moved}."
             else:
                 accepted = ", ".join(allowed) if allowed else "none"
                 hint = f"Remove {field}; the fields accepted here are: {accepted}. {SECTION_3_3}"
@@ -225,6 +249,10 @@ def _describe(error: ValidationError) -> list[_Failure]:
     if rule == "enum" and isinstance(value, list):
         hint = TEXT_MODE_HINT if parts and parts[-1] == "text_mode" else ""
         return [_Failure(here, rule, f"{where} must be one of: {_json_list(value)}", hint)]
+
+    if rule == "pattern" and parts and parts[-1] == "sha256":
+        hint = SHA256_HINT.format(field=where)
+        return [_Failure(here, rule, f"{where} must match the pattern {value}", hint)]
 
     messages = {
         "type": lambda: f"{where} must be of type {' or '.join(value) if isinstance(value, list) else value}",

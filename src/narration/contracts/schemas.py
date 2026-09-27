@@ -94,18 +94,26 @@ _ERROR: Final[Schema] = {
     },
 }
 
+_FILE_SHA256: Final[Schema] = {
+    **_SHA256,
+    "description": "the file's sha256 in 64 lower-case hex digits (lower-case a hash a tool prints in upper case)",
+}
+
 _VOICE: Final[Schema] = {
     "type": "object",
     "additionalProperties": False,
+    "description": "the voice: a clip you keep, sent exactly as it was kept with the clip. The transcript is part "
+    "of the voice, so one that differs by a single character is another voice, with no measurement yet",
     "required": ["path", "sha256", "transcript"],
     "properties": {
         "path": {"type": "string", "description": "absolute path of a WAV on a local drive"},
-        "sha256": _SHA256,
+        "sha256": _FILE_SHA256,
         "transcript": {
             "type": "string",
             "minLength": 1,
             "maxLength": 600,
-            "description": "the exact words spoken in the clip, as design_voice returned them",
+            "description": "the exact words spoken in the clip, copied character for character from where the "
+            "clip came from (design_voice's candidate, or the record kept with the clip); never retyped",
         },
     },
 }
@@ -113,31 +121,48 @@ _VOICE: Final[Schema] = {
 _AUDIO: Final[Schema] = {
     "type": "object",
     "additionalProperties": False,
+    "description": "a WAV file, by path and sha256",
     "required": ["path", "sha256"],
     "properties": {
         "path": {"type": "string", "description": "absolute path of a WAV on a local drive"},
-        "sha256": _SHA256,
+        "sha256": _FILE_SHA256,
     },
 }
 
 _HINT: Final[Schema] = {
     "type": "object",
     "additionalProperties": False,
+    "description": "a hint for one term. Send every invented or unusual name as one, the term alone if it needs "
+    "no respelling: QA then scores the name as one word, where a name without a hint counts as misheard words "
+    "and can fail the take (WER_HIGH)",
     "required": ["term"],
     "properties": {
         "term": {
             "type": "string",
             "minLength": 1,
             "maxLength": 80,
-            "description": "the word or words as they appear in the spoken text",
+            "description": "the word or words as they appear in the spoken text, matched case-sensitively as whole "
+            "words (the term followed by 's matches too); each term once per request",
         },
         "respell": {
             "type": "string",
             "maxLength": 120,
-            "description": "optional: what the engine is given instead; a hint to the engine, never a guarantee",
+            "description": "optional: what the engine is given instead; a hint to the engine, never a guarantee. "
+            "Leave it out when the engine says the term well as written",
         },
-        "align_as": {"type": "string", "maxLength": 120, "description": "optional: letters for the aligner"},
-        "asr_aliases": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 120}},
+        "align_as": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "optional: letters for the aligner, spelling the term as it sounds (default: the term's "
+            "own letters)",
+        },
+        "asr_aliases": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {"type": "string", "maxLength": 120},
+            "description": "optional: spellings the speech recogniser writes for the term (see qa.terms[].heard); "
+            "QA counts them as the term",
+        },
         "note": {"type": "string", "maxLength": 500, "description": "optional: for the caller; enters no key"},
     },
 }
@@ -150,13 +175,14 @@ _CONTROLS: Final[Schema] = {
         "pace": {
             "type": "object",
             "additionalProperties": False,
+            "description": "refused (CONTROL_UNSUPPORTED)",
             "properties": {
-                "factor": {"type": "number", "minimum": 0.94, "maximum": 1.06},
-                "mode": {"enum": ["native", "time_stretch"]},
+                "factor": {"type": "number", "minimum": 0.94, "maximum": 1.06, "description": "part of pace"},
+                "mode": {"enum": ["native", "time_stretch"], "description": "part of pace"},
             },
         },
-        "context_before": {"type": "string", "maxLength": 1200},
-        "context_after": {"type": "string", "maxLength": 1200},
+        "context_before": {"type": "string", "maxLength": 1200, "description": "refused (CONTROL_UNSUPPORTED)"},
+        "context_after": {"type": "string", "maxLength": 1200, "description": "refused (CONTROL_UNSUPPORTED)"},
     },
 }
 
@@ -165,7 +191,11 @@ _EXACT_SPAN: Final[Schema] = {
     "additionalProperties": False,
     "required": ["start", "end"],
     "properties": {
-        "start": {"type": "integer", "minimum": 0},
+        "start": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unicode code points into this cue's text as sent: where the span's first word starts",
+        },
         "end": {
             "type": "integer",
             "minimum": 1,
@@ -202,7 +232,14 @@ _SEGMENT: Final[Schema] = {
     "anyOf": [{"required": ["cues"]}, {"required": ["text"]}],
     "properties": {
         "segment_id": {**_ID, "description": "the caller's own name, echoed back"},
-        "cues": {"type": "array", "minItems": 1, "maxItems": 40, "items": _CUE},
+        "cues": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 40,
+            "items": _CUE,
+            "description": "the segment's cues (a caption or sentence each), in order; each take gives every cue's "
+            "start and end time",
+        },
         "text": {
             "type": "string",
             "minLength": 1,
@@ -226,9 +263,22 @@ _SEGMENT: Final[Schema] = {
         "fit": {
             "type": "object",
             "additionalProperties": False,
+            "description": "optional, used only with scene_seconds: the scene's seconds kept clear of narration",
             "properties": {
-                "lead_in_s": {"type": "number", "minimum": 0, "maximum": 5, "default": 0},
-                "tail_s": {"type": "number", "minimum": 0, "maximum": 5, "default": 0},
+                "lead_in_s": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 5,
+                    "default": 0,
+                    "description": "seconds before the narration starts, taken off the budget",
+                },
+                "tail_s": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 5,
+                    "default": 0,
+                    "description": "seconds after the narration ends, taken off the budget",
+                },
             },
         },
         "controls": _CONTROLS,
@@ -499,6 +549,11 @@ _LINT = _obj(
 
 # ======================================================================== tools
 
+_HINTS_NOTE: Final = (
+    "pronunciation hints for the terms the segments speak: every invented or unusual name (the term alone is "
+    "enough), and every term to respell"
+)
+
 POLL_AFTER_S: Final[Schema] = {
     "type": "number",
     "minimum": 0,
@@ -519,12 +574,23 @@ def _submit_job_input() -> Schema:
                 "default": "spoken",
                 "description": "v1 speaks the text as sent; 'written' is a later phase (design section 9.2)",
             },
-            "hints": _array(_HINT, maxItems=500),
-            "segments": _array(_SEGMENT, minItems=1, maxItems=200),
+            "hints": _array(_HINT, maxItems=500, description=_HINTS_NOTE),
+            "segments": _array(
+                _SEGMENT,
+                minItems=1,
+                maxItems=200,
+                description="the paragraphs to narrate, a segment each; keep a job to a scene, about 8 to 10 "
+                "segments, so a client can read its get_results whole",
+            ),
             "label": {"type": "string", "maxLength": 100, "description": "opaque; shown in status, never used"},
             "options": _input(
                 {
-                    "dry_run": {"type": "boolean", "default": False},
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "true: only the plan (what is cached, what would render, estimates) and the "
+                        "text echo; nothing is queued or rendered",
+                    },
                     "takes": {
                         "type": "integer",
                         "minimum": 1,
@@ -538,16 +604,30 @@ def _submit_job_input() -> Schema:
                         "minimum": 0,
                         "maximum": 3,
                         "default": 2,
-                        "description": "automatic retakes per failing take, on the next attempt numbers",
+                        "description": "automatic retakes per failing take, on the next attempt numbers; a fail "
+                        "flag (such as WER_HIGH), CUE_UNALIGNED or HEAD_INSERTION triggers one",
                     },
                     "strict_text": {
                         "type": "boolean",
                         "default": False,
-                        "description": "refuse (TEXT_REFUSED) while any text warning remains; default: warn and render",
+                        "description": "refuse (TEXT_REFUSED) while any text warning remains (a digit, symbol or "
+                        "unit-like token, or a hinted term split across cues); default: warn and render, the "
+                        "text spoken as the engine reads it",
                     },
-                    "priority": {"enum": ["batch", "interactive"], "default": "batch"},
-                    "idempotency_key": {"type": "string", "maxLength": 64},
-                }
+                    "priority": {
+                        "enum": ["batch", "interactive"],
+                        "default": "batch",
+                        "description": "'interactive' runs before queued batch jobs, and a running batch job gives "
+                        "way to it between pieces of its work: use it for a short redo while a long batch runs",
+                    },
+                    "idempotency_key": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "description": "optional: your key for this request, so a retry returns its job; reused for "
+                        "a different request while that job is active, it is refused (INVALID_ARGUMENT)",
+                    },
+                },
+                description="how the job runs; every field is optional",
             ),
         },
         required=["voice", "segments"],
@@ -635,13 +715,21 @@ def _get_results_output() -> Schema:
                     {
                         "segment_id": _STR,
                         "status": {"enum": list(SEGMENT_STATES)},
-                        "suggested_take_id": _STR_OR_NULL,
+                        "suggested_take_id": {
+                            **_STR_OR_NULL,
+                            "description": "the take QA suggests for this segment (advice; you choose); use it "
+                            "rather than takes[0]",
+                        },
                         "suggestion": {
                             **_nullable(_obj({"tier": {"enum": [1, 2, 3, 4]}, "reason": _STR})),
                             "description": "null for a segment with no take",
                         },
                         "text": _obj({"spoken_chars": _INT, "cues": _array(_CUE_TEXT)}),
-                        "takes": _array(_TAKE),
+                        "takes": _array(
+                            _TAKE,
+                            description="every take rendered or found for this request, failed and replaced "
+                            "attempts included",
+                        ),
                         "flags": _array(_FLAG),
                     }
                 )
@@ -690,7 +778,11 @@ def _server_status_output() -> Schema:
     return _output(
         {
             "version": _STR,
-            "spec_revision": _STR,
+            "spec_revision": {
+                "type": "string",
+                "description": "the MCP specification revision the server is built on (a date), not a revision "
+                "of the service's own design",
+            },
             "store_root": _STR,
             "daemon": _obj(
                 {
@@ -821,8 +913,18 @@ def _build() -> tuple[ToolSchema, ...]:
             _input(
                 {
                     "job_id": _JOB_ID,
-                    "wait_s": {"type": "number", "minimum": 0, "maximum": 55, "default": 0},
-                    "include_segments": {"type": "boolean", "default": False},
+                    "wait_s": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 55,
+                        "default": 0,
+                        "description": "seconds to hold the answer until the job's status changes; 0 answers at once",
+                    },
+                    "include_segments": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "true: also each segment's state, takes_ok and retakes_used",
+                    },
                 },
                 required=["job_id"],
             ),
@@ -836,8 +938,17 @@ def _build() -> tuple[ToolSchema, ...]:
             _input(
                 {
                     "job_id": _JOB_ID,
-                    "include_words": {"type": "boolean", "default": True},
-                    "include_transcripts": {"type": "boolean", "default": False},
+                    "include_words": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "each cue's word times (takes[].cues[].words). They make the result much "
+                        "larger: send false unless you need them; cue start_s and end_s come either way",
+                    },
+                    "include_transcripts": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "true: each take's whole speech-recogniser transcript (qa.transcript)",
+                    },
                 },
                 required=["job_id"],
             ),
@@ -848,7 +959,17 @@ def _build() -> tuple[ToolSchema, ...]:
         ),
         "cancel_job": ToolSchema(
             "cancel_job",
-            _input({"job_id": _JOB_ID, "reason": {"type": "string", "maxLength": 200}}, required=["job_id"]),
+            _input(
+                {
+                    "job_id": _JOB_ID,
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "description": "optional: why; shown in the job's message",
+                    },
+                },
+                required=["job_id"],
+            ),
             _output({"status": {"enum": list(JOB_STATUSES)}, "completed": _BOOL}),
             False,
             True,
@@ -865,8 +986,20 @@ def _build() -> tuple[ToolSchema, ...]:
                         "maxLength": 600,
                         "description": "positive-only: name the qualities wanted, not those unwanted",
                     },
-                    "takes": {"type": "integer", "minimum": 1, "maximum": 4, "default": 3},
-                    "design_text": {"type": "string", "minLength": 1, "maxLength": 400},
+                    "takes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 4,
+                        "default": 3,
+                        "description": "how many candidates to design, each from its own seed",
+                    },
+                    "design_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 400,
+                        "description": "optional: the words the candidates speak (default: the service's design "
+                        "text); they become each clip's transcript",
+                    },
                 },
                 required=["name", "description"],
             ),
@@ -904,9 +1037,17 @@ def _build() -> tuple[ToolSchema, ...]:
             "check_text",
             _input(
                 {
-                    "voice": _VOICE,
-                    "hints": _array(_HINT, maxItems=500),
-                    "segments": _array(_SEGMENT, minItems=1, maxItems=200),
+                    "voice": {
+                        **_VOICE,
+                        "description": "optional: a measured voice, to check each segment's spoken length against "
+                        "it and estimate its duration; sent exactly as it was kept with the clip",
+                    },
+                    "hints": _array(
+                        _HINT,
+                        maxItems=500,
+                        description=_HINTS_NOTE + "; send the hints you will send to submit_job",
+                    ),
+                    "segments": _array(_SEGMENT, minItems=1, maxItems=200, description="the segments to check"),
                 },
                 required=["segments"],
             ),
@@ -920,17 +1061,33 @@ def _build() -> tuple[ToolSchema, ...]:
             _input(
                 {
                     "voice": _VOICE,
-                    "term": {"type": "string", "minLength": 1, "maxLength": 80},
+                    "term": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "description": "the word or words as they appear in the text",
+                    },
                     "variants": _array(
                         _input(
                             {
-                                "label": {"type": "string", "minLength": 1, "maxLength": 40},
-                                "respell": {"type": "string", "minLength": 1, "maxLength": 120},
+                                "label": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40,
+                                    "description": "your name for the variant, echoed back",
+                                },
+                                "respell": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120,
+                                    "description": "what the engine is given in place of the term",
+                                },
                             },
                             required=["label", "respell"],
                         ),
                         minItems=1,
                         maxItems=4,
+                        description="the respellings to hear, up to four",
                     ),
                     "carrier": {
                         "type": "string",

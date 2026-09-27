@@ -112,7 +112,11 @@ ERRORS: Final[dict[str, ErrorCode]] = {
             VOICE_NOT_SYNTHETIC,
             False,
             "the clip is neither one the service designed nor one the operator allowlisted",
-            "Use a clip from design_voice, or ask the operator to allowlist this synthetic clip's sha256.",
+            "Use a clip from design_voice, or ask the operator to add this synthetic clip's sha256 to [voices] "
+            "allow_sha256 in the service's configuration (narration.toml). The daemon and the MCP server read it "
+            "only when they start: after the edit, stop the daemon (narration-admin daemon stop; narration-admin "
+            "daemon start, or the next submission, starts it again) and reconnect the client to the server (in "
+            "Claude Code, /mcp).",
         ),
         ErrorCode(
             VOICE_NOT_MEASURED,
