@@ -177,8 +177,7 @@ TOOL_TEXTS: Final[dict[str, ToolText]] = {
         "the service records no choice. Every candidate's clip goes on the service's provenance list, so "
         "measure_voice and submit_job accept it as synthetic with no allowlist edit. Keep the chosen clip with "
         "its path, sha256 and transcript exactly as the candidate gives them. A candidate flagged WER_HIGH "
-        "does not say its transcript as the recogniser heard it, and measure_voice refuses it "
-        "(REF_TEXT_MISMATCH).",
+        "does not say its transcript as the recogniser heard it, and measuring it fails (REF_TEXT_MISMATCH).",
         retention=True,
     ),
     "profile_voice": ToolText(
