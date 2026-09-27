@@ -30,8 +30,8 @@ def test_another_language_is_an_invalid_request_s11_1(name: str) -> None:
 
 
 def test_decoding_is_the_evidences_five_beams_unconditioned_without_fallback_s11_1() -> None:
-    # Section 11.1 says greedy and conditioned; that loops on two of the bake-off's six takes, so the worker pins
-    # the evidence's decoding until the lead decides (status/WP22.md, spikes/acceptance-wp22/decoding.json).
+    # DC-14 (ADR 0004): greedy and conditioned loops on two of the bake-off's six takes; five beams, not
+    # conditioned, reproduces the evidence (spikes/acceptance-wp22/decoding.json).
     assert asr.DECODING["num_beams"] == 5 and asr.DECODING["do_sample"] is False
     assert asr.DECODING["temperature"] == 0.0 and asr.DECODING["condition_on_prev_tokens"] is False
     for key in ("compression_ratio_threshold", "logprob_threshold", "no_speech_threshold"):

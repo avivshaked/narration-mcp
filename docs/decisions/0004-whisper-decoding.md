@@ -1,7 +1,9 @@
 # ADR 0004: Whisper decodes as the evidence did: five beams, not conditioned on the previous window
 
-- Status: **proposed** by WP22, 2026-09-26; the worker pins option C until the lead (or the owner) decides.
-  Changing the pin is one constant, `narration_worker_qa.asr.DECODING`.
+- Status: **accepted: option C** (the lead, 2026-09-27, as a gap-fill the owner may overrule; plan.md §1.5
+  DC-14), on the evidence of [`decoding.json`](../../spikes/acceptance-wp22/decoding.json). The lead edits
+  design §11.1 step 2 when WP22 merges. Proposed by WP22 on 2026-09-26. The pin is one constant,
+  `narration_worker_qa.asr.DECODING`.
 - Date: 2026-09-26
 - Design sections: 11.1 step 2 (ASR), 4 (the QA worker), 10.1 (every output-changing setting explicit),
   11.1 step 4 (`wer_raw` 5.5–8.6 % on name-dense text)
@@ -43,7 +45,7 @@ the worker's own class (float16, eager attention, word times, long-form, the det
   describe it.
 - VRAM figures are the allocator's peak including the resident models (3.3 GB); see spike (h), QA half.
 
-## Decision (proposed)
+## Decision
 
 **Option C.** `transcribe` decodes with five beams, no sampling, temperature 0, no fallback thresholds, and
 sequential long-form **not** conditioned on the previous window's text, all passed explicitly in the worker's

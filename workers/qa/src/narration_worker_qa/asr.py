@@ -9,13 +9,13 @@ one its evidence (WER 5.5–8.6 %) was made with. The pinned snapshot's ``genera
 model's own token tables (the language, task, timestamp and suppressed tokens, the alignment heads and the
 448-token decoder length), which its revision pins.
 
-**A proposed change to section 11.1 step 2**, which says greedy and conditioned on the previous text. KNOW
+**A change to section 11.1 step 2** (DC-14, ADR 0004, accepted), which said greedy and conditioned on the
+previous text. KNOW
 (``spikes/acceptance-wp22/decoding.py`` and ``decoding.json``, the bake-off's six clone takes, through this
 class): greedy and conditioned, with no fallback, loops on two of the six whole takes (about 85 words repeated,
 WER 0.40 and 0.40), and OpenAI's temperature fallback does not stop it (0.40 and 0.45); greedy and not
 conditioned gives WER 0.051–0.098 (mean 0.071) and needs about 2.8 GB less VRAM; five beams, not conditioned,
-gives exactly the bake-off's WER on all six (mean 0.065). Five beams is pinned until the lead decides
-(``status/WP22.md``); switching is this one constant.
+gives exactly the bake-off's WER on all six (mean 0.064). Switching is this one constant.
 
 Two traps the explicit settings avoid (KNOW, transformers 5.17.0's source):
 
