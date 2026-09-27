@@ -231,7 +231,7 @@ it. Status: `proposed` · `approved` · `applied` (in the design) · `rejected`.
 | DC-12 | **A cue no retake can place is not a retake trigger.** A cue whose text has no word the aligner can place gets `CUE_UNALIGNED`, a retake trigger, and fails the same way on every retake. It now carries `details.reason` = `no_alignable_words` and does not trigger a retake; it stays in listen-first. A lead gap-fill from WP15 (the owner may overrule); `codes.is_retake_trigger` takes the flag's details. | §11.1, §11.2 | **applied** (rev 5.5) | WP15, WP31 |
 | DC-13 | **The service's own default design text.** The §16 default `design_text`, which is also the canary's design text (DC-3), was the bake-off's reference text. The bake-off's texts are private (AGENTS.md §1 rule 1), and this is a public project, so the service now ships a text written for it: "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen." It has two sentences and 32 words, and no digits or names. A clip designed earlier keeps the transcript `design_voice` returned for it. The owner decided (2026-09-26). | §3.1, §7.3 (example), §16, App. A, App. B | **applied** (rev 5.8) | WP18 |
 | DC-14 | **Whisper decodes with five beams, not conditioned on the previous window.** §11.1 step 2 says greedy decoding conditioned on the previous text. WP22 measured that it loops on 2 of the 6 bake-off takes (WER 0.40); five beams without conditioning reproduce the bake-off's WER exactly on all six (ADR 0004, `spikes/acceptance-wp22/decoding.json`). A lead gap-fill (the owner may overrule), since the design's own acceptance is to match the bake-off. | §11.1 | **approved** (lead, 2026-09-27); applied when WP22 merges | WP22 |
-| DC-15 | **A long clip is embedded in windows.** WavLM's memory grows with the square of the length (0.6 GB at 30 s, 8.4 GB at 119 s; WP22, spike h), and a segment longer than the voice's limit is rendered and warned about, never refused. Audio longer than 30 s is embedded as equal windows of at most 30 s; the embedding is the mean of the L2-normalised window embeddings, normalised again. Audio of 30 s or less is unchanged. Cosine to a single pass: 0.999 at 60 s, 0.994 at 119 s. A lead gap-fill (the owner may overrule). | §11.1, §4 (QA worker) | **approved** (lead, 2026-09-27); applied when WP22 merges | WP22 |
+| DC-15 | **A long clip is embedded in windows.** WavLM's memory grows with the square of the length (0.6 GB at 30 s, 8.4 GB at 119 s; WP22, spike h), and a segment longer than the voice's limit is rendered and warned about, never refused. Audio longer than **60 s** is embedded as equal windows of at most 60 s; the embedding is the mean of the L2-normalised window embeddings, normalised again. Audio of 60 s or less is embedded in one pass, as before. First approved at 30 s; WP22 then measured that 30 s windows move three of the bake-off's voicelock rows (clips of 30.6–37.0 s) out of tolerance, while 60 s windows reproduce all 52 rows, and their peak (2.2 GB above the models) stays under transcription's. A lead gap-fill (the owner may overrule). | §11.1, §4 (QA worker) | **approved** (lead, 2026-09-27; amended to 60 s the same day); applied when WP22 merges | WP22 |
 
 ---
 
@@ -393,7 +393,7 @@ error and on a planted `.wav`.
 | WP15 | Cue alignment | §11.2 | `narration.align` (pure) + the `align` op in `workers\qa` | WP01 | no (CPU model) |
 | WP16 | Worker protocol, common package, fake worker | App. A, §4 workers, §4.1 thread caps | `workers\common`, `narration.workers` (client), the `fake` role | WP01 | no |
 | WP17 | MCP front-end skeleton | §5, §7, §14 | `narration.mcp`, `tests\mcp` | WP01 | no |
-| WP18 | The service's own material | §3.2, §11.2, §10.1 canary, §15, Phase 4 demo | `material\` | WP01 (for the text rules) | no (listening: H1) |
+| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; H1: 8 of 10 approved; for `ladder-080` and `align-03` the lead recommends approving as written (the fault is the seed's; 2026-09-27), awaiting the owner; then the freeze adds the calibration's design text |
 | WP19 | Platform seam (Windows only) | §4, §4.1, §17.2, Q2 | `narration.platform`, `tests\platform` | WP01 | no |
 | WP20 | GPU lane: Qwen worker + Phase 0 GPU spikes | §10.1, App. A, §20 (d)(e)(f)(h)(i) | `workers\qwen3tts`, `spikes\` | WP16 (protocol) | **yes** |
 
@@ -526,7 +526,7 @@ because the bakeoff set no determinism switches. Spike (d) decides the tier and 
 | WP34 | `design_voice`, provenance, `profile_voice` | §3.1, §3.5, §3.6, §17.4 | WP31, WP20, WP22, WP10 | yes (bounded) |
 | WP35 | `audition_pronunciation` | §7.6 | WP31 | yes (bounded) |
 | WP36 | Front-end ↔ daemon wiring | §7.3–§7.7, §12, §17.3 | WP17, WP31, WP12, WP10, WP19 | no |
-| WP37 | Operator CLI `narration-admin` | §7.1, §10.1 pins, §15 gc/verify | WP12, WP30, WP32 | no |
+| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `active` | `wp/37-admin` | the dispatcher, `daemon`, `doctor` first (M1); `engine` commands come from WP32's `narration.engine.admin` |
 | WP38 | Alignment benchmark + `bench alignment` | §11.2, spike (a) | WP15, WP18, WP20 | yes (renders); **H2, H3** |
 | WP39 | Phase 0 (c): length ladder for d2 and d4 | §3.2, §20 (c) | WP33 (or a spike harness), H1 | yes (40–100 min) |
 
@@ -974,3 +974,16 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **WP30 merged (PR #25):** contracts 1.6.4, design revision 5.11. Linux CI found a test that took
     `launcher.pid + 1` as a wrong pid, which is the daemon's own pid where pids are sequential (fixed),
     and one test flaky on Windows, which WP30's agent is fixing on `wp/30-flake`.
+  - **WP30's flaky test fixed (PR #26):** on Windows `time.time()` moves once per timer tick, so a status
+    stamped just after a process's creation could name an earlier moment; the tests now wait for the clock.
+  - **One configuration rule (PR #27):** `narration.config.find_config`, for `narration-mcp` and
+    `narration-admin` alike. **WP37 started.**
+  - **Gate H1's investigation:** rendering is deterministic (seed 1 re-renders the owner's faulty take 1
+    bit for bit), so the fault is the seed's, not the text's; 32 new takes raised no retake flag. No
+    measurement hears the fault (speech recognition and the aligner find both takes normal), so QA would
+    not catch it either; it catches inserted words and a bleed of the reference's words (tested). The
+    lead recommends approving both texts as written; the owner decides.
+  - **DC-15 amended to 60 s windows** (30 s moved three evidence rows out of tolerance).
+  - **WP33's rulings:** overridable scoring hooks in `narration.jobs.stages`; the calibration's design
+    text comes from the corpus (added at the freeze), so the measurement key needs no change; the
+    corpus's invented names are term-only hints when measure takes are scored.

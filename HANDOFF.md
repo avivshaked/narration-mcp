@@ -10,20 +10,20 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   paragraphs and receive QA'd, cue-aligned takes, from a Claude Code session. Everything on M1's path runs
   in parallel now; the rest of plan.md follows M1.
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
-  WP16's second follow-ups (PR #24), WP30 the daemon (PR #25), contracts 1.1–1.6.4, the private-text
-  guard. Design revision 5.11.
+  WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
+  configuration rule (PR #27, `narration.config.find_config`), contracts 1.1–1.6.4, the private-text guard.
+  Design revision 5.11.
 - **In flight.** Agent ids resume with SendMessage. Branches marked "stacked" start from `wp/31-jobs` at
   `2cb9905`; they rebase with `git rebase --onto <new base> 2cb9905` when WP31 moves or merges.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP30 flaky-test fix | `wp/30-flake` | a1b119ea6c733e52b | WP30 merged (PR #25); fixing one Windows-flaky test in `tests/daemon/test_owned.py` |
+  | WP37 operator CLI | `wp/37-admin` | a1b119ea6c733e52b (WP30's agent) | building: the dispatcher, `daemon`, `doctor` first |
   | WP31 job engine | `wp/31-jobs` | a14018acdf37134e4 (reviewer ab46fd42f89f13995) | re-verified: merge with follow-ups; fixing two Mediums (a SQLite connection leaked per lease renewal; a flaky lease test); then rebase on WP30, contracts 1.6.5 |
-  | WP22 QA worker | `wp/22-qa-worker` | a560deac0c56c674c | resumed with DC-14 and DC-15; finishing to review |
+  | WP22 QA worker | `wp/22-qa-worker` | a560deac0c56c674c | DC-14 built; DC-15 at 60 s windows, one GPU acceptance run left; then review. QA group `vram_need_mb` = 11500 |
   | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` (stacked) | a203bffe41405429f | building; `installed_engine` first |
   | WP33 `measure_voice` | `wp/33-measure` (stacked) | a21fe923fab0198e7 | building, against the draft corpus |
   | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` (stacked) | a35085aca80cfb4e8 | building; M1's tools first |
-  | Gate H1 investigation | local, `.dev/h1/investigate/` | a73f04cd66b1514ee | measuring the 20 renders, then 32 renders over 8 seeds |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -62,8 +62,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **Gate H1:** the owner has listened and approved 8 of 10; the last two wait on the lead's investigation
-  of the artefact at the start of their takes (running again).
+- **Gate H1:** 8 of 10 approved; for the last two the lead recommends approving as written (see
+  `OWNER-ACTIONS.md` §1, with two files to listen to if the owner wants).
 - **DC-14 and DC-15** (plan.md §1.5): lead gap-fills the owner may overrule.
 - **4a in the owner's list:** cross-job grouping (§4 item 3); the lead recommends leaving it out of v1.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
@@ -81,8 +81,11 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
    WP36 to rebase with `--onto main 2cb9905`.
 3. **WP22:** independent review, then merge with design §11.1's text for DC-14 and DC-15.
 4. **WP32, WP33, WP36:** reviews and merges, as each is ready. Then WP37 (the CLI; `engine pin` is WP32's).
-5. **Gate H1:** give the owner the investigation's result and a recommendation; then WP18 freezes the
-   manifests (status `frozen`), which unblocks the real `measure_voice` runs, WP38 and WP39.
+5. **Gate H1:** the result is in `OWNER-ACTIONS.md` §1 (the fault is the seed's; recommend approving 05
+   and 08 as written). On the owner's approval, the lead freezes the manifests (status `frozen`) and adds
+   the calibration's design text to `calibration/narration-en.v1/paragraphs.json` as a top-level
+   `design_text` item (`segment_id` `cal-design`; WP33's ruling). That unblocks the real `measure_voice`
+   runs, WP38 and WP39.
 6. **M1 on this machine:** a local config (models in `.dev/models`, d2 and d4 in `allow_sha256`), the worker
    venvs synced, `narration-admin engine pin`, then the owner measures d2 or d4 (20–50 min of GPU, at a time
    the owner chooses) and narrates through a real Claude Code session.
@@ -120,6 +123,15 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
 - **WP16 (Low, from the second follow-ups' review):** the snapshot reference is checked by three
   implementations (the fake, qwen3, the QA worker): share one check; the shared WAV writer can still raise
   `struct.error` past 4 GiB of data.
+
+- **QA blind spots found by gate H1's investigation (for WP14's area and WP40's planted faults):**
+  - §11.1 step 7's acoustic head check (speech before the first word that matches the voice's
+    transcript) is not implemented; `narration.qa.textmatch` checks only Whisper's words.
+  - A garbled or dropped first word counts as one word error (a warning on a 13-word cue), not
+    `HEAD_INSERTION`, so it is not retaken; two garbled words fail and are retaken.
+  - Fillers at the start ("um", "uh") are removed by the normaliser and never counted.
+  - WP40 should plant "garbled first word" and "filler at the start" as faults; a voice-quality glitch that
+    Whisper cannot hear is a known limit of v1's QA.
 
 ## Things a new session should know
 
