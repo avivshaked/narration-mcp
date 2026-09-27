@@ -19,8 +19,8 @@ from narration.contracts.models import CanaryMaterial
 from narration.engine.canary import CALIBRATION_SEEDS, CANARY_MARGIN, find_canary, material_id
 from narration.engine.models import QWEN_BASE, QWEN_DESIGN
 from narration.engine.pinning import PinRefused, bridge, pin, plan
+from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
-from tests.store.standin import StandInPlatform
 
 from .support import FAKE_WORKER_PACKAGES, CountingStarter, Install, fake_install, write_lock
 
@@ -222,6 +222,7 @@ def test_the_pin_starts_its_workers_as_the_daemon_does_s17(pinned: Pinned) -> No
     each worker joins the kill-on-close group before its hello, at the configured priority."""
     pinned.pin()
     platform = pinned.starter.platform
+    assert isinstance(platform, StandInPlatform)
     assert len(platform.added) == len(pinned.starter.started) == 3  # QA, then the first and the fresh Qwen
     assert platform.groups_opened == 1
     assert platform.lowered == platform.added  # [workers] priority is below_normal by default
