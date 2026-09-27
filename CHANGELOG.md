@@ -16,6 +16,27 @@ are tracked here but no version is tagged; nothing described below is installabl
   trend, and stops at the first rung the voice does not read reliably. It publishes `measurement.json`
   with `max_segment_chars`, `max_segment_seconds`, the pace curve and the ladder table. Every take comes
   from the cache when it can, so a measurement that stopped resumes where it was.
+- `narration-admin render --voice <clip> --transcript <text> --text <text> [--out <wav>]` renders one
+  text in a voice from the terminal. It goes through the service's own `submit_job`, so every check
+  applies (a synthetic, measured voice; the clip's path and sha256; the limits). It waits for the job,
+  prints each take's verdict, delivery file and cue times, and copies the suggested take to `--out`.
+  `--dry-run` only plans; `--json` prints the results as `get_results` returns them. Running the same
+  command again while its job runs waits for that job.
+- The same request sent again while its earlier job is being cancelled now makes a new job, instead of
+  returning the job that is ending. A job being cancelled also stops holding its `idempotency_key`.
+- `narration-mcp` now serves the real tools over the store and the daemon. It finds its configuration
+  from `--config`, then `NARRATION_CONFIG`, then `narration.toml` in the service's folder. `submit_job`
+  checks the request, plans it against the cache and queues it; a `dry_run` only plans. The same
+  request while its job is active returns that job. The server copies the voice clip into the store,
+  then starts the daemon. A voice that has not been measured is refused with `VOICE_NOT_MEASURED`.
+  `get_job` long-polls and reports progress. `get_results` returns the QA'd, cue-aligned takes and
+  writes `report.md` and `report.json` beside the job. `measure_voice` answers a current measurement
+  at once, without a job, and otherwise queues one. `check_text`, `cancel_job`, `get_server_status`,
+  `release_gpu` and the `narration://` resources also work. Sending a default (`text_mode`, empty
+  `hints`, default options) and leaving it out make the same job. Retryable errors
+  carry `retry_after_s`, and `[limits]` caps the submit rate and the queue. `design_voice`,
+  `profile_voice` and `audition_pronunciation` still answer `BACKEND_NOT_INSTALLED`. README.md says
+  how to add the server to Claude Code.
 - The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
   then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
   `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same

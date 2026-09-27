@@ -73,6 +73,37 @@ every result. None of them is distributed with this repository.
 | `openai/whisper-large-v3` | checking what was said | per its model card, checked at install |
 | `microsoft/wavlm-base-plus-sv` | checking who said it | per its model card, checked at install |
 
+## Use it from Claude Code
+
+The server is not released yet; this is how a development checkout is wired up. `<service_root>` is the
+folder of your clone.
+
+1. Copy `narration.example.toml` to `<service_root>/narration.toml`, and set `store_root` and
+   `models_root` under `[server]`.
+2. Add the server to your project's `.mcp.json`:
+
+   ```json
+   {
+     "mcpServers": {
+       "narration": {
+         "type": "stdio",
+         "command": "uv",
+         "args": ["run", "--project", "<service_root>", "--frozen", "--offline",
+                  "narration-mcp", "--config", "<service_root>/narration.toml"]
+       }
+     }
+   }
+   ```
+
+   `--frozen --offline` keeps uv from updating the lock file or reaching the network when the client
+   starts the server. `python -m narration.mcp` in place of `narration-mcp` runs the same server.
+   Without `--config`, the server reads the file `NARRATION_CONFIG` names, else
+   `<service_root>/narration.toml`. If it finds neither, it exits and says what to do.
+3. In a session, call `measure_voice` on your voice clip once. Then call `submit_job`, poll `get_job`,
+   and read the takes with `get_results`. The first job starts the background daemon that does the work.
+   The server clones only voices this service designed, or clips whose sha256 is in `[voices]
+   allow_sha256`.
+
 ## Project status, contributing and security
 
 The service is specified in [docs/design.md](docs/design.md), and the work is organised in
