@@ -15,7 +15,7 @@ import hashlib
 import json
 import os
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -197,6 +197,21 @@ class MeasureWorld:
 
     def run(self, *, max_steps: int = 2000) -> int:
         return drive(self.runner, self.host, max_steps=max_steps)
+
+    def step_until(self, predicate: Callable[[], bool], *, limit: int = 400) -> None:
+        """Step the runner until ``predicate`` holds."""
+        for _ in range(limit):
+            if predicate():
+                return
+            self.runner.step(self.host)
+        raise AssertionError("the condition never held")
+
+    def restart(self) -> None:
+        """A new daemon over the same store and workers: a new engine, handler and runner, nothing in memory."""
+        self.host.stop_mode = None
+        self.engine = JobEngine(self.config, self.engine.parts)
+        self.handler = build_measure_handler(self.engine, material_root=self.material)
+        self.runner = EngineRunner(measure_registry(self.engine, self.handler))
 
     def faults(self, *faults: Mapping[str, Any], heard: str = VOICE_TRANSCRIPT) -> None:
         write_spec(self.spec, *faults, transcripts={self.clip_sha256: heard})
