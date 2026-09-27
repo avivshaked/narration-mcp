@@ -11,8 +11,8 @@ Run it from the checkout, with the daemon, the QA models (WP22) and the engine p
    ``NARRATION_SPIKE_ALLOW_SHA256`` (synthetic voices only, section 17.4); the service checks its own
    allowlist again.
 2. Takes the developers' GPU lock (AGENTS.md section 5) for ``--minutes`` (at most 30; a longer run needs the
-   lead's OK first) and releases it on every exit path. A lock this holder already has (a wrapper's) is used
-   and left to the wrapper.
+   lead's OK first) and releases it on every exit path, after asking the daemon to unload its models
+   (``release_gpu``). A lock this holder already has (a wrapper's) is used and left to the wrapper.
 3. Queues a ``measure`` job in the store of the configuration (``--config``, else ``config.find_config``'s
    rule), starts the daemon if none runs (``narration.daemon.start``), and waits for the job, printing its
    progress in numbers.
@@ -369,9 +369,10 @@ def run(args: argparse.Namespace) -> int:
     voice = bakeoff_voice(args.voice)
     config = load_config(config_path)
     out = Path(args.out) if args.out else CHECKOUT / ".dev" / "acceptance" / f"wp33-{voice.name}.json"
-    store = NarrationStore.from_config(config, get_platform())
     took = take_lock(args.minutes)
+    store = None
     try:
+        store = NarrationStore.from_config(config, get_platform())
         deadline = time.monotonic() + args.minutes * 60
         print(f"measuring {voice.name} (clip sha256 {voice.sha256[:12]}...)", flush=True)
         job = queue_job(store, "measure", voice.request())
@@ -416,7 +417,12 @@ def run(args: argparse.Namespace) -> int:
         print(f"{'ACCEPTED' if result['accepted'] else 'NOT ACCEPTED'}; numbers in {out}", flush=True)
         return ACCEPTED if result["accepted"] else REJECTED
     finally:
-        store.close()
+        if store is not None:
+            try:  # the daemon unloads its models now, not after its idle timeout, before the lock is released
+                store.post_command("release_gpu")
+            except Exception as exc:  # best effort on the way out: the lock is released regardless
+                print(f"could not ask the daemon to release the GPU: {type(exc).__name__}", file=sys.stderr)
+            store.close()
         if took:
             _lock("release", "--holder", HOLDER)
 
