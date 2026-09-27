@@ -2,11 +2,11 @@
   "set": "canary.v1",
   "kind": "canary",
   "version": 1,
-  "status": "draft",
+  "status": "frozen",
   "language": "en",
   "description": "The service's canary (design section 10.1, plan.md DC-3), shipped as text: the positive-only voice description, design text and seed the canary clip is designed from on the installing machine, and the fixed text and seed the canary gate renders before every batch.",
   "design": "docs/design.md revision 5.8, sections 3.5, 10.1 and 16; plan.md DC-3 and DC-13",
-  "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
+  "freeze": "Frozen as version 1 on 2026-09-27, after gate H1 (plan.md section 5): the owner listened to sample renders and approved them. A frozen set never changes: every engine pin records the canary material's id (plan.md DC-3), so a changed text or seed is a new set, canary.v2.",
   "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
   "files": [{"path": "canary.json", "bytes": 1443, "sha256": "057e05f2e5bc5117df2285c3ee371e3b7f9b3c1e862fd41f4ce41dbf47b9cab1"}]
 }

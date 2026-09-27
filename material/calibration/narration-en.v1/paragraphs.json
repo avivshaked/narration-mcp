@@ -14,6 +14,11 @@
     "Aldwen",
     "Ennick Mill"
   ],
+  "design_text": {
+    "segment_id": "cal-design",
+    "spoken_chars": 178,
+    "cues": [{"text": "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen."}]
+  },
   "calibration": [
     {
       "segment_id": "cal-01",

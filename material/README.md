@@ -9,7 +9,7 @@ written for the service, about invented places, people and things, in a neutral 
 
 | Set | Path | Used by | What it holds |
 |---|---|---|---|
-| `narration-en.v1` | `calibration/narration-en.v1/` | `measure_voice` (design 3.2), `engine bridge` (10.1) | 3 calibration paragraphs (150–300 spoken characters) and 9 ladder paragraphs, one per rung (80, 150, 250, 300, 350, 400, 450, 500, 560), each within 5 % of its rung |
+| `narration-en.v1` | `calibration/narration-en.v1/` | `measure_voice` (design 3.2), `engine bridge` (10.1) | the design text (the service's default, design 16 and plan.md DC-13), 3 calibration paragraphs (150–300 spoken characters) and 9 ladder paragraphs, one per rung (80, 150, 250, 300, 350, 400, 450, 500, 560), each within 5 % of its rung |
 | `alignment-en.v1` | `alignment/alignment-en.v1/` | `bench alignment` (11.2) | 12 paragraphs, 31 cues; every cue boundary marked with the pause expected |
 | `canary.v1` | `canary/canary.v1/` | `engine pin` and the canary gate (10.1, plan.md DC-3) | the positive-only voice description, design text and seed the canary clip is designed from, and the gate's fixed text and seed |
 | `demo-en.v1` | `demo/demo-en.v1/` | the Phase 4 acceptance test (20) | 20 paragraphs of 1–8 cues, with 3 pronunciation hints and 5 exact spans |
@@ -34,11 +34,14 @@ file's `path`, `bytes` and `sha256`.
     where a pause is uncertain.
 
   The demo's `hints` are the request-level Hint fragments to send with it. Each paragraph set also lists its
-  `invented_names`.
+  `invented_names`. The calibration corpus also has a top-level `design_text` paragraph (`segment_id`
+  `cal-design`, one cue): section 3.2's calibration set is "the design text plus three corpus paragraphs",
+  and `measure_voice` renders this one first. Carrying it in the corpus means the corpus version, and so the
+  measurement key, covers the text the calibration renders.
 - **`canary.json`**: `voice` {`description`, `design_text`, `seed`} for designing the canary clip with
   VoiceDesign; `gate` {`text`, `seed`} for the gate render. `voice.design_text` is the service's default
-  design text, copied from design section 16. Section 3.2's calibration set renders "the design text" too;
-  which one that is (this default, or the voice's own transcript) is for `measure_voice` to settle.
+  design text, copied from design section 16; the calibration corpus's `design_text` paragraph is the same
+  text.
 - **Fixtures**: each file states its conventions at the top. Where the design left a point open, the code
   that consumes the fixture settled it (the text pipeline and lint in WP10, QA in WP14), and a case's `note`
   says which rule it pins. Invisible and combining characters are written as `\u` escapes.
@@ -64,16 +67,28 @@ design section 16.
 
 ## Versions and the freeze
 
-Every set is **`"status": "draft"`** until **gate H1** (plan.md section 5): the owner listens to sample
-renders of these texts and approves them, or asks for changes. Until then a text may change, and its hash
-with it. Once frozen, a set does not change: a new text is a new set (`narration-en.v2`, and so on),
-because the measurement key includes the corpus version (design 10.2) and the published alignment error
-names the benchmark's id and sha256 (11.2).
+The four spoken sets, `narration-en.v1`, `alignment-en.v1`, `canary.v1` and `demo-en.v1`, are
+**`"status": "frozen"`**. They were frozen as version 1 on 2026-09-27 after **gate H1** (plan.md section 5),
+when the owner had listened to sample renders of them and approved them. A frozen set never changes:
+- the measurement key includes the corpus version (design 10.2);
+- the published alignment error names the benchmark's id and sha256 (11.2);
+- every engine pin records the canary's material id (plan.md DC-3).
+
+Each of those is made from the set's manifest, so a new text is a new set (`narration-en.v2`, and so on).
+`tests/material` pins each frozen set's manifest sha256 (`FROZEN_MANIFESTS`).
+
+The two fixture sets, `text-v1` and `qa-faults-v1`, stay **`"status": "draft"`**. They are test data: no key,
+engine pin or published number names them, so they change with the tests that use them.
 
 The hashes are over the files' exact bytes. `.gitattributes` keeps every file's line ends LF on every
 platform, so a checkout on any machine hashes the same.
 
-## Changing a text (before the freeze)
+## Changing a text
+
+A frozen set is never edited. Copy it to a new set id (`narration-en.v2`), change the copy, and point the
+service at it: the configuration names the corpus and the benchmark (`[measurement] corpus`,
+`[alignment] benchmark`), the engine's pinning code names the canary, and the Phase 4 acceptance test names the
+demo. A draft set is edited in place:
 
 1. Edit the JSON. Keep each cue in canonical form.
 2. If a cue with exact spans changed, recompute their `start` and `end` in code points (in Python,

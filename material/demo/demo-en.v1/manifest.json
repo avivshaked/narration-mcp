@@ -2,11 +2,11 @@
   "set": "demo-en.v1",
   "kind": "demo",
   "version": 1,
-  "status": "draft",
+  "status": "frozen",
   "language": "en",
   "description": "The Phase 4 demo script (design section 20): twenty paragraphs of cues in spoken form, a short documentary about an invented lake valley through one year, with pronunciation hints for its invented names and a few exact spans.",
   "design": "docs/design.md revision 5.2, sections 7.2, 9.1 and 20 (Phase 4)",
-  "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
+  "freeze": "Frozen as version 1 on 2026-09-27, after gate H1 (plan.md section 5): the owner listened to sample renders and approved them. A frozen set never changes: the Phase 4 acceptance test runs this script (design section 20), so a changed text is a new set, demo-en.v2.",
   "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
   "files": [
     {

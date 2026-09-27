@@ -259,6 +259,11 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
+  alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
+  corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
+  never changes; a new text is a new set. A voice measured on the draft corpus is measured again by
+  `measure_voice`; its old measurement still serves generation.
 - An engine profile's `vram_need_mb` is recorded but no longer part of its hash (DC-16): it only tells the
   GPU scheduler how much free memory to wait for, so a refined estimate keeps every cached take and
   voice measurement.
