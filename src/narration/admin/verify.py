@@ -41,7 +41,11 @@ def run_verify(admin: Admin, args: argparse.Namespace) -> int:
     models_report = _verify_models(config.server.models_root)
     problems = _store_problems(store_report) + len(models_report["problems"])
     if args.json:
-        admin.say(json.dumps({"ok": problems == 0, "store": store_report, "models": models_report}, indent=2))
+        admin.say(
+            json.dumps(
+                {"ok": problems == 0, "store": store_report, "models": models_report}, ensure_ascii=False, indent=2
+            )
+        )
         return EXIT_FAILED if problems else EXIT_OK
     root = config.server.store_root
     if store_report is None:

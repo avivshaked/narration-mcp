@@ -178,7 +178,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   revision before it is renamed into place, and records them in `<models_root>/manifest.json`; syncs each
   worker venv from its `uv.lock` when it is out of date; and asks a running daemon to stop when it
   repaired something the daemon uses. Certificates are always verified (`SSL_CERT_FILE`,
-  `REQUESTS_CA_BUNDLE` and `UV_NATIVE_TLS=1` are honoured; design section 17.8).
+  `REQUESTS_CA_BUNDLE` and `UV_NATIVE_TLS=1` are honoured; design section 17.8), an `HF_ENDPOINT` mirror
+  must be `https`, and no redirect leaves `https`. A listed file name that is not a plain path inside the
+  model's folder is refused. Files are fetched into `<models_root>/.staging/`, never into a snapshot
+  folder.
 
 ### Changed
 

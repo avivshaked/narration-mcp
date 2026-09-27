@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from .cli import names_the_module
+
 MANIFEST_NAME: Final = "manifest.json"
 CHUNK: Final = 8 * 1024 * 1024
 PINS_MODULE: Final = "narration.engine.models"
@@ -45,6 +47,28 @@ class InstalledModel:
         return f"{self.repo}@{self.revision}"
 
 
+def safe_relative(path: str) -> str:
+    """``path`` if it names a file inside a folder: a relative POSIX path with no empty, ``.`` or ``..`` part,
+    and no ``\\`` or ``:`` (which Windows reads as a separator or a drive). ``ValueError`` otherwise."""
+    parts = path.split("/")
+    if not path or "\\" in path or ":" in path or "\0" in path or any(p in ("", ".", "..") for p in parts):
+        raise ValueError(f"{path!r} is not a file name inside the model's folder")
+    return path
+
+
+def inside(folder: Path, path: str, where: str) -> Path:
+    """``folder / path``, once ``path`` is ``safe_relative`` and the result resolves inside ``folder``;
+    ``ValueError`` naming ``where`` otherwise. No file named by a Hub listing or an install record is ever
+    written or read outside its folder."""
+    try:
+        target = folder / safe_relative(path)
+    except ValueError as exc:
+        raise ValueError(f"{where}: {exc}") from exc
+    if not target.resolve().is_relative_to(folder.resolve()):
+        raise ValueError(f"{where}: {path!r} resolves outside the model's folder")
+    return target
+
+
 def snapshot_dir(models_root: Path, repo: str, revision: str) -> Path:
     """``<models_root>/models--<org>--<name>/snapshots/<revision>`` (section 4)."""
     return models_root / ("models--" + repo.replace("/", "--")) / "snapshots" / revision
@@ -52,13 +76,13 @@ def snapshot_dir(models_root: Path, repo: str, revision: str) -> Path:
 
 def pinned_revisions() -> dict[str, str] | None:
     """The engine's pins, repo to revision (``narration.engine.models.PINNED``), or None when that module is
-    not in this build."""
+    not in this build. An ``ImportError`` means the module is there but cannot be loaded."""
     try:
         module = importlib.import_module(PINS_MODULE)
     except ModuleNotFoundError as exc:
-        if exc.name is not None and PINS_MODULE.startswith(exc.name):
+        if names_the_module(exc, PINS_MODULE):
             return None
-        raise
+        raise  # the module is in this build, but a dependency of it is missing
     pinned: Mapping[str, Any] = module.PINNED
     return {str(repo): str(model.revision) for repo, model in pinned.items()}
 
@@ -86,10 +110,14 @@ def read_manifest(models_root: Path) -> dict[str, InstalledModel]:
             raise ValueError(f"{path}: {key!r} has no {exc.args[0]!r}") from exc
         if not isinstance(files, dict) or not all(isinstance(v, str) for v in files.values()):
             raise ValueError(f"{path}: {key!r} has no files_sha256 table")
+        try:
+            folder = inside(models_root, rel, f"{path}: {key!r}")
+        except ValueError as exc:
+            raise ValueError(f"{exc} (snapshot_dir)") from exc
         records[str(key)] = InstalledModel(
             repo=repo,
             revision=revision,
-            snapshot_dir=models_root / rel,
+            snapshot_dir=folder,
             files_sha256={str(k): str(v) for k, v in files.items()},
         )
     return records
@@ -127,11 +155,16 @@ def check_files(model: InstalledModel, *, hash_files: bool = True) -> list[str]:
     ``hash_files``, have its recorded sha256. Empty when all is well."""
     problems: list[str] = []
     for rel, expected in sorted(model.files_sha256.items()):
-        path = model.snapshot_dir / rel
-        if not path.is_file():
-            problems.append(f"{rel} is missing")
-        elif hash_files and sha256_file(path) != expected:
-            problems.append(f"{rel} does not match its recorded sha256")
+        try:
+            path = inside(model.snapshot_dir, rel, "the install record")
+            if not path.is_file():
+                problems.append(f"{rel} is missing")
+            elif hash_files and sha256_file(path) != expected:
+                problems.append(f"{rel} does not match its recorded sha256")
+        except ValueError as exc:
+            problems.append(str(exc))
+        except OSError as exc:
+            problems.append(f"{rel} cannot be read ({exc.strerror or exc})")
     return problems
 
 
@@ -139,8 +172,10 @@ __all__ = [
     "MANIFEST_NAME",
     "InstalledModel",
     "check_files",
+    "inside",
     "pinned_revisions",
     "read_manifest",
+    "safe_relative",
     "sha256_file",
     "snapshot_dir",
     "write_manifest",

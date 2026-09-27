@@ -140,6 +140,14 @@ class Admin:
             self._store = None
 
 
+def names_the_module(exc: ModuleNotFoundError, module: str) -> bool:
+    """Whether ``exc`` says ``module`` itself (or a package it is in) is not installed, as opposed to a
+    dependency that module or package imports: the first means "not in this build", the second a broken
+    build."""
+    missing = exc.name
+    return missing is not None and (module == missing or module.startswith(missing + "."))
+
+
 Handler = Callable[[Admin, argparse.Namespace], int]
 """A command's handler (see the module docstring)."""
 
@@ -154,4 +162,5 @@ __all__ = [
     "AdminError",
     "Handler",
     "Subparsers",
+    "names_the_module",
 ]

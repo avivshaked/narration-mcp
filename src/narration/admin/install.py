@@ -10,11 +10,14 @@
 2. **The models.** For each model the engine pins (repo and revision, WP32's ``narration.engine.models``),
    the files of that revision are listed from Hugging Face, and each one is put in the snapshot folder
    ``<models_root>/models--<org>--<name>/snapshots/<revision>/`` (section 4). It is copied from a local Hugging
-   Face cache (``--from-cache``, read-only) when it is there, else downloaded. **Every file is checked against
-   the hash Hugging Face publishes for that revision** (sha256 for large files, the git blob sha1 for small
-   ones) before it is renamed into place; one that does not match is refused and nothing half-written is
-   left. A file already there is kept if it matches, and replaced if it does not. What was installed is
-   recorded, with each file's sha256, in ``<models_root>/manifest.json`` (``narration.admin.models``), which
+   Face cache (``--from-cache``, read-only) when it is there, else downloaded, to a temporary file in
+   ``<models_root>/.staging/`` (never inside a snapshot folder). **Every file is checked against the hash
+   Hugging Face publishes for that revision** (sha256 for large files, the git blob sha1 for small ones)
+   before it is renamed into place; one that does not match is refused and nothing half-written is left in
+   the snapshot. A file name in the listing must be a plain relative path inside the snapshot folder, or
+   nothing is written. What a killed install left in ``.staging`` is removed by the next one. A file already
+   there is kept if it matches, and replaced if it does not. What was installed is recorded, with each file's
+   sha256, in ``<models_root>/manifest.json`` (``narration.admin.models``), which
    ``doctor`` and ``verify`` check offline. Documentation and other frameworks' weights are skipped, and
    pickled weights are skipped where safetensors exist.
 3. **The worker venvs.** Each worker's uv project (``[workers.<role>] project``) is synced from its
@@ -27,7 +30,8 @@
 **TLS** (section 17.8). Downloads verify certificates with the system's store, plus the bundle
 ``SSL_CERT_FILE`` or ``REQUESTS_CA_BUNDLE`` names; uv is told the same way (``UV_NATIVE_TLS=1`` uses the
 system's store). Verification is never turned off: when it fails, the install stops and says what to set.
-``HF_ENDPOINT`` names a Hugging Face mirror, as it does for Hugging Face's own tools.
+``HF_ENDPOINT`` names a Hugging Face mirror, as it does for Hugging Face's own tools; it must be ``https``,
+and a redirect to anything but ``https`` is refused.
 
 ``--dry-run`` lists what would be downloaded and synced, and changes nothing.
 """
@@ -35,12 +39,15 @@ system's store). Verification is never turned off: when it fails, the install st
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
+import http.client
 import json
 import os
 import shutil
 import ssl
 import subprocess
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,11 +65,15 @@ from narration.workers.launch import WORKER_PROJECT_DIRS, venv_python, worker_pr
 from .cli import EXIT_FAILED, EXIT_OK, PROGRAM, Admin, AdminError, Subparsers
 from .daemon import request_stop
 from .doctor import WORKER_ROLES, SyncCheck, check_gpu, check_platform, read_gpu, uv_sync_check
-from .models import InstalledModel, pinned_revisions, read_manifest, snapshot_dir, write_manifest
+from .models import InstalledModel, inside, pinned_revisions, read_manifest, snapshot_dir, write_manifest
 
 HUB: Final = "https://huggingface.co"
 CHUNK: Final = 8 * 1024 * 1024
 TIMEOUT_S: Final = 120.0
+STAGING_DIR: Final = ".staging"
+"""Where files are written while they are fetched and checked, under the models root: never inside a
+snapshot folder, whose every file an engine profile hashes."""
+PARTIAL_SUFFIX: Final = ".partial"
 UV_SYNC_TIMEOUT_S: Final = 3600.0
 SKIP_NAMES: Final = frozenset({".gitattributes", "README.md"})
 SKIP_SUFFIXES: Final = (".h5", ".msgpack", ".ot", ".onnx", ".tflite", ".mlmodel")
@@ -112,16 +123,66 @@ def tls_context(environ: Mapping[str, str] | None = None) -> ssl.SSLContext:
     return context
 
 
-class HubClient:
-    """The Hugging Face Hub over HTTPS (``urllib``), verifying certificates; ``HF_ENDPOINT`` names a mirror."""
+class _HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to another ``https`` URL (the Hub sends downloads to its CDN), so a redirect can
+    never take a download off TLS."""
 
-    def __init__(self, *, endpoint: str | None = None, context: ssl.SSLContext | None = None) -> None:
-        self.endpoint = (endpoint or os.environ.get("HF_ENDPOINT") or HUB).rstrip("/")
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        if urllib.parse.urlsplit(newurl).scheme != "https":
+            raise urllib.error.HTTPError(
+                newurl, code, f"refused a redirect to a URL that is not https: {newurl}", headers, fp
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def https_endpoint(endpoint: str) -> str:
+    """``endpoint`` without a trailing ``/``; ``ValueError`` unless it is an ``https://`` URL (section 17.8: a
+    plain-HTTP mirror would serve the hashes and the files unverified)."""
+    parts = urllib.parse.urlsplit(endpoint)
+    if parts.scheme != "https" or not parts.netloc:
+        raise ValueError(
+            f"the Hugging Face endpoint {endpoint!r} (HF_ENDPOINT) is not an https:// URL. Downloads are only made "
+            "over verified TLS (design section 17.8): set HF_ENDPOINT to the mirror's https:// address, or unset it"
+        )
+    return endpoint.rstrip("/")
+
+
+class Opener(Protocol):
+    """What ``HubClient`` opens URLs with (``urllib.request.OpenerDirector``; tests pass a fake)."""
+
+    def open(self, fullurl: str, data: None = None, timeout: float = ...) -> Any:
+        """Open ``fullurl``."""
+        ...
+
+
+class HubClient:
+    """The Hugging Face Hub over HTTPS (``urllib``), verifying certificates; ``HF_ENDPOINT`` names a mirror,
+    which must be ``https`` too. Redirects are followed only to ``https`` URLs."""
+
+    def __init__(
+        self,
+        *,
+        endpoint: str | None = None,
+        context: ssl.SSLContext | None = None,
+        opener: Opener | None = None,
+    ) -> None:
+        self.endpoint = https_endpoint(endpoint or os.environ.get("HF_ENDPOINT") or HUB)
         self.context = context or tls_context()
+        self.opener: Opener = opener or urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=self.context), _HttpsOnlyRedirects()
+        )
 
     def _open(self, url: str) -> Any:
         try:
-            return urllib.request.urlopen(url, timeout=TIMEOUT_S, context=self.context)
+            return self.opener.open(url, timeout=TIMEOUT_S)
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, ssl.SSLCertVerificationError):
                 raise TlsFailure(
@@ -130,6 +191,8 @@ class HubClient:
             raise
 
     def list_files(self, repo: str, revision: str) -> list[RemoteFile]:
+        """Every file of ``repo`` at ``revision``, following the listing's pages. ``ValueError`` for a listing
+        that is not the Hub's shape."""
         url: str | None = f"{self.endpoint}/api/models/{repo}/tree/{revision}?recursive=true"
         files: list[RemoteFile] = []
         while url:
@@ -141,8 +204,21 @@ class HubClient:
             for entry in entries:
                 if not isinstance(entry, dict) or entry.get("type") != "file":
                     continue
-                lfs = entry.get("lfs") or {}
-                files.append(RemoteFile(str(entry["path"]), int(entry["size"]), lfs.get("oid"), str(entry["oid"])))
+                try:
+                    lfs = entry.get("lfs") or {}
+                    sha256 = lfs.get("oid") if isinstance(lfs, dict) else None
+                    files.append(
+                        RemoteFile(
+                            str(entry["path"]),
+                            int(entry["size"]),
+                            str(sha256) if sha256 is not None else None,
+                            str(entry["oid"]),
+                        )
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"the Hub's listing of {repo}@{revision} has a file entry without a usable {exc}: {entry!r}"
+                    ) from exc
         return files
 
     def download(self, repo: str, revision: str, path: str, dest: Path) -> None:
@@ -174,6 +250,16 @@ def select_files(files: Sequence[RemoteFile]) -> list[RemoteFile]:
     if any(f.path.endswith(".safetensors") for f in kept):
         kept = [f for f in kept if not (f.path.endswith(".bin") or f.path.endswith(".bin.index.json"))]
     return kept
+
+
+def remove_stale_partials(models_root: Path, folder: Path) -> None:
+    """Remove what an install that was killed left: temporary files in ``<models_root>/.staging/``, and any
+    ``*.partial`` file an earlier version left inside the snapshot folder."""
+    staging = models_root / STAGING_DIR
+    stale = [*staging.glob(f"*{PARTIAL_SUFFIX}"), *(folder.rglob(f"*{PARTIAL_SUFFIX}") if folder.is_dir() else [])]
+    for path in stale:
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 def file_hashes(path: Path) -> tuple[str, str]:
@@ -225,23 +311,30 @@ def install_model(
     result = ModelResult(repo=repo, revision=revision)
     folder = snapshot_dir(models_root, repo, revision)
     source = snapshot_dir(cache, repo, revision) if cache is not None else None
+    staging = models_root / STAGING_DIR
+    if not dry_run:
+        remove_stale_partials(models_root, folder)
     record: dict[str, str] = {}
     for remote in select_files(hub.list_files(repo, revision)):
-        dest = folder / remote.path
+        dest = inside(folder, remote.path, f"{repo}@{revision[:12]}")
         sha256 = matches(remote, dest)
         if sha256 is not None:
             result.present += 1
             record[remote.path] = sha256
             continue
         result.repaired = result.repaired or dest.exists()
-        cached = source / remote.path if source is not None and (source / remote.path).is_file() else None
+        cached_path = inside(source, remote.path, "the cache") if source is not None else None
+        cached = cached_path if cached_path is not None and cached_path.is_file() else None
         how = "copy" if cached is not None else "download"
         result.fetched.append((remote.path, remote.size, how))
         if dry_run:
             continue
         progress(f"  {how}: {repo} {remote.path} ({remote.size / 1024**2:,.1f} MB)")
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(dest.name + ".partial")
+        staging.mkdir(parents=True, exist_ok=True)
+        handle, name = tempfile.mkstemp(dir=staging, suffix=PARTIAL_SUFFIX)
+        os.close(handle)
+        tmp = Path(name)
         try:
             if cached is not None:
                 shutil.copyfile(cached, tmp)
@@ -320,7 +413,17 @@ def sync_worker(
         return WorkerResult(role, project, False, "its venv matches its uv.lock")
     if dry_run:
         return WorkerResult(role, project, True, "its venv would be synced from its uv.lock")
-    done = run([uv, "sync", "--locked", "--project", str(project)], project)
+    try:
+        done = run([uv, "sync", "--locked", "--project", str(project)], project)
+    except subprocess.TimeoutExpired as exc:
+        raise AdminError(
+            f"uv did not finish syncing the {role} worker's venv in {project} within {exc.timeout:.0f} s. Check the "
+            "network (or the uv cache's drive), then run the install again."
+        ) from exc
+    except OSError as exc:
+        raise AdminError(
+            f"uv ({uv}) could not be run: {exc}. Install uv or put it on PATH, then run the install again."
+        ) from exc
     if done.returncode != 0:
         tail = [line for line in (done.stderr + "\n" + done.stdout).splitlines() if line.strip()][-5:]
         said = " | ".join(line.strip() for line in tail)
@@ -400,7 +503,13 @@ def run_install(admin: Admin, args: argparse.Namespace, *, sources: Sources | No
 def _install_models(
     admin: Admin, config: Config, args: argparse.Namespace, sources: Sources, repaired: list[str]
 ) -> list[str]:
-    pins = sources.pins()
+    try:
+        pins = sources.pins()
+    except ImportError as exc:
+        raise AdminError(
+            f"the engine's model pins are in this build but cannot be loaded ({exc}). Sync the server's venv "
+            "(uv sync --locked), then run the install again."
+        ) from exc
     if pins is None:
         admin.say(
             "\nModels: skipped. This build does not include the engine's model pins (narration.engine.models), so "
@@ -418,6 +527,8 @@ def _install_models(
         records = {}
     try:
         hub = sources.hub()
+    except ValueError as exc:
+        raise AdminError(f"{exc}.") from exc
     except (OSError, ssl.SSLError) as exc:
         raise AdminError(
             f"the certificates to verify downloads with cannot be loaded ({exc}): check the file REQUESTS_CA_BUNDLE "
@@ -431,10 +542,15 @@ def _install_models(
             )
         except TlsFailure as exc:
             raise AdminError(f"{exc}. {TLS_ADVICE}") from exc
-        except (OSError, ValueError, urllib.error.URLError) as exc:
+        except (OSError, ValueError, urllib.error.URLError, http.client.HTTPException) as exc:
+            held = (
+                f" A running daemon may hold that file open: run `{PROGRAM} daemon stop` first."
+                if isinstance(exc, PermissionError)
+                else ""
+            )
             raise AdminError(
-                f"{repo}@{revision[:12]} could not be installed: {exc}. Nothing half-written was left; run the "
-                "install again (files already checked are kept)."
+                f"{repo}@{revision[:12]} could not be installed: {exc or type(exc).__name__}. Nothing half-written was "
+                f"left in its folder.{held} Then run the install again (files already checked are kept)."
             ) from exc
         size = sum(size for _, size, _ in result.fetched)
         total += size

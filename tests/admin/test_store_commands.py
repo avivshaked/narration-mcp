@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from narration.admin import models
 from narration.admin.cli import EXIT_FAILED, EXIT_OK
 from narration.config import load_config
 from narration.contracts import names
@@ -81,3 +82,25 @@ def test_verify_finds_a_changed_model_file_s15(admin: AdminRun, config_path: Pat
     data = json.loads(ran.out)
     assert ran.code == EXIT_FAILED and data["ok"] is False
     assert data["models"]["problems"] == [f"{model.key}: model.bin does not match its recorded sha256"]
+
+
+def test_verify_reports_an_unreadable_model_file_instead_of_failing_s15(
+    admin: AdminRun, config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = install_model(config_path.parent / "models", names.MODEL_ALIGNER, REV_A, {"model.bin": b"weights"})
+
+    def unreadable(path: Path) -> str:
+        raise PermissionError(13, "The process cannot access the file", str(path))
+
+    monkeypatch.setattr(models, "sha256_file", unreadable)
+    ran = admin("--config", str(config_path), "verify")
+    assert ran.code == EXIT_FAILED
+    assert f"{model.key}: model.bin cannot be read (The process cannot access the file)" in ran.out
+
+
+def test_verify_json_keeps_non_ascii_names_readable_s15(admin: AdminRun, config_path: Path) -> None:
+    repo = "org/mod" + chr(0xE8) + "le"  # a non-ASCII model name, spelled out so the file stays ASCII
+    model = install_model(config_path.parent / "models", repo, REV_A, {"weights.bin": b"w"})
+    (model.snapshot_dir / "weights.bin").write_bytes(b"changed")
+    out = admin("--config", str(config_path), "verify", "--json").out
+    assert repo in out and "\\u00e8" not in out  # the JSON escape ensure_ascii would write
