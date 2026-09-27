@@ -34,8 +34,13 @@ for a reason nothing here can see. Neither changes a cached file.
 
 **bridge** renders the canary and the calibration corpus's paragraphs under an old and a new profile, in the
 old profile's canary voice, and reports how similar each pair is, so the owner can judge whether a re-pin will
-be heard before making it. A profile whose environment is gone (another lock, missing weights) cannot render
-here; its side of the canary is then its pinned embedding, and the corpus is skipped.
+be heard before making it. A profile's files are looked for where it recorded them, then under the configured
+models root (a root that moved). A profile whose environment is gone (another lock, missing weights) cannot
+render here; its side of the canary is then its pinned embedding, and the corpus is skipped.
+
+**All or nothing.** Every canary is rendered, embedded and calibrated before anything is stored; only then are
+the clips and profiles stored, and the profiles in use set, both last. A refusal or a worker failure on either
+engine leaves the store as it was.
 """
 
 from __future__ import annotations
@@ -46,7 +51,7 @@ import logging
 import shutil
 import time
 import uuid
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,7 +89,7 @@ from .canary import (
     sv_load_payload,
 )
 from .drift import DriftCheck
-from .models import WAVLM_SV
+from .models import WAVLM_SV, snapshot_dir
 from .profile import (
     QWEN_PACKAGES,
     FileHashes,
@@ -94,6 +99,7 @@ from .profile import (
     observed,
     pin_differences,
     qwen_project,
+    unobserved,
     with_hash,
 )
 from .qa import model_pin
@@ -183,6 +189,10 @@ class Plan:
     changed: tuple[str, ...] = ()
     updated: tuple[str, ...] = ()
     """For ``keep``: the unhashed fields of the current profile to update in place (``KEPT_UPDATES``)."""
+    replaced: EngineProfile | None = None
+    """For ``new`` over a current profile whose snapshot folder moved (the same revision and weights): that
+    profile with its ``snapshot_dir`` where its files are now, stored in place with the new pin, so that
+    ``engine bridge`` can still render it."""
 
 
 def plan(
@@ -227,6 +237,17 @@ def plan(
         if not changed and force:
             changed.append("forced")
         if not changed and machine is not None:
+            unseen = unobserved(current.observed, machine)
+            if unseen:
+                raise PinRefused(
+                    f"the Qwen worker could not observe this machine's {', '.join(unseen)}, so repin cannot tell "
+                    f"whether it has changed since engine profile {current.engine_profile_id} was pinned",
+                    hint=(
+                        "Run narration-admin doctor to check the GPU and its driver, then repin again; "
+                        "narration-admin engine repin --force re-pins both engines regardless. Nothing was pinned."
+                    ),
+                    details={"engine_profile_id": current.engine_profile_id, "unobserved": list(unseen)},
+                )
             changed += [f"machine {k}" for k in machine_differences(current.observed, machine)]
         if not changed:
             if current.canary is None:
@@ -249,12 +270,19 @@ def plan(
             )
         new_id = next_profile_id(ids, kind)
         ids.append(new_id)
+        replaced = None
+        if built.snapshot_dir != current.snapshot_dir and (built.model_revision, dict(built.weights)) == (
+            current.model_revision,
+            dict(current.weights),
+        ):
+            replaced = dataclasses.replace(current, snapshot_dir=built.snapshot_dir)
         plans[kind] = Plan(
             kind=kind,
             action="new",
             profile=with_hash(dataclasses.replace(built, engine_profile_id=new_id)),
             current=current,
             changed=tuple(changed),
+            replaced=replaced,
         )
     return plans
 
@@ -325,19 +353,17 @@ def pin(
     """``engine pin`` (``mode="pin"``) or ``engine repin`` (``force``: both engines anew): see the module
     docstring. Returns what was done for each engine. Raises ``PinRefused``, ``EngineSetupError``
     (``BACKEND_NOT_INSTALLED``), and what a worker raises (``WorkerFailure``, ``WorkerCrashed``,
-    ``WorkerTimeout``); nothing new is pinned then."""
+    ``WorkerTimeout``); the store is then as it was, for both engines: every canary is rendered, embedded and
+    calibrated before anything is stored."""
     material = material if material is not None else find_canary(config)
     hashes = hashes if hashes is not None else FileHashes()
     plans = plan(config, store, mode, material, hashes=hashes, packages=packages, force=force)
     if mode == "repin" and any(p.action == "keep" for p in plans.values()):
         machine = _observe(starter, list(plans.values()))
         plans = plan(config, store, mode, material, hashes=hashes, packages=packages, machine=machine)
-    for p in plans.values():
-        if p.action == "keep" and p.updated:
-            store.put_engine_profile(p.profile)
-            log.info("engine profile %s: updated %s", p.profile.engine_profile_id, ", ".join(p.updated))
     todo = [plans[k] for k in KINDS if plans[k].action != "keep"]
     if not todo:
+        _update_in_place(store, plans.values())
         return tuple(_kept(plans[k]) for k in KINDS)
     device = device if device is not None else config.gpu.device
     sv = model_pin(config, WAVLM_SV)
@@ -347,7 +373,9 @@ def pin(
             qa.request("load", sv_load_payload(sv), timeout_s=LOAD_TIMEOUT_S)
             made = _first_pass(starter, plans, todo, material, device, work)
             _repeat(starter, made, material, device, work)
-            reports = _store(store, made, material, qa, clock)
+            measured = _measure(qa, made)
+        _update_in_place(store, plans.values())
+        reports = _store(store, measured, material, clock)
         by_kind = {r.kind: r for r in reports}
         return tuple(by_kind.get(k) or _kept(plans[k]) for k in KINDS)
     finally:
@@ -469,12 +497,21 @@ def _repeat(starter: Starter, made: Sequence[_Made], material: CanaryMaterial, d
             qwen.request("unload", {}, timeout_s=UNLOAD_TIMEOUT_S)
 
 
-def _store(
-    store: Store, made: Sequence[_Made], material: CanaryMaterial, qa: WorkerClient, clock: Callable[[], float]
-) -> list[EngineReport]:
-    """Embed, calibrate, and store each profile with its canary; the clip is copied for each profile."""
-    reports: list[EngineReport] = []
-    pinned_at = utc_iso(clock())
+@dataclass(frozen=True, slots=True)
+class _Measured:
+    """One engine's canary, measured and ready to store."""
+
+    made: _Made
+    embedding: tuple[float, ...]
+    threshold: float
+    calibration: tuple[float, ...]
+    tier: DeterminismTier
+
+
+def _measure(qa: WorkerClient, made: Sequence[_Made]) -> list[_Measured]:
+    """Embed, check and calibrate every canary, and settle each tier, before anything is stored: a refusal or
+    a worker failure here leaves the store as it was, for both engines."""
+    measured: list[_Measured] = []
     for m in made:
         embedding = embed(qa, m.first)
         problem = embedding_problem(embedding)
@@ -487,7 +524,31 @@ def _store(
             )
         threshold, sims = calibrate(embedding, [embed(qa, path) for path in m.calibration])
         tier: DeterminismTier = "bit_exact" if len(set(m.hashes)) == 1 else "similar"
-        profile = m.plan.profile
+        measured.append(_Measured(made=m, embedding=embedding, threshold=threshold, calibration=sims, tier=tier))
+    return measured
+
+
+def _update_in_place(store: Store, plans: Iterable[Plan]) -> None:
+    """The unhashed updates of the profiles the pin keeps or replaces (``Plan.updated``, ``Plan.replaced``)."""
+    for p in plans:
+        if p.action == "keep" and p.updated:
+            store.put_engine_profile(p.profile)
+            log.info("engine profile %s: updated %s", p.profile.engine_profile_id, ", ".join(p.updated))
+        if p.replaced is not None:
+            store.put_engine_profile(p.replaced)
+            replaced = p.replaced
+            log.info("engine profile %s: its snapshot is now at %s", replaced.engine_profile_id, replaced.snapshot_dir)
+
+
+def _store(
+    store: Store, measured: Sequence[_Measured], material: CanaryMaterial, clock: Callable[[], float]
+) -> list[EngineReport]:
+    """Store each measured profile with its canary (the clip is copied for each profile), then make them the
+    profiles in use, both last, so the engines in use change together."""
+    reports: list[EngineReport] = []
+    pinned_at = utc_iso(clock())
+    for x in measured:
+        m, profile = x.made, x.made.plan.profile
         copy = store.scratch_path(SCRATCH, f"{profile.engine_profile_id}-{uuid.uuid4().hex}.wav")
         shutil.copyfile(m.clip.path, copy)
         clip = store.put_canary_clip(profile.engine_profile_id, copy)
@@ -497,14 +558,11 @@ def _store(
             transcript=m.transcript,
             seed=m.seed,
             raw_sha256=m.hashes[0],
-            embedding=embedding,
-            threshold=threshold,
+            embedding=x.embedding,
+            threshold=x.threshold,
             pinned_at=pinned_at,
         )
-        final = dataclasses.replace(profile, tier=tier, observed=observed(m.hello), canary=canary)
-        store.put_engine_profile(final)
-        store.set_current_engine_profile(m.plan.kind, profile.engine_profile_id)
-        log.info("pinned %s (%s, %s)", profile.engine_profile_id, profile.hash, tier)
+        store.put_engine_profile(dataclasses.replace(profile, tier=x.tier, observed=observed(m.hello), canary=canary))
         reports.append(
             EngineReport(
                 kind=m.plan.kind,
@@ -512,13 +570,17 @@ def _store(
                 engine_profile_id=profile.engine_profile_id,
                 hash=profile.hash,
                 changed=m.plan.changed,
-                tier=tier,
+                tier=x.tier,
                 raw_sha256=m.hashes[0],
                 repeat_sha256=tuple(m.hashes),
-                threshold=threshold,
-                calibration=sims,
+                threshold=x.threshold,
+                calibration=x.calibration,
             )
         )
+    for x in measured:
+        profile = x.made.plan.profile
+        store.set_current_engine_profile(x.made.plan.kind, profile.engine_profile_id)
+        log.info("pinned %s (%s, %s)", profile.engine_profile_id, profile.hash, x.tier)
     return reports
 
 
@@ -595,6 +657,7 @@ def bridge(
                 hint="Name two pinned profiles (narration-admin engine show lists them).",
             )
     assert old is not None and new is not None
+    old, new = _located(config, old), _located(config, new)
     kind = engine_kind(old)
     if engine_kind(new) != kind:
         raise PinRefused(
@@ -654,6 +717,17 @@ def bridge(
         return BridgeReport(old=old_id, new=new_id, items=tuple(report_items), not_runnable=not_runnable)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _located(config: Config, profile: EngineProfile) -> EngineProfile:
+    """The profile with its snapshot folder where it is now. A profile's ``snapshot_dir`` is where its files
+    were when it was pinned or last kept; after the models root moved, a profile no longer in use still names
+    the old folder, so its revision's folder under ``[server] models_root`` is used when that exists (the
+    fingerprint check then judges its files). Nothing is stored."""
+    if Path(profile.snapshot_dir).is_dir():
+        return profile
+    here = snapshot_dir(config.server.models_root, profile.model_repo, profile.model_revision)
+    return dataclasses.replace(profile, snapshot_dir=str(here)) if here.is_dir() else profile
 
 
 def _compare(

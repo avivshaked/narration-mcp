@@ -48,6 +48,7 @@ def test_a_changed_uv_lock_is_drift_wp32(install: Install, profile: EngineProfil
         DriftCheck().require_none(profile, _hello(profile), project=install.project)
     error = caught.value
     assert error.code == codes.ENGINE_DRIFT and not error.retryable and error.hint
+    assert "narration-admin install" in error.hint and "narration-admin engine repin" in error.hint
     assert error.details is not None
     assert [d["what"] for d in error.details["drift"]] == ["uv_lock"]
     assert error.details["drift"][0]["pinned"] == profile.uv_lock_sha256

@@ -10,6 +10,7 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -17,6 +18,7 @@ from narration.config import Config, EnginesConfig, QwenBaseConfig
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import EngineProfile
+from narration.contracts.worker import HelloReply
 from narration.engine import current_profile, current_ref, require_expected
 from narration.engine.models import PINNED, QWEN_BASE, QWEN_DESIGN, pinned
 from narration.engine.profile import (
@@ -26,9 +28,12 @@ from narration.engine.profile import (
     build_profile,
     determinism,
     hashed_object,
+    machine_differences,
     next_profile_id,
+    observed,
     pin_differences,
     profile_hash,
+    unobserved,
     with_hash,
 )
 from narration.jobs.pins import call_cap, qwen_load_payload
@@ -36,7 +41,7 @@ from narration.store import NarrationStore, StoreIntegrityError
 from narration.store import store as store_module
 from tests.store.standin import StandInPlatform
 
-from .support import GENERATION, VERSIONS, Install, make_install, make_snapshot, write_lock
+from .support import GENERATION, VERSIONS, Install, hello, make_install, make_snapshot, write_lock
 
 REPO = Path(__file__).resolve().parents[2]
 BASE_ID = "qwen3-base-1.7b.p1"
@@ -424,3 +429,24 @@ def _any_profile() -> EngineProfile:
 def test_hashed_objects_are_plain_json_s10_2(install: Install) -> None:
     profile = build_profile(install.config, "base", engine_profile_id=BASE_ID)
     json.dumps(hashed_object(profile))
+
+
+# ------------------------------------------------------------------ the machine a repin compares
+
+
+def test_a_gpu_the_worker_cannot_read_is_unobserved_not_changed_s10_1() -> None:
+    """NVML failing leaves the hello's GPU and driver null, which ``observed`` drops: that is not a changed
+    machine, it is one repin cannot see (``unobserved``). A value seen now that the pin did not record is a
+    change; so is a value that differs."""
+    pinned = observed(cast(HelloReply, hello({})))  # gpu, driver, cuda and cudnn, as with NVML
+    blind = hello({})
+    blind["fingerprint"] = {**blind["fingerprint"], "gpu": None, "driver": None}
+    found = observed(cast(HelloReply, blind))
+    assert "gpu" not in found and "driver" not in found
+    assert machine_differences(pinned, found) == ()
+    assert unobserved(pinned, found) == ("gpu", "driver")
+
+    assert machine_differences({}, pinned) == ("gpu", "driver", "cuda", "cudnn")  # seen now, not recorded then
+    assert unobserved({}, pinned) == ()
+    assert machine_differences(pinned, {**pinned, "driver": "2.0"}) == ("driver",)
+    assert machine_differences(pinned, {**pinned, "python": "3.12.9"}) == ()  # python is recorded, not compared

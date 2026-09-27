@@ -15,6 +15,7 @@ import pytest
 
 from narration.config import Config, EnginesConfig, QwenBaseConfig
 from narration.contracts import names
+from narration.contracts.errors import WorkerCrashed
 from narration.contracts.models import CanaryMaterial, EngineProfile
 from narration.engine import profile as profile_module
 from narration.engine.canary import CALIBRATION_SEEDS, CANARY_MARGIN, THRESHOLD_FLOOR, find_canary, material_id
@@ -172,13 +173,20 @@ def test_repin_with_nothing_changed_keeps_both_s10_1(pinned: Pinned) -> None:
     assert {k: pinned.current(k) for k in ("design", "base")} == before
 
 
-def test_repin_after_a_driver_update_pins_a_new_profile_with_a_fresh_canary_s10_1(pinned: Pinned) -> None:
+def test_repin_after_a_driver_update_pins_a_new_profile_with_a_fresh_canary_s10_1(
+    pinned: Pinned, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Section 10.1's case: nothing pinned changed, but the machine did, so the canary may no longer repeat.
     pin keeps what is pinned; repin sees the machine and pins that engine anew."""
+    from narration.engine import pinning
+
+    real = pinning.observed
+    # The fake worker reads no GPU (no NVML); this machine's worker reports one, and its driver.
+    monkeypatch.setattr(pinning, "observed", lambda hello: {**real(hello), "gpu": "Test GPU", "driver": "2.0"})
     pinned.pin()
     base = pinned.current("base")
-    assert base.canary is not None
-    older = dataclasses.replace(base, observed={**base.observed, "driver": "an older driver"})
+    assert base.canary is not None and base.observed["driver"] == "2.0"
+    older = dataclasses.replace(base, observed={**base.observed, "driver": "1.0"})
     pinned.store.put_engine_profile(older)  # as if pinned before the driver update
 
     assert [r.action for r in pinned.pin()] == ["keep", "keep"]  # pin never replaces a pin
@@ -346,3 +354,114 @@ def test_a_canary_render_that_cannot_be_embedded_is_never_pinned_s10_1(
         pinned.pin()
     assert "could not be embedded (all zero)" in caught.value.message and "doctor" in caught.value.hint
     assert pinned.store.list_engine_profiles() == ()
+
+
+# ======================================================================== the second review's follow-ups
+
+
+def _state(pinned: Pinned) -> tuple[Any, ...]:
+    """Everything a pin writes: the profiles, the two in use, and the canary clips under ``engines/``."""
+    store = pinned.store
+    engines = pinned.install.store_root / "engines"
+    clips = sorted(str(p.relative_to(engines)) for p in engines.rglob("*")) if engines.is_dir() else []
+    return (
+        store.list_engine_profiles(),
+        store.current_engine_profile("design"),
+        store.current_engine_profile("base"),
+        clips,
+    )
+
+
+@pytest.mark.parametrize("failure", ["all_zero", "crashed"])
+@pytest.mark.parametrize("mode", ["first_pin", "repin_force"])
+def test_a_pin_that_fails_on_the_base_canary_leaves_the_store_as_it_was_s10_1(
+    pinned: Pinned, monkeypatch: pytest.MonkeyPatch, failure: str, mode: str
+) -> None:
+    """All or nothing: VoiceDesign's canary measures, Base's does not (its gate render embeds as all zeros, or
+    the QA worker stops while it calibrates). Neither engine is pinned or made current, so "nothing was
+    pinned" is true."""
+    from narration.engine import pinning
+
+    if mode == "repin_force":
+        pinned.pin()
+    before = _state(pinned)
+    real = pinning.embed
+
+    def embed(qa: Any, wav: Path) -> tuple[float, ...]:
+        name = Path(wav).name
+        if failure == "all_zero" and name == "base-first.wav":
+            return tuple(0.0 for _ in real(qa, wav))
+        if failure == "crashed" and name.startswith("base-calibration"):
+            raise WorkerCrashed("the qa worker exited", exit_code=1)
+        return real(qa, wav)
+
+    monkeypatch.setattr(pinning, "embed", embed)
+    expected: type[Exception] = PinRefused if failure == "all_zero" else WorkerCrashed
+    with pytest.raises(expected) as caught:
+        pinned.pin("repin", force=True) if mode == "repin_force" else pinned.pin()
+    if isinstance(caught.value, PinRefused):
+        assert "base canary" in caught.value.message and "nothing was pinned" in caught.value.hint
+    assert _state(pinned) == before
+
+
+def test_repin_refuses_when_the_worker_cannot_observe_the_gpu_it_was_pinned_on_s10_1(pinned: Pinned) -> None:
+    """NVML failing to read the GPU is not a changed machine: the profiles recorded a GPU and a driver, the
+    worker reports none, so repin cannot tell and refuses, saying what to check and that --force re-pins."""
+    pinned.pin()
+    for kind in ("design", "base"):
+        profile = pinned.current(kind)
+        pinned.store.put_engine_profile(
+            dataclasses.replace(profile, observed={**profile.observed, "gpu": "Test GPU", "driver": "1.0"})
+        )
+    before = _state(pinned)
+    pinned.starter.started.clear()
+
+    with pytest.raises(PinRefused) as caught:
+        pinned.pin("repin")
+    refused = caught.value
+    assert refused.details["unobserved"] == ["gpu", "driver"]
+    assert "narration-admin doctor" in refused.hint and "engine repin --force" in refused.hint
+    assert pinned.starter.started == ["qwen3"]  # only to see the machine; nothing rendered
+    assert _state(pinned) == before
+    assert [r.action for r in pinned.pin("repin", force=True)] == ["new", "new"]
+
+
+def test_a_replaced_profile_bridges_from_the_moved_models_root_s10_1(pinned: Pinned, tmp_path: Path) -> None:
+    """After the models root moved, a repin that replaces a profile records where the replaced profile's files
+    are now (the same revision and weights), and bridge renders it from there."""
+    pinned.pin()
+    moved = tmp_path / "models-moved"
+    pinned.install.models_root.rename(moved)
+    config = dataclasses.replace(
+        pinned.install.config, server=dataclasses.replace(pinned.install.config.server, models_root=moved)
+    )
+    reports = {r.kind: r for r in pinned.pin("repin", config, force=True)}
+    assert reports["base"].engine_profile_id == BASE_P2
+    old = pinned.store.get_engine_profile(BASE_P1)
+    assert old is not None and Path(old.snapshot_dir) == QWEN_BASE.snapshot_dir(moved)
+
+    report = bridge(config, pinned.store, BASE_P1, BASE_P2, starter=pinned.starter, device="cpu")
+    assert report.not_runnable == {}
+    assert all(item.old_from == "rendered" for item in report.items)
+
+
+def test_bridge_finds_a_profile_whose_recorded_folder_is_gone_s10_1(pinned: Pinned, tmp_path: Path) -> None:
+    """A store written before the replaced profile's folder was refreshed: bridge looks for its revision under
+    the configured models root, changing nothing in the store."""
+    pinned.pin()
+    stale = pinned.current("base").snapshot_dir
+    moved = tmp_path / "models-moved"
+    pinned.install.models_root.rename(moved)
+    config = dataclasses.replace(
+        pinned.install.config, server=dataclasses.replace(pinned.install.config.server, models_root=moved)
+    )
+    pinned.pin("repin", config, force=True)
+    old = pinned.store.get_engine_profile(BASE_P1)
+    assert old is not None
+    pinned.store.put_engine_profile(dataclasses.replace(old, snapshot_dir=stale))  # as an older build left it
+
+    report = bridge(config, pinned.store, BASE_P1, BASE_P2, starter=pinned.starter, device="cpu")
+    assert report.not_runnable == {}
+    assert all(item.old_from == "rendered" for item in report.items)
+    after = pinned.store.get_engine_profile(BASE_P1)
+    assert after is not None and after.snapshot_dir == stale  # bridge stores nothing

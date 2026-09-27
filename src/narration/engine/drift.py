@@ -125,6 +125,11 @@ def drift_error(profile: EngineProfile, found: list[Drift]) -> NarrationError:
         first = found[0]
         what = f"{first.what} {first.name}" + (f" and {len(found) - 1} more" if len(found) > 1 else "")
         message = f"the loaded engine is not engine profile {profile.engine_profile_id} as pinned: {what} differ(s)"
+        hint = (
+            f"Ask the operator to restore the installation engine profile {profile.engine_profile_id} pinned "
+            "(narration-admin install syncs the workers and the models), or to make a new profile the one in use "
+            "(narration-admin engine repin; new render keys); nothing was rendered."
+        )
     return NarrationError(
         codes.ENGINE_DRIFT,
         message,

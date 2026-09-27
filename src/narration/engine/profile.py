@@ -424,8 +424,15 @@ pins a new profile. Python is recorded but not compared: its version is the venv
 
 def machine_differences(pinned: Mapping[str, Any], found: Mapping[str, Any]) -> tuple[str, ...]:
     """The ``OBSERVED_KEYS`` in which the machine a worker runs on differs from the one a profile was pinned
-    on (a value missing on one side and not the other counts)."""
-    return tuple(k for k in OBSERVED_KEYS if pinned.get(k) != found.get(k))
+    on. A value the worker observes that the profile did not record counts; one the profile recorded that the
+    worker cannot observe now (NVML failed to read the GPU, say) does not: that is ``unobserved``."""
+    return tuple(k for k in OBSERVED_KEYS if k in found and pinned.get(k) != found[k])
+
+
+def unobserved(pinned: Mapping[str, Any], found: Mapping[str, Any]) -> tuple[str, ...]:
+    """The ``OBSERVED_KEYS`` a profile recorded that the worker could not observe now (``observed`` drops a
+    value the worker reports as null): whether the machine changed there cannot be told."""
+    return tuple(k for k in OBSERVED_KEYS if k in pinned and k not in found)
 
 
 def observed(hello: HelloReply | None) -> dict[str, Any]:
@@ -477,6 +484,7 @@ __all__ = [
     "DTYPE",
     "FAMILIES",
     "MODELS",
+    "OBSERVED_KEYS",
     "QWEN_PACKAGES",
     "QWEN_VRAM_MB",
     "SAMPLING_KEYS",
@@ -491,6 +499,7 @@ __all__ = [
     "hash_snapshot",
     "hashed_object",
     "lock_sha256",
+    "machine_differences",
     "next_profile_id",
     "observed",
     "pin_differences",
@@ -501,5 +510,6 @@ __all__ = [
     "require_expected",
     "settings",
     "snapshot_files",
+    "unobserved",
     "with_hash",
 ]

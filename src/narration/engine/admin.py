@@ -143,7 +143,7 @@ def run_pin(admin: Admin, args: argparse.Namespace, *, mode: Mode, env: Environm
             raise _refused(name, exc.message, exc.hint) from exc
         except (WorkerFailure, WorkerCrashed, WorkerTimeout) as exc:
             raise _worker_failed(name, exc) from exc
-    _print_pin(admin, reports, as_json=bool(args.json))
+    _print_pin(admin, reports, as_json=bool(args.json), mode=mode)
     return EXIT_OK
 
 
@@ -249,7 +249,7 @@ def _worker_failed(name: str, exc: WorkerFailure | WorkerCrashed | WorkerTimeout
     return _refused(name, what, f"Run `{PROGRAM} doctor` to see what is missing; nothing was pinned.")
 
 
-def _print_pin(admin: Admin, reports: Sequence[EngineReport], *, as_json: bool) -> None:
+def _print_pin(admin: Admin, reports: Sequence[EngineReport], *, as_json: bool, mode: Mode = "pin") -> None:
     if as_json:
         admin.say(json.dumps({"engines": [r.as_dict() for r in reports]}, ensure_ascii=False, indent=2))
         return
@@ -268,6 +268,11 @@ def _print_pin(admin: Admin, reports: Sequence[EngineReport], *, as_json: bool) 
         admin.say(f"{r.engine_profile_id}  " + "  ".join(facts))
     if any(r.action == "new" and r.changed for r in reports):
         admin.say("New render keys: voices must be measured again under the new profile (measure_voice).")
+    if mode == "repin" and all(r.action == "keep" for r in reports):
+        admin.say(
+            "Nothing changed in the installation or on this machine, so both profiles are kept. "
+            f"`{PROGRAM} engine repin --force` re-pins both engines regardless (new render keys)."
+        )
 
 
 def _print_bridge(admin: Admin, report: BridgeReport, *, as_json: bool) -> None:

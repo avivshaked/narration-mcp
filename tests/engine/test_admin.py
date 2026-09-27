@@ -14,6 +14,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -22,6 +23,7 @@ from narration.admin.__main__ import main
 from narration.admin.cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE, Admin
 from narration.admin.doctor import Probes, SyncCheck, diagnose, engine_module_present
 from narration.admin.models import pinned_revisions
+from narration.contracts.errors import WorkerCrashed
 from narration.engine import admin as engine_admin
 from narration.engine.admin import Environment
 from narration.engine.models import PINNED, QWEN_BASE
@@ -157,6 +159,36 @@ def test_a_changed_installation_is_refused_and_repin_makes_the_new_profile_s10_1
     ran = cli("engine", "bridge", "qwen3-base-1.7b.p1", "qwen3-base-1.7b.p2")
     assert ran.code == EXIT_OK
     assert "qwen3-base-1.7b.p1 -> qwen3-base-1.7b.p2" in ran.out and "cannot render here: weights" in ran.out
+
+
+def test_a_repin_that_keeps_both_says_how_to_force_one_s10_1(cli: Cli) -> None:
+    """A gate failing for a reason repin cannot see leaves the operator at "keep": the output names the way out."""
+    cli("engine", "pin")
+    ran = cli("engine", "repin")
+    assert ran.code == EXIT_OK, ran.err
+    assert "qwen3-design-1.7b.p1  keep" in ran.out and "qwen3-base-1.7b.p1  keep" in ran.out
+    assert "Nothing changed in the installation or on this machine" in ran.out
+    assert "engine repin --force" in ran.out
+    assert "Nothing changed" not in cli("engine", "pin").out  # only a repin says it
+
+
+def test_a_worker_that_stops_during_the_pin_pins_nothing_s10_1(cli: Cli, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The message says nothing was pinned, and it is so: VoiceDesign's canary measured, Base's did not."""
+    from narration.engine import pinning
+
+    real = pinning.embed
+
+    def embed(qa: Any, wav: Path) -> tuple[float, ...]:
+        if Path(wav).name.startswith("base-calibration"):
+            raise WorkerCrashed("the qa worker exited", exit_code=1)
+        return real(qa, wav)
+
+    monkeypatch.setattr(pinning, "embed", embed)
+    ran = cli("engine", "pin")
+    assert ran.code == EXIT_FAILED
+    assert "a worker stopped" in ran.err and "nothing was pinned" in ran.err
+    shown = cli("engine", "show", "--json")
+    assert shown.code == EXIT_OK and json.loads(shown.out)["profiles"] == []
 
 
 def test_repin_force_repins_both_engines_s10_1(cli: Cli) -> None:

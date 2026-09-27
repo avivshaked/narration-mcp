@@ -57,10 +57,17 @@ are tracked here but no version is tagged; nothing described below is installabl
   snapshots' new folder after the models root moves, and a new estimate of the VRAM Qwen needs; neither
   changes the profile's hash (DC-16). `repin` makes a new profile the one in use (new render keys; voices are
   measured again) for each engine whose installation changed, or whose machine did (GPU, driver, CUDA or
-  cuDNN, as the worker reports them); `repin --force` does it for both engines whatever changed. `show`
-  prints each profile's tier and canary threshold (and whether it is the floor); `pin` and `repin` print
-  the calibration similarities. `bridge` reports how similar the canary and the calibration corpus sound
-  under two profiles. They run only while no daemon holds the store and the GPU has room for Qwen.
+  cuDNN, as the worker reports them); `repin --force` does it for both engines whatever changed. A GPU or
+  driver the worker cannot read now (NVML failed) is not taken for a changed machine: `repin` refuses,
+  says to run `doctor`, and names `--force`. A `repin` that keeps both profiles says so and names
+  `--force`. A pin or repin is all or nothing: both canaries are rendered, embedded and calibrated before
+  anything is stored, so a failure on either engine leaves both as they were. Every `ENGINE_DRIFT` from
+  the canary gate names `engine repin`, and `engine repin --force` where a plain repin would keep the
+  profile (the canary moved, cannot be compared, or a worker failed during it). `show` prints each
+  profile's tier and canary threshold (and whether it is the floor); `pin` and `repin` print the
+  calibration similarities. `bridge` reports how similar the canary and the calibration corpus sound
+  under two profiles; a profile replaced after the models root moved is rendered from its new folder.
+  They run only while no daemon holds the store and the GPU has room for Qwen.
 - The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
   then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
   `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same

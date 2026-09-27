@@ -87,6 +87,20 @@ PREPARE_TIMEOUT_S: Final = 300.0
 EMBED_TIMEOUT_S: Final = 300.0
 SCRATCH: Final = "canary"
 """The gate's renders go to ``scratch/canary/`` and are removed once measured."""
+REPIN_HINT: Final = "Ask the operator to re-pin the engine (narration-admin engine repin); nothing was rendered."
+"""What to do about a drift that ``engine repin`` sees (the canary's text changed): it pins the engine anew."""
+FORCE_HINT: Final = (
+    "Ask the operator to re-pin the engine with narration-admin engine repin --force (new render keys; voices "
+    "are measured again): nothing in the installation or on this machine is seen to have changed, so a plain "
+    "repin keeps this profile. Nothing was rendered."
+)
+"""What to do about a drift that ``engine repin`` cannot see (the gate render moved, or cannot be compared)."""
+WORKER_HINT: Final = (
+    "Ask the operator to run narration-admin doctor; if the workers are sound, narration-admin engine repin "
+    "--force re-pins the engine (a plain repin keeps a profile whose installation and machine are unchanged). "
+    "Nothing was rendered."
+)
+"""What to do when a worker fails during the gate: check the installation first, then re-pin by force."""
 
 
 # ======================================================================== the canary's text (material/)
@@ -353,7 +367,7 @@ class CanaryGuard:
         if pin is None:
             raise EngineSetupError(
                 f"engine profile {profile.engine_profile_id} has no canary",
-                hint="Ask the operator to re-pin the engine (narration-admin engine repin); nothing was rendered.",
+                hint=REPIN_HINT,
             )
         material = self.material(host.config)
         if material_id(material) != pin.material:
@@ -361,7 +375,7 @@ class CanaryGuard:
                 codes.ENGINE_DRIFT,
                 f"the canary's text is {material_id(material)}, but engine profile {profile.engine_profile_id} "
                 f"was pinned with {pin.material}",
-                hint="Ask the operator to re-pin the engine (narration-admin engine repin); nothing was rendered.",
+                hint=REPIN_HINT,
                 details={"engine_profile_id": profile.engine_profile_id, "canary": "material", "pinned": pin.material},
                 retryable=False,
             )
@@ -371,7 +385,7 @@ class CanaryGuard:
                 codes.ENGINE_DRIFT,
                 f"the pinned canary embedding of engine profile {profile.engine_profile_id} cannot be compared "
                 f"({problem.replace('_', ' ')}), so the engine cannot be vouched for",
-                hint="Ask the operator to re-pin the engine (narration-admin engine repin); nothing was rendered.",
+                hint=FORCE_HINT,
                 details={"engine_profile_id": profile.engine_profile_id, "canary": f"pinned_embedding_{problem}"},
                 retryable=False,
             )
@@ -403,6 +417,7 @@ class CanaryGuard:
                 codes.ENGINE_DRIFT,
                 f"the canary of engine profile {profile.engine_profile_id} is {similarity:.4f} similar to its pinned "
                 f"render, below its threshold {pin.threshold:.4f}",
+                hint=FORCE_HINT,
                 details={**facts, "canary": "below_threshold"},
                 retryable=False,
             )
@@ -441,6 +456,7 @@ class CanaryGuard:
                 f"the canary render of engine profile {profile.engine_profile_id} cannot be compared with its "
                 f"pinned embedding ({problem.replace('_', ' ')}: {len(embedding)} values, pinned "
                 f"{len(pin.embedding)})",
+                hint=WORKER_HINT,
                 details={
                     "engine_profile_id": profile.engine_profile_id,
                     "canary": f"embedding_{problem}",
@@ -465,6 +481,7 @@ def _unless_handled(exc: WorkerFailure, profile: EngineProfile | None, done: str
     return NarrationError(
         codes.ENGINE_DRIFT,
         f"the canary could not be {done}: {exc.message}",
+        hint=WORKER_HINT,
         details=details,
         retryable=False,
     )
@@ -512,7 +529,10 @@ __all__ = [
     "CALIBRATION_SEEDS",
     "CANARY_MARGIN",
     "CANARY_SET",
+    "FORCE_HINT",
+    "REPIN_HINT",
     "THRESHOLD_FLOOR",
+    "WORKER_HINT",
     "CanaryGuard",
     "calibrate",
     "calibration_seeds",

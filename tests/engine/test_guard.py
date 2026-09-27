@@ -125,9 +125,16 @@ def _with_canary(profile: EngineProfile, **changes: Any) -> EngineProfile:
 
 
 def _drift(caught: pytest.ExceptionInfo[NarrationError]) -> dict[str, Any]:
+    """The ``ENGINE_DRIFT``'s details, after checking what every drift the gate raises must say: how to get out
+    of it (``engine repin``), and ``--force`` where a plain repin cannot see the cause, since it would keep the
+    profile (the canary moved or cannot be compared, or a worker failed during it)."""
     error = caught.value
     assert error.code == codes.ENGINE_DRIFT and error.retryable is False
     assert error.details is not None
+    assert error.hint is not None and "narration-admin engine repin" in error.hint, error.hint
+    canary = error.details.get("canary")
+    if canary is not None and canary != "material":
+        assert "engine repin --force" in error.hint, (canary, error.hint)
     return dict(error.details)
 
 
