@@ -26,8 +26,11 @@ in one pass, and the result is the mean of the windows' L2-normalised embeddings
 attends over the whole clip, so one pass's memory grows with the square of its length (KNOW, ``spikes/h-i-qa-load``:
 0.6 GB above the resident models at 30 s, 2.2 GB at 60 s, 8.4 GB at 119 s); windows keep it at the 30 s figure
 for any length. The cost is a slightly different vector for long audio: the windowed embedding's cosine to the
-one-pass one is 0.999 at 60 s and 0.994 at 119 s on a real take (the same spike). Every number of the bake-off's
-evidence came from segments shorter than 30 s, so none changes.
+one-pass one is 0.999 at 60 s and 0.994 at 119 s on a real take (the same spike). The bake-off's take segments
+are all shorter than 30 s, so its ``spk_to_ref`` and ``spk_consist`` do not change; but ``voicelock.csv`` compares
+clips of up to 37 s, and with 30 s windows 3 of its 52 rows move by more than the acceptance's 0.002 (at most
+0.0057), while windows of 40 s or 60 s reproduce every row (KNOW, ``spikes/acceptance-wp22/windows.json``). The
+window length is open for the lead (``WINDOW_S``).
 """
 
 from __future__ import annotations

@@ -72,8 +72,11 @@ embedding (DC-15). A run at 12:57 UTC the same day measured every peak below to 
 - **Embedding in one pass grows with the square of the length** (WavLM's self-attention over the whole
   clip): 8.4 GB at 119 s. **Windowed embedding (DC-15) keeps it at the 30 s figure, 0.6 GB, for any
   length.** Its cosine to the one-pass embedding is 0.999 at 60 s and 0.994 at 119 s. Audio of up to 30 s is
-  embedded exactly as before (one window), and every segment of the bakeoff's evidence was shorter than
-  that, so no evidence number changes (`spikes/acceptance-wp22`).
+  embedded exactly as before (one window). The bakeoff's take segments are all shorter than 30 s, but its
+  voicelock evidence compares clips of up to 37 s: with 30 s windows, 3 of its 52 rows move by more than the
+  acceptance's tolerance of 0.002 (at most 0.0057), while windows of 40 s or 60 s reproduce every row
+  (`spikes/acceptance-wp22/windows.json`). With 60 s windows the embedding's bound would be the 60 s figure,
+  2.2 GB, still below transcription's peak, so the need below would not change.
 
 ## What this gives the engine profile (`vram_need_mb`)
 
