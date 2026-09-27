@@ -15,11 +15,14 @@ are tracked here but no version is tagged; nothing described below is installabl
   and the candidate's number, so the same request designs the same voices. Each candidate's clip is
   checked against its exact transcript by the speech recogniser (`WER_HIGH` if it does not say it),
   profiled, and published with its seed, lint result and profile. Its sha256 goes on the provenance
-  list, so `measure_voice` and `submit_job` accept the clip with no `allow_sha256` edit. `get_results`
-  gives each candidate's flags: `TOKEN_CAP_HIT` and `WER_HIGH` (the job then ends `needs_attention`),
-  and `CANARY_MISMATCH` as information when the design engine passed its canary on similarity rather
-  than on the hash. `profile_voice` profiles any WAV you can read, by path and sha256, on the CPU (or on
-  the loaded QA worker as it is), and answers the same bytes from the cache.
+  list, so `measure_voice` and `submit_job` accept the clip with no `allow_sha256` edit. Each candidate
+  carries its flags: `TOKEN_CAP_HIT`, `WER_HIGH` and `CLIP_TOO_LONG` (longer than `measure_voice` takes:
+  use a shorter `design_text`) fail it, and the job then ends `needs_attention`; `CANARY_MISMATCH` is
+  information, when the design engine passed its canary on similarity rather than on the hash. A
+  description that holds the model's chat markup (`<|`, `|>`) or a control character is refused with
+  `TEXT_REFUSED`. `profile_voice` profiles any WAV you can read, by path and sha256, on the CPU (or on
+  the loaded QA worker as it is), answers the same bytes from the cache, and keeps no copy of the audio
+  once the job ends.
 - `measure_voice`'s job (`narration.measure`): it checks the clip's transcript with the speech recogniser
   (`REF_TEXT_MISMATCH` if the clip does not say it), renders the calibration set and builds the voice's
   anchor and similarity baseline, then climbs the length ladder from the shortest rung, fits the pace

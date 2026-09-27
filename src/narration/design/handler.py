@@ -31,7 +31,8 @@ design_text``) and the ``design_id`` minted at submit.
 transcript check, the verbatim description and its sha256, the design text, the seed, the engine profile, the
 positive-only lint (section 3.5: it warns, never refuses) and the profile.
 
-**Flags** (``JobRecord.result``, per candidate; ``get_results`` shows them with the candidate):
+**Flags** (``Candidate.flags``, published in ``candidate.json`` with the clip, so they survive a crash between
+the publish and the job record; ``get_results`` and the design resource show them):
 
 - ``CANARY_MISMATCH`` (info): the VoiceDesign canary's hash differed before this candidate's design, but its
   similarity passed (``similarity_pass``, ``bit_exact`` tier only, as for a take). The VoiceDesign gate is a
@@ -40,14 +41,22 @@ positive-only lint (section 3.5: it warns, never refuses) and the profile.
 - ``TOKEN_CAP_HIT`` (fail): the design reached its call's cap, so the clip may be cut short or run on.
 - ``WER_HIGH`` (fail): the clip does not say its design text as Whisper heard it; ``measure_voice`` would refuse
   it with ``REF_TEXT_MISMATCH``.
+- ``CLIP_TOO_LONG`` (fail): the clip is longer than ``[limits] max_clip_seconds``, so ``measure_voice`` would
+  refuse it; a shorter design text designs a shorter clip.
 
 The job's outcome is ``needs_attention`` when a candidate has a fail flag, else ``all_passed``. Every candidate
 is published and on the provenance list either way: each is a clip the service designed, and the caller
 listens and chooses (section 3.1).
 
+**The description** is sent verbatim, but one that holds the model's chat markup or a control character is
+refused (``description.check_description``: at submit, and again here, as the design text is).
+
 **Failures** (``work.Pieces``): a candidate short of its clip, check or profile fails the job with a retryable
-error; the same request designs the same candidates again. A job given back and taken again keeps the
-candidates it published (``Store.get_design``) and designs the rest.
+error; the same request designs the same candidates again. A full disk while publishing is ``STORE_FULL``. A
+job given back and taken again keeps the candidates it published (``Store.get_design``) and designs the rest.
+The designed clips that were not yet published are not kept across a give-back (they live in the job's scratch
+folder): a batch design that gives way to an interactive job designs them again when it resumes, which costs
+time on the GPU but never changes a voice, since the seeds come from the request alone.
 """
 
 from __future__ import annotations
@@ -59,7 +68,9 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Literal, cast
+from typing import Any, Final, Literal
+
+import soundfile
 
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
@@ -78,7 +89,7 @@ from narration.contracts.models import (
     TranscriptCheck,
 )
 from narration.contracts.names import CanaryStatus, JobOutcome
-from narration.contracts.serial import ContractError, from_json, to_json
+from narration.contracts.serial import to_json
 from narration.jobs.admission import CHARS_PER_AUDIO_S
 from narration.jobs.engine import SCRATCH_JOBS, JobEngine
 from narration.jobs.host import RunnerHost
@@ -91,6 +102,7 @@ from narration.qa.normaliser import NumberReader
 from narration.qa.profile import DEFAULT_PROFILE
 from narration.store.store import utc_iso
 
+from .description import check_description
 from .seeds import MAX_INDEX, description_sha256, design_seed
 from .work import RETRY_AFTER_S, Endings, Pieces, ProfileReplyError, StepRun, profile_record, set_phase
 
@@ -118,6 +130,8 @@ class CandidateWork:
     est_s: float
     clip: Path | None = None
     sha256: str | None = None
+    duration_s: float | None = None
+    """The clip's length (its frames over its sample rate, as ``measure_voice`` counts it)."""
     hit_token_cap: bool = False
     canary: CanaryStatus = "not_run"
     """The canary outcome of the VoiceDesign load it was designed on (``EngineCore.canary``)."""
@@ -226,6 +240,7 @@ class DesignHandler:
         ask = DesignAsk.parse(job.request)
         store = host.store
         profile = design_profile(host)
+        check_description(ask.description)  # checked at submit; a change of rules since is refused here
         spoken = self._spoken(ask.design_text)
         digest = description_sha256(ask.description)
         run = DesignRun(
@@ -241,18 +256,26 @@ class DesignHandler:
             lint=self.linter.lint(ask.description),
         )
         published = {c.index: c for c in store.get_design(ask.design_id)}
-        earlier = _earlier_flags(job.result)
         est_s = max(1.0, len(spoken) / CHARS_PER_AUDIO_S)
         for index in range(ask.takes):
             seed = design_seed(description_sha256=digest, design_text=spoken, index=index)
             work = CandidateWork(index=index, seed=seed, est_s=est_s)
             found = published.get(index)
-            if found is not None and found.seed == seed:  # published before the job was given back
+            if found is not None:  # published before the job was given back (or before a crash)
+                if found.seed != seed or found.description_sha256 != digest:
+                    raise NarrationError(
+                        codes.INTERNAL,
+                        f"design {ask.design_id} already holds a candidate {index} designed from another request",
+                        details={"design_id": ask.design_id, "index": index},
+                        retryable=False,
+                        hint="This is a bug in the service; nothing was designed. Report it, then send design_voice "
+                        "again (a new design_id).",
+                    )
                 store.add_provenance(  # the list is append-only; an entry already there is not added again
                     ProvenanceEntry(clip_sha256=found.clip.sha256, design_id=ask.design_id, date=utc_iso(time.time()))
                 )
                 work.published = found
-                work.flags = earlier.get(index, ())
+                work.flags = found.flags
             run.candidates.append(work)
         self.core.residency.need_mb["qwen"] = profile.vram_need_mb
         left = sum(1 for c in run.candidates if c.published is None)
@@ -300,8 +323,10 @@ class DesignHandler:
             return self.pieces.run(
                 host, run, "qa", f"profile candidate {work.index + 1}", lambda: self._profile(host, run, work)
             )
-        self._publish(host, run, work)
-        return "worked"
+        # No worker: through Pieces for its handling of a full disk (STORE_FULL, not INTERNAL).
+        return self.pieces.run(
+            host, run, "qa", f"publish candidate {work.index + 1}", lambda: self._publish(host, run, work)
+        )
 
     def _design(self, host: RunnerHost, run: DesignRun, work: CandidateWork) -> Outcome:
         """Design one candidate on VoiceDesign (App. A ``design``), every audio-changing setting pinned."""
@@ -330,6 +355,7 @@ class DesignHandler:
         )
         work.clip = out
         work.sha256 = _sha256(out)
+        work.duration_s = _duration_s(out)
         work.hit_token_cap = bool(reply.get("hit_token_cap", False))
         work.canary = core.canary
         core.throughput.record(core.parts.clock() - started, work.est_s / 3)
@@ -388,10 +414,11 @@ class DesignHandler:
         )
         return "worked"
 
-    def _publish(self, host: RunnerHost, run: DesignRun, work: CandidateWork) -> None:
-        """Append the clip to the provenance list, then publish the candidate (section 17.4, 15)."""
+    def _publish(self, host: RunnerHost, run: DesignRun, work: CandidateWork) -> Outcome:
+        """Append the clip to the provenance list, then publish the candidate with its flags (section 17.4, 15)."""
         store = host.store
         assert work.clip is not None and work.sha256 is not None and work.check is not None
+        flags = candidate_flags(work, run.profile, max_clip_seconds=host.config.limits.max_clip_seconds)
         store.add_provenance(
             ProvenanceEntry(clip_sha256=work.sha256, design_id=run.design_id, date=utc_iso(time.time()))
         )
@@ -408,16 +435,18 @@ class DesignHandler:
             engine_profile=EngineRef(id=run.profile.engine_profile_id, hash=run.profile.hash),
             lint=run.lint,
             profile=work.profile,
+            flags=flags,
         )
         work.published = store.put_candidate(candidate, work.clip)
-        work.flags = candidate_flags(work, run.profile)
+        work.flags = work.published.flags
         run.message = f"published candidate {work.index + 1} of {len(run.candidates)}"
         log.info("job %s: candidate %d (%s) published", run.job_id, work.index, work.sha256)
+        return "worked"
 
     # ------------------------------------------------------------------ the record and the endings
     def result(self, run: DesignRun) -> dict[str, Any]:
         """``JobRecord.result``: the design id, the engine profile, and each published candidate's handle and
-        flags (``get_results`` shows the flags with the candidate)."""
+        flags (a summary: the candidate's own ``flags`` are what ``get_results`` and the design resource show)."""
         return {
             "design_id": run.design_id,
             "engine_profile": {"id": run.profile.engine_profile_id, "hash": run.profile.hash},
@@ -503,8 +532,9 @@ def design_profile(host: RunnerHost) -> EngineProfile:
     return profile
 
 
-def candidate_flags(work: CandidateWork, profile: EngineProfile) -> tuple[Flag, ...]:
-    """A candidate's flags (the module docstring): ``CANARY_MISMATCH``, ``TOKEN_CAP_HIT``, ``WER_HIGH``."""
+def candidate_flags(work: CandidateWork, profile: EngineProfile, *, max_clip_seconds: float) -> tuple[Flag, ...]:
+    """A candidate's flags (the module docstring): ``CANARY_MISMATCH``, ``TOKEN_CAP_HIT``, ``WER_HIGH`` and
+    ``CLIP_TOO_LONG`` (over ``max_clip_seconds``, ``[limits] max_clip_seconds``)."""
     flags: list[Flag] = []
     # Section 14: CANARY_MISMATCH only in the bit_exact tier, as for a take (narration.jobs.record).
     if work.canary == "similarity_pass" and profile.tier == "bit_exact":
@@ -549,31 +579,35 @@ def candidate_flags(work: CandidateWork, profile: EngineProfile) -> tuple[Flag, 
                 },
             )
         )
+    if work.duration_s is not None and work.duration_s > max_clip_seconds:
+        flags.append(
+            Flag(
+                code=codes.CLIP_TOO_LONG,
+                severity="fail",
+                message=(
+                    f"the clip is {work.duration_s:.1f} s long, and measure_voice takes a clip of at most "
+                    f"{max_clip_seconds:g} s: design again with a shorter design_text"
+                ),
+                retake_trigger=False,
+                details={
+                    "candidate": work.index,
+                    "duration_s": round(work.duration_s, 3),
+                    "max_clip_seconds": max_clip_seconds,
+                },
+            )
+        )
     return tuple(flags)
-
-
-def _earlier_flags(result: Mapping[str, Any] | None) -> dict[int, tuple[Flag, ...]]:
-    """The flags of the candidates a job published before it was given back (its saved ``result``)."""
-    out: dict[int, tuple[Flag, ...]] = {}
-    entries = (result or {}).get("candidates")
-    if not isinstance(entries, list):
-        return out
-    for entry in cast(list[Any], entries):
-        if not isinstance(entry, dict):
-            continue
-        fields = cast(dict[str, Any], entry)
-        index, flags = fields.get("index"), fields.get("flags")
-        if isinstance(index, int) and isinstance(flags, list):
-            try:
-                out[index] = tuple(from_json(Flag, f) for f in cast(list[Any], flags))
-            except ContractError:
-                continue
-    return out
 
 
 def _sha256(path: Path) -> str:
     with path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def _duration_s(path: Path) -> float:
+    """A WAV's length in seconds: its frames over its sample rate, as ``measure_voice``'s admission counts it."""
+    info = soundfile.info(str(path))
+    return info.frames / info.samplerate if info.samplerate else 0.0
 
 
 def build_design_handler(engine: JobEngine) -> DesignHandler:

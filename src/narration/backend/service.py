@@ -31,7 +31,7 @@ import secrets
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Final, ParamSpec, TypeVar, cast
+from typing import Any, Final, ParamSpec, TypeVar
 
 import anyio
 import anyio.to_thread
@@ -596,9 +596,9 @@ class NarrationBackend:
 
     def _step_results(self, job: JobRecord) -> dict[str, Any]:
         """The results of a DESIGN-step job or an audition, from what its handler (WP34, WP35) left:
-        ``design``, the candidates the store holds under the job's ``design_id``, each with the flags its job
-        recorded (``narration.design``: ``CANARY_MISMATCH``, ``TOKEN_CAP_HIT``, ``WER_HIGH``); ``profile``, the
-        profile its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
+        ``design``, the candidates the store holds under the job's ``design_id``, each with its own ``flags``
+        (``narration.design``: ``CANARY_MISMATCH``, ``TOKEN_CAP_HIT``, ``WER_HIGH``, ``CLIP_TOO_LONG``); ``profile``,
+        the profile its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
         ``audition``. Nothing while the job has left none."""
         result = job.result or {}
         if job.kind == "design":
@@ -606,13 +606,7 @@ class NarrationBackend:
             if not design_id:
                 return {}
             candidates = self.store.get_design(design_id)
-            flags = _candidate_flags(result)
-            return {
-                "design": {
-                    "design_id": design_id,
-                    "candidates": [{**to_json(c), "flags": flags.get(c.index, [])} for c in candidates],
-                }
-            }
+            return {"design": {"design_id": design_id, "candidates": [to_json(c) for c in candidates]}}
         if job.kind == "profile":
             sha, version = result.get("audio_sha256"), result.get("profile_version")
             if isinstance(sha, str) and isinstance(version, str):
@@ -934,19 +928,6 @@ def backend_for(
     if launcher is None:
         launcher = DetachedLauncher(config.path, autostart=config.daemon.autostart)
     return NarrationBackend(config, store, platform, launcher=launcher)
-
-
-def _candidate_flags(result: Mapping[str, Any]) -> dict[int, list[Any]]:
-    """Each design candidate's flags as its job recorded them (``JobRecord.result.candidates[].flags``), by index."""
-    out: dict[int, list[Any]] = {}
-    entries = result.get("candidates")
-    for entry in cast(list[Any], entries) if isinstance(entries, list) else []:
-        if isinstance(entry, dict):
-            fields = cast(dict[str, Any], entry)
-            index, flags = fields.get("index"), fields.get("flags")
-            if isinstance(index, int) and isinstance(flags, list):
-                out[index] = cast(list[Any], flags)
-    return out
 
 
 async def _report(progress: ProgressCallback, job: JobRecord) -> None:

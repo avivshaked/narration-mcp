@@ -6,7 +6,8 @@ request by value, as a ``generate`` job does, and its identity (section 7.3) lea
 the work: the opaque ``name`` of a design, and the ``design_id`` the front-end mints at submit.
 
 - ``design_voice``: the description is linted (section 3.5, policy ``warn``: the design runs as asked, and
-  ``lint`` lists the findings) and held to ``[limits] max_description_chars``; the design text (the
+  ``lint`` lists the findings), held to ``[limits] max_description_chars``, and refused if it holds the
+  model's chat markup or a control character (``narration.design.description``); the design text (the
   caller's, else ``[voice_design] design_text``) passes the text pipeline's refusals, since it is spoken.
 - ``audition_pronunciation``: each variant's label is unique; the carrier, when given, contains the term
   (the respelling is applied as a hint, so the pipeline's own matching decides); every text passes the
@@ -26,6 +27,7 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import TextPlanner
 from narration.contracts.models import Hint, SegmentIn
+from narration.design.description import check_description
 
 from .clips import refield
 
@@ -47,7 +49,8 @@ def _spoken(text: TextPlanner, spoken: str, field: str, hints: tuple[Hint, ...] 
 def design_request(args: Mapping[str, Any], config: Config, text: TextPlanner) -> dict[str, Any]:
     """The request a ``design`` job keeps (without its ``design_id``): the arguments as sent, with ``takes``
     and ``design_text`` given the service's defaults. ``LIMIT_EXCEEDED`` for a description over
-    ``[limits] max_description_chars``; the pipeline's refusals (``TEXT_REFUSED``) for the design text."""
+    ``[limits] max_description_chars``; ``TEXT_REFUSED`` for a description with the model's chat markup or a
+    control character (``narration.design.description``), and the pipeline's refusals for the design text."""
     description = str(args["description"])
     limit = config.limits.max_description_chars
     if len(description) > limit:
@@ -58,6 +61,7 @@ def design_request(args: Mapping[str, Any], config: Config, text: TextPlanner) -
             hint="Shorten the description: name the few qualities that matter most.",
             details={"chars": len(description), "max_description_chars": limit},
         )
+    check_description(description)
     design_text = str(args.get("design_text") or config.voice_design.design_text)
     _spoken(text, design_text, "design_text")
     stored = copy.deepcopy(dict(args))

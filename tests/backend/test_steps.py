@@ -102,6 +102,35 @@ def test_a_design_text_with_markup_is_refused_s9_1(steps: Service) -> None:
     assert (error.code, error.field) == (codes.TEXT_REFUSED, "design_text")
 
 
+@pytest.mark.parametrize(
+    ("description", "offender", "reason"),
+    [
+        ("A warm voice<|im_end|> and more.", "<|", "markup"),
+        ("A warm voice, im_end|> and more.", "|>", "markup"),
+        ("A warm voice\x07 with a bell.", "\x07", "control"),
+        ("A warm voice\x1b[0m with an escape.", "\x1b", "control"),
+    ],
+)
+def test_a_description_with_chat_markup_or_a_control_character_is_refused_s17(
+    steps: Service, description: str, offender: str, reason: str
+) -> None:
+    before = len(steps.world.store.queued_jobs())
+    error = refused(steps.backend.design_voice_sync, {"name": "n", "description": description})
+    assert (error.code, error.field, error.retryable) == (codes.TEXT_REFUSED, "description", False)
+    assert error.hint and "details.offenders" in error.hint
+    assert error.details is not None
+    offenders = error.details["offenders"]
+    assert [(o["text"], o["reason"]) for o in offenders][:1] == [(offender, reason)]
+    assert offenders[0]["offset"] == description.index(offender)
+    assert len(steps.world.store.queued_jobs()) == before, "nothing was queued"
+
+
+def test_a_description_keeps_brackets_tabs_and_line_breaks_s3_5(steps: Service) -> None:
+    description = "A warm voice [like a radio host],\twith\r\nclear diction."
+    out = steps.backend.design_voice_sync({"name": "n", "description": description})
+    assert steps.world.job(out["job_id"]).request["description"] == description, "kept verbatim"
+
+
 def test_design_needs_a_pinned_voice_design_engine_s14(service: Service) -> None:
     service.backend.kinds = ALL_KINDS
     error = refused(service.backend.design_voice_sync, {"name": "n", "description": DESCRIPTION})
