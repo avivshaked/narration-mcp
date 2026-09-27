@@ -105,7 +105,7 @@ def test_the_first_pin_records_both_profiles_and_designs_the_canary_here_dc3(pin
         assert _sha(str(clip)) == profile.canary.clip.sha256
         assert profile.canary.material == material_id(material)
         assert len(profile.canary.embedding) > 0
-    assert not list((store.root / "scratch" / "pin").glob("*/*.wav"))  # the work files are gone
+    assert not list((store.root / "scratch" / "pin").rglob("*.wav"))  # the work files and clip copies are gone
 
 
 def test_the_threshold_is_the_lowest_calibration_similarity_less_the_margin_dc3(pinned: Pinned) -> None:
@@ -281,12 +281,21 @@ def test_a_changed_canary_text_needs_a_repin_dc3(pinned: Pinned) -> None:
     assert {k: p.action for k, p in plans.items()} == {"design": "new", "base": "new"}
 
 
-def test_a_worker_venv_that_does_not_match_its_lock_is_refused_before_rendering_s10_1(pinned: Pinned) -> None:
+@pytest.mark.parametrize("mode", ["pin", "repin"])
+def test_a_worker_venv_that_does_not_match_its_lock_is_refused_before_rendering_s10_1(
+    pinned: Pinned, mode: str
+) -> None:
+    """The refusal names the command that ran, to run again once the venv is synced: a repin operator sent to
+    ``pin`` would only be refused again, since the installation now differs from the pin."""
+    if mode == "repin":
+        pinned.pin()
+    before = pinned.store.list_engine_profiles()
     write_lock(pinned.install.project, {"narration-worker": "9.9.9"})
     with pytest.raises(PinRefused) as caught:
-        pinned.pin()
+        pinned.pin(mode)
     assert "narration-worker" in caught.value.message and "Sync" in caught.value.hint
-    assert pinned.store.list_engine_profiles() == ()
+    assert f"then run narration-admin engine {mode} again" in caught.value.hint
+    assert pinned.store.list_engine_profiles() == before
 
 
 def test_bridge_compares_two_runnable_profiles_render_by_render_s10_1(pinned: Pinned) -> None:
@@ -445,9 +454,11 @@ def test_a_replaced_profile_bridges_from_the_moved_models_root_s10_1(pinned: Pin
     assert all(item.old_from == "rendered" for item in report.items)
 
 
-def test_bridge_finds_a_profile_whose_recorded_folder_is_gone_s10_1(pinned: Pinned, tmp_path: Path) -> None:
+@pytest.mark.parametrize("left", ["gone", "empty", "partial_only"])
+def test_bridge_finds_a_profile_whose_recorded_folder_is_gone_s10_1(pinned: Pinned, tmp_path: Path, left: str) -> None:
     """A store written before the replaced profile's folder was refreshed: bridge looks for its revision under
-    the configured models root, changing nothing in the store."""
+    the configured models root, changing nothing in the store. A recorded folder that is still there but holds
+    none of the profile's weight files (an empty skeleton, or only an unfinished download) counts as gone."""
     pinned.pin()
     stale = pinned.current("base").snapshot_dir
     moved = tmp_path / "models-moved"
@@ -459,9 +470,29 @@ def test_bridge_finds_a_profile_whose_recorded_folder_is_gone_s10_1(pinned: Pinn
     old = pinned.store.get_engine_profile(BASE_P1)
     assert old is not None
     pinned.store.put_engine_profile(dataclasses.replace(old, snapshot_dir=stale))  # as an older build left it
+    if left != "gone":
+        Path(stale).mkdir(parents=True)
+    if left == "partial_only":
+        (Path(stale) / ".model.safetensors.partial").write_bytes(b"half")
 
     report = bridge(config, pinned.store, BASE_P1, BASE_P2, starter=pinned.starter, device="cpu")
     assert report.not_runnable == {}
     assert all(item.old_from == "rendered" for item in report.items)
     after = pinned.store.get_engine_profile(BASE_P1)
     assert after is not None and after.snapshot_dir == stale  # bridge stores nothing
+
+
+def test_a_clip_the_store_cannot_take_leaves_no_copy_in_scratch_s10_1(
+    pinned: Pinned, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each canary clip is copied in the run's work folder, which the pin removes whatever happens: a copy the
+    store refused (a full disk, say) is not left under ``scratch/pin/`` until gc."""
+
+    def refuse(engine_profile_id: str, audio: Path) -> Any:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(pinned.store, "put_canary_clip", refuse)
+    with pytest.raises(OSError):
+        pinned.pin()
+    assert not list((pinned.store.root / "scratch" / "pin").rglob("*.wav"))
+    assert pinned.store.list_engine_profiles() == ()

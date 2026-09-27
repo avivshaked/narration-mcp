@@ -199,6 +199,25 @@ def test_repin_force_repins_both_engines_s10_1(cli: Cli) -> None:
     assert "changed: forced" in ran.out and "measured again" in ran.out
 
 
+def test_a_repin_that_refreshes_a_moved_models_root_says_so_s10_1(cli: Cli, tmp_path: Path) -> None:
+    """The repin that fixes a moved models root keeps both profiles and updates their folders in place: it says
+    so, not that nothing changed."""
+    cli("engine", "pin")
+    moved = tmp_path / "models-moved"
+    cli.install.models_root.rename(moved)
+    text = cli.config_path.read_text(encoding="utf-8")
+    old = f"models_root = {json.dumps(str(cli.install.models_root))}"
+    assert old in text
+    cli.config_path.write_text(text.replace(old, f"models_root = {json.dumps(str(moved))}"), encoding="utf-8")
+
+    ran = cli("engine", "repin")
+    assert ran.code == EXIT_OK, ran.err
+    assert "qwen3-base-1.7b.p1  keep" in ran.out and "updated: snapshot_dir" in ran.out
+    assert "refreshed in place: qwen3-design-1.7b.p1 (snapshot_dir); qwen3-base-1.7b.p1 (snapshot_dir)" in ran.out
+    assert "should pass now" in ran.out
+    assert "Nothing changed" not in ran.out
+
+
 def test_engine_show_prints_each_gates_tier_and_threshold_s10_1(cli: Cli) -> None:
     pinned = cli("engine", "pin")
     assert "calibration " in pinned.out  # the similarities, as the pin measured them
