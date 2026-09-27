@@ -133,6 +133,28 @@ def test_a_worker_runs_in_its_project_folder_with_the_cmd_search_off_s17(
         assert config.server.store_root not in (Path(process.cwd()),)
 
 
+def test_a_worker_numbers_gpus_as_nvml_does_s4(
+    config: Config, platform: StandInPlatform, store: NarrationStore, tmp_path: Path
+) -> None:
+    # [gpu] device names one GPU for the engine's NVML check and for the worker's CUDA load; an operator's
+    # FASTEST_FIRST would make the two disagree on a machine with two GPUs.
+    seen: dict[str, Any] = {}
+
+    class Capture(SubprocessWorkerClient):
+        def __init__(self, command: WorkerCommand, **options: Any) -> None:
+            seen.update(command=command)
+            super().__init__(command, **options)
+
+    base = {**fake_env(tmp_path), "CUDA_DEVICE_ORDER": "FASTEST_FIRST"}
+    with WorkerSupervisor(config, platform, roles=FAKE_ROLES, base_env=base, client_factory=Capture) as sup:
+        client = sup.client("qa")
+        assert seen["command"].env["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+        assert client.pid is not None
+        (process,) = our_children([client.pid])
+        names = {name.upper(): value for name, value in process.environ().items()}  # Windows: case-insensitive
+        assert names["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+
+
 def test_worker_cwd_is_never_the_store_root_s17(config: Config, tmp_path: Path) -> None:
     python = tmp_path / "venv" / "python.exe"
     assert config.service_root is not None

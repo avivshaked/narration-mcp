@@ -202,4 +202,6 @@ are tracked here but no version is tagged; nothing described below is installabl
   taken as a daemon that died. A job queued just as the daemon turns to exit for want of work is still
   run. The daemon and its workers start with `-P` and without `PYTHONPATH`, `PYTHONHOME` or
   `PYTHONSTARTUP`, so nothing in their working folder or the caller's environment is imported in their
-  place; a daemon started by hand without `-P` logs a warning saying so.
+  place; a daemon started by hand without `-P` logs a warning saying so. Its workers start with
+  `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so on a machine with two GPUs `[gpu] device` names the same GPU for the
+  free-memory check and for the models.
