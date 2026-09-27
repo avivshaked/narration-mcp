@@ -40,8 +40,11 @@ LOCK_TOOL = CHECKOUT / "tools" / "gpu_lock.py"
 LOCK_HOLDER_ENV = "NARRATION_GPU_LOCK_HOLDER"
 DEFAULT_HOLDER = "qa-gpu-tests"
 GPU_ENV = "NARRATION_QA_TESTS_CUDA_VISIBLE_DEVICES"
-NEED_MB = 6000
-"""VRAM the QA group needs, with room (spike h, QA half: ``spikes/h-i-qa-load``)."""
+NEED_MB = 11_500
+"""VRAM the QA group needs at its peak, for a take of any length: the proposed ``vram_need_mb`` (spike h, QA half:
+``spikes/h-i-qa-load``)."""
+RESIDENT_MB = (3000, 4500)
+"""The bounds of the reserved VRAM a load of Whisper and WavLM reports (3606 MB measured, spike h)."""
 LOCK_MINUTES = 30
 ACCEPTANCE_TIMEOUT_S = 20 * 60
 REPOS = {
@@ -161,7 +164,7 @@ def test_worker_runs_every_op_on_the_gpu_s4(tmp_path: Path) -> None:
     with _worker(store) as worker:
         loaded = worker.request("load", timeout_s=600, **body)
         assert loaded["ok"], loaded
-        assert isinstance(loaded["vram_mb"], int) and 3000 < loaded["vram_mb"] < NEED_MB, loaded
+        assert isinstance(loaded["vram_mb"], int) and RESIDENT_MB[0] < loaded["vram_mb"] < RESIDENT_MB[1], loaded
 
         heard = worker.request(
             "transcribe", timeout_s=600, wav=str(wav), language="English", word_timestamps=True, long_form=True

@@ -56,8 +56,8 @@ conditioned on the previous window, no temperature fallback, word timestamps; re
 
 - **A** (the section as written): refused by the evidence above.
 - **B** (greedy, not conditioned): the choice if VRAM or speed matters more than matching the evidence; it
-  keeps the section's word "greedy". The QA group's need would drop from about 10 GB to about 9 GB for long
-  takes.
+  keeps the section's word "greedy". The QA group's peak would drop by about 3 GB: its proposed need is
+  11.5 GB with C, for a take of any length once embedding is windowed (DC-15; spike (h), QA half).
 - **D** (conditioned with fallback): refused; it loops and is not deterministic.
 
 ## What would reverse it

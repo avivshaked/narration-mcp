@@ -8,8 +8,10 @@ WavLM-base-plus-sv. The Qwen half is `spikes/h-i-qwen-load`. The CTC aligner run
 - `run.py`: the spike, run in the QA worker's venv under the GPU lock. It drives the worker's own classes
   (`narration_worker_qa.asr.WhisperAsr`, `narration_worker_qa.sv.WavLmSv`) with the worker's determinism
   switches, so it measures the code the service runs.
-- `results.json`: its output from 2026-09-26. It contains no paths, no GPU name and no text: the audio is
-  named by the bakeoff's ids (the d2 clone take, seed 1).
+- `results.json`: its output (the run's time is in `ran_at`, UTC). It contains no paths, no GPU name and no
+  text: the audio is named by the bakeoff's ids (the d2 clone take, seed 1).
+- `wavlm_weights.py` and `wavlm_weights.json`: WavLM-base-plus-sv's two snapshots compared tensor by tensor on
+  the CPU (which revision to pin).
 
 ## Method
 
@@ -19,67 +21,76 @@ WavLM-base-plus-sv. The Qwen half is `spikes/h-i-qwen-load`. The CTC aligner run
 2. Check that each snapshot folder is named by its 40-hex revision; apply the QA worker's switches (TF32 off,
    cuDNN deterministic, benchmark off, deterministic algorithms warn-only); load Whisper (float16, eager
    attention) and WavLM (float32) on `cuda:0`, both resident, as the QA group is.
-3. Transcribe (English, word times, long-form: what the job engine sends) and embed a 40 s slice and the
-   whole of the bakeoff's d2 clone take, seed 1 (119 s), recording the allocator's peaks; embed both again
-   on the CPU (the canary's path) and compare the embeddings.
+3. Transcribe (English, word times, long-form: what the job engine sends; five beams, not conditioned: ADR 0004)
+   and embed (as the worker embeds: DC-15's windows over 30 s) a 40 s slice and the whole of the bakeoff's d2
+   clone take, seed 1 (119 s), recording the allocator's peaks; embed both again on the CPU (the canary's
+   path) and compare the embeddings.
 4. Measure how the peaks grow with length, from 10 s to 119 s cut from the start of the take: transcription
-   with and without word times, and embedding, which is also compared with the mean of 30 s windows'
-   embeddings.
+   with and without word times; embedding as the worker embeds, and in one pass over the whole clip (what it
+   did before DC-15), with the cosine of the two.
 5. Unload, load each model a second time, and re-hash every weight file against the models manifest.
 
-## Results (KNOW, 2026-09-26: one 24 GB consumer NVIDIA GPU, shared; torch 2.11.0+cu128, CUDA 12.8)
+## Results (KNOW: one 24 GB consumer NVIDIA GPU, shared; torch 2.11.0+cu128, CUDA 12.8)
+
+The run of 2026-09-27, 12:57 UTC (`results.json`), with the worker as built: five beams (DC-14) and windowed
+embedding (DC-15).
 
 | | Whisper-large-v3 | WavLM-base-plus-sv |
 |---|---|---|
 | Offline load from the SHA-named folder | yes, **0** network attempts | yes, **0** network attempts |
-| Load time: first / second in the process | 2.5 s / 2.5 s | 0.3 s / 0.25 s |
+| Load time: first / second in the process | 3.2 s / 3.3 s | 0.33 s / 0.27 s |
 | Reserved VRAM added by the load | 3184 MB | 420 MB |
 | Weights re-hashed against the manifest | 11 files, 0 mismatched | 3 files, 0 mismatched |
 
-- **The group resident:** 3331 MB allocated, 3606 MB reserved. After unload: 56 MB reserved.
-- The first run of the spike (the same day, without step 4) measured the same loads, peaks and speeds within a
-  few per cent; `results.json` is the second run.
-- **CUDA context:** about 450 MB (the device-level change when the process started CUDA; an estimate, since
+- **The group resident:** 3331 MB allocated, 3606 MB reserved.
+- **CUDA context:** about 440 MB (the device-level change when the process started CUDA; an estimate, since
   other jobs share the device).
 - **Load times were measured with a warm OS file cache**, as in the Qwen half.
-- **Speed:** transcription with word times runs at 0.17–0.24 × real time (40 s in 6.8 s, 119 s in 28.6 s);
-  embedding takes 0.3 s for 40 s on the GPU. On the CPU, embedding 40 s takes about 2.4 s, the first call
-  included (it loads the CPU copy); the embeddings equal the GPU's to 6 decimal places (cosine 1.000000).
+- **Speed:** transcription with word times runs at 0.20–0.23 × real time (40 s in 9.4 s, 119 s in 23.9 s);
+  embedding takes 0.18 s for 40 s and 0.32 s for 119 s on the GPU. On the CPU, embedding 40 s takes about
+  2 s, the first call included (it loads the CPU copy), and 119 s about 6 s; the CPU's embeddings equal the
+  GPU's to 6 decimal places (cosine 1.000000), windows and all.
 
 ### What the peaks grow with (allocated above the resident models)
 
-| Audio | transcribe, no word times | transcribe, word times | embed | embed: cosine of one pass to the mean of 30 s windows |
-|---|---|---|---|---|
-| 10 s | 251 MB | 3179 MB | 126 MB | 1 (one window) |
-| 20 s | 259 MB | 3420 MB | 288 MB | 1 (one window) |
-| 30 s | 274 MB | 3589 MB | 602 MB | 1 (one window) |
-| 60 s | 307 MB | 4377 MB | 2234 MB | 0.99904 |
-| 90 s | 326 MB | 4956 MB | 4894 MB | 0.99647 |
-| 119 s | 309 MB | 4568 MB | 8446 MB (13.3 GB reserved) | 0.99396 |
+| Audio | transcribe, no word times | transcribe, word times | embed as built (DC-15) | embed in one pass | cosine, as built to one pass |
+|---|---|---|---|---|---|
+| 10 s | 1247 MB | 4851 MB | 126 MB (1 window) | 126 MB | 1 |
+| 20 s | 1292 MB | 5851 MB | 288 MB (1 window) | 288 MB | 1 |
+| 30 s | 1308 MB | 6450 MB | 602 MB (1 window) | 602 MB | 1 |
+| 60 s | 1309 MB | 6450 MB | 602 MB (2 windows) | 2234 MB | 0.99904 |
+| 90 s | 1310 MB | 6451 MB | 602 MB (3 windows) | 4894 MB | 0.99647 |
+| 119 s | 1310 MB | 6452 MB | 595 MB (4 windows) | 8446 MB (13.3 GB reserved) | 0.99365 |
 
-- **Word times cost about 3 GB at any length.** BELIEVE: asking `generate` for token timestamps turns on
-  `output_attentions`, and the encoder then keeps the self-attention maps of all 32 layers, 32 × 20 heads ×
-  1500² × 2 bytes = 2.9 GB. Only the decoder's cross-attention is needed for word times. Not changed here:
-  the job engine needs word times, and the cost is flat.
-- **Embedding grows with the square of the length** (WavLM's self-attention over the whole clip): 0.6 GB at
-  30 s, 2.2 GB at 60 s, 8.4 GB at 119 s. The bakeoff embedded segments of about 15 s, so its numbers never
-  met this. A take of two minutes needs about 12 GB allocated and 13 GB reserved in one pass.
+- **Transcription's peak stops growing at 30 s**, Whisper's window: sequential long-form decodes one 30 s
+  window at a time. Five beams cost about 1.3 GB without word times.
+- **Word times cost 3.6 to 5.1 GB more** (10 s to 30 s and over). BELIEVE: asking `generate` for token
+  timestamps turns on `output_attentions`, and the encoder then keeps the self-attention maps of all 32
+  layers (32 × 20 heads × 1500² × 2 bytes = 2.9 GB), while only the decoder's cross-attention is needed for
+  word times; the rest grows with the beams' decoded tokens. Not changed here: the job engine needs word
+  times, and the cost is bounded.
+- **Embedding in one pass grows with the square of the length** (WavLM's self-attention over the whole
+  clip): 8.4 GB at 119 s. **Windowed embedding (DC-15) keeps it at the 30 s figure, 0.6 GB, for any
+  length.** Its cosine to the one-pass embedding is 0.999 at 60 s and 0.994 at 119 s. Audio of up to 30 s is
+  embedded exactly as before (one window), and every segment of the bakeoff's evidence was shorter than
+  that, so no evidence number changes (`spikes/acceptance-wp22`).
 
 ## What this gives the engine profile (`vram_need_mb`)
 
 Section 4 checks that free VRAM ≥ need + 1 GB before it loads a group. The QA group's need is the resident
-models plus the larger of the two peaks (the ops run one at a time) plus the CUDA context:
+models plus the larger of the two ops' peaks (they run one at a time) plus the CUDA context. With DC-15 both
+peaks are bounded, so **one need holds for a take of any length**:
 
-- **takes up to 60 s: about 9 GB** (3.4 GB resident + 4.4 GB for transcription with word times + 0.45 GB
-  context, rounded up for the allocator's reserve). This is the value proposed for `vram_need_mb`, 9000,
-  with a limit on how long a take may be for it to hold;
-- takes of 90 s: about 9.5 GB; of 120 s: about 13–14 GB, because embedding in one pass dominates.
+- the largest peak is transcription with word times: 9814 MB allocated, the resident models included, and up
+  to 10.6 GB reserved (step 3 of the method; the allocator's cache);
+- plus the CUDA context, about 440 MB: **about 11.0 GB on the device**.
 
-The plan's ASSUMEd ~5 GB was an underestimate, because of word times and long takes.
+**Proposed: `vram_need_mb` = 11500** (the measured 11.0 GB and a margin of about 4 % for the allocator's
+fragmentation). The plan's ASSUMEd ~5 GB was an underestimate: word times and five beams cost most of it.
 
-**Proposed (for the lead):** bound the embedding's memory by embedding audio longer than 30 s in windows of
-at most 30 s and taking the mean of their L2-normalised embeddings, re-normalised. Its cosine to the one-pass
-embedding is 0.999 at 60 s and 0.994 at 119 s (the table above); audio up to 30 s is unchanged, so every
-number of the bakeoff's evidence is unchanged. The need would then stay about 9–9.5 GB for any take length
-(transcription's peak grows slowly). It changes what the similarity of a long take means, slightly, so it is
-not built without the lead's decision.
+Two ways to lower it, neither built (the lead's call, if VRAM matters more):
+
+- greedy decoding not conditioned (ADR 0004's option B) peaks about 3 GB lower, but its WER differs from the
+  evidence by up to 4.3 points on one take;
+- keeping only the decoder's cross-attention for word times would save most of the encoder's 2.9 GB (BELIEVE;
+  it needs a change to how the worker asks transformers for word times, and a re-run of the acceptance).
