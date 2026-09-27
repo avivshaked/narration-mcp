@@ -6,15 +6,19 @@ the owner need not hash it and edit ``narration.toml`` by hand:
 
 1. The configuration is the one every command uses (``find_config``), and it must load before it is changed.
 2. The clip is read through the platform's path check (section 17.3): a local file, not a network or device
-   path. A relative path is taken from the operator's working folder. It is read once, at most 20 MB
-   (``MAX_CLIP_BYTES``), and the bytes that are hashed are the bytes checked to be a WAV with audio in it.
+   path. The path is made absolute first (``os.path.abspath``, see ``read_clip``), so a relative path is
+   taken from the operator's working folder. The file is read once, at most 20 MB (``MAX_CLIP_BYTES``), and
+   the bytes that are hashed are the bytes checked to be a WAV with audio in it.
 3. Its path, length and sha256 are printed, and the operator is asked to confirm that it is synthetic, not a
-   recording of a real person. Only ``yes`` (or ``y``) goes on. Any other answer, or no answer at all (stdin
-   closed, or at its end), changes nothing and exits 1. ``--yes`` confirms without asking, for scripts.
+   recording of a real person. Only ``yes``, typed in full, goes on. Any other answer, or no answer at all
+   (stdin closed, or at its end), changes nothing and exits 1. A person must confirm: ``--yes`` confirms
+   without asking, only for the operator's own scripts.
 4. The hash is added in lower case, with a comment naming the clip's file (``narration.admin.allowlist``: a
    text edit that keeps every other line, comment and line ending). The edited file must load with every
-   other setting unchanged. It is written to a temporary name and renamed over the file (``os.replace``),
-   and only if the file has not changed since it was read.
+   other setting unchanged. It is written to a temporary name and renamed over the file (``os.replace``).
+   The file is read again just before each rename attempt, and nothing is written if it changed while the
+   command ran. A short window remains between that read and the rename: there is no lock between writers.
+   The file keeps its POSIX mode bits, but not its owner, group or ACL (``_replace``).
 
 A hash already listed changes nothing. A clip longer than ``[limits] max_clip_seconds`` is warned about: the
 service would refuse to clone it as the limit stands.
@@ -63,8 +67,9 @@ from narration.store.files import REPLACE_ATTEMPTS, fsync_dir
 from . import allowlist
 from .cli import EXIT_OK, PROGRAM, Admin, AdminError, Subparsers
 
-CONFIRMATIONS: Final = frozenset({"yes", "y"})
-"""The answers that confirm a clip is synthetic (compared without regard to case or surrounding spaces)."""
+CONFIRMATIONS: Final = frozenset({"yes"})
+"""The answers that confirm a clip is synthetic (compared without regard to case or surrounding spaces). Only
+the whole word: section 17.4's gate wants an explicit confirmation, and the question says "Type yes"."""
 SECTION: Final = f"[{allowlist.TABLE}] {allowlist.KEY}"
 
 
@@ -98,14 +103,16 @@ def register(subparsers: Subparsers) -> None:
             f"Read the clip (a WAV on a local drive), print its path, length and sha256, ask you to confirm it is "
             f"synthetic and not a recording of a real person, then add its sha256 to {SECTION} in the "
             "configuration file, with a comment naming the clip. Every other line and comment of the file is "
-            "kept. narration-mcp and the daemon read the list when they start: restart them afterwards."
+            "kept. narration-mcp and the daemon read the list when they start: restart them afterwards. A person "
+            "must confirm the clip; an agent or MCP client must not allow one."
         ),
     )
     allow.add_argument("clip", help="the clip: a WAV file of a synthetic voice")
     allow.add_argument(
         "--yes",
         action="store_true",
-        help="confirm, without being asked, that the clip is synthetic (for scripts)",
+        help="confirm, without being asked, that the clip is synthetic: only for the operator's own scripts, once "
+        "the operator knows the clip is synthetic",
     )
     allow.set_defaults(handler=allow_clip)
 
@@ -154,15 +161,20 @@ def allow_clip(admin: Admin, args: argparse.Namespace) -> int:
 
 def read_clip(platform: Platform, given: str) -> Clip:
     """The clip at ``given``, read through section 17.3's path check; ``AdminError`` when it is not a local
-    file, cannot be read, is over 20 MB, or is not a WAV with audio in it. A relative path is taken from the
-    operator's working folder (the daemon has no such folder, which is why a request's path must be absolute)."""
+    file, cannot be read, is over 20 MB, or is not a WAV with audio in it.
+
+    The path is first made absolute with ``os.path.abspath`` (after ``~`` is expanded). A relative path is thus
+    taken from the operator's working folder; the daemon has no such folder, which is why a request's path
+    must be absolute. On Windows this also normalises the path the Windows way before the check sees it: a
+    drive-relative ``C:clip.wav`` or a rooted ``\\clip.wav`` becomes absolute, and a trailing dot or space on a
+    name is dropped. Windows opens the same file either way, and the hash and the note name the file the
+    check resolved.
+    """
     absolute = os.path.abspath(os.path.expanduser(given))
     try:
         source = platform.check_readable_path(absolute)
     except NarrationError as exc:
-        raise AdminError(
-            f"{given}: {exc.message} ({exc.code}), so nothing changed. Give the path of a WAV file on a local drive."
-        ) from exc
+        raise AdminError(f"{given}: {exc.message} ({exc.code}), so nothing changed. {exc.hint}") from exc
     try:
         with open(source, "rb") as handle:
             data = handle.read(MAX_CLIP_BYTES + 1)
@@ -202,8 +214,9 @@ def confirm_synthetic(admin: Admin) -> None:
     answer = admin.ask("Is this clip synthetic? Type yes to allow it: ")
     if answer is None:
         raise AdminError(
-            "no answer (standard input is closed or at its end), so nothing changed. Run the command in a "
-            "terminal and answer yes, or pass --yes in a script, once you know the clip is synthetic."
+            "no answer (standard input is closed or at its end), so nothing changed. A person must confirm that "
+            "the clip is synthetic: the operator runs this command in a terminal and types yes. An agent or an MCP "
+            "client must not allow a clip; --yes is only for the operator's own scripts."
         )
     given = answer.strip()
     if given.lower() not in CONFIRMATIONS:
@@ -238,7 +251,10 @@ def add_to_file(path: Path, clip: Clip, *, by_hand: str) -> bool:
 
 
 def restart_advice(path: Path, *, autostart: bool) -> str:
-    """What to restart so the new hash is read (the module docstring: what reads the list, and when)."""
+    """What to restart so the new hash is read (the module docstring: what reads the list, and when).
+
+    The daemon comes first. A front-end restarted while the old daemon still runs would admit a job for the
+    clip, and the old daemon, checking with its old list, would then fail it (``VOICE_NOT_SYNTHETIC``)."""
     start_again = (
         "the next job starts it again ([daemon] autostart)"
         if autostart
@@ -247,13 +263,13 @@ def restart_advice(path: Path, *, autostart: bool) -> str:
     return "\n".join(
         (
             "narration-mcp and the daemon read the list only when they start, so the ones running now do not",
-            "know the new hash yet. Restart both:",
-            "  - narration-mcp, the server each MCP client starts, which checks the list when measure_voice,",
-            "    submit_job or audition_pronunciation names a clip: restart or reconnect it in every client",
-            "    that runs it, or start a new session there.",
-            "  - the daemon, which checks the list again before it measures a voice or clones a clip: run",
-            f"    `{PROGRAM} daemon stop` (it finishes the segment in flight; queued jobs wait); {start_again}.",
-            f"    If no daemon runs (`{PROGRAM} daemon status`), there is nothing to restart.",
+            "know the new hash yet. Restart both, in this order:",
+            "  1. the daemon, which checks the list again before it measures a voice or clones a clip: run",
+            f"     `{PROGRAM} daemon stop` (it finishes the segment in flight; queued jobs wait); {start_again}.",
+            f"     If no daemon runs (`{PROGRAM} daemon status`), there is nothing to stop.",
+            "  2. narration-mcp, the server each MCP client starts, which checks the list when measure_voice,",
+            "     submit_job or audition_pronunciation names a clip: restart or reconnect it in every client",
+            "     that runs it, or start a new session there.",
             f"A server or daemon started with another configuration file than {path} does not read this one.",
         )
     )
@@ -272,8 +288,20 @@ def _say_already_listed(admin: Admin) -> None:
 
 
 def _by_hand(path: Path, clip: Clip) -> str:
-    line = f'"{clip.sha256}",  # {allowlist.comment_text(str(clip.path))}'
-    return f"To allow the clip by hand, add this line to {SECTION} in {path}:\n    {line}"
+    """What to add by hand, fitted to how the file writes ``allow_sha256`` (``allowlist.hand_edit``)."""
+    try:
+        text: str | None = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = None
+    hint = allowlist.hand_edit(text, clip.sha256, str(clip.path))
+    if hint.kind == "line":
+        return f"To allow the clip by hand, add this line to {SECTION} in {path}:\n    {hint.text}"
+    if hint.kind == "key":
+        return f"To allow the clip by hand, add this line to the [{allowlist.TABLE}] table in {path}:\n    {hint.text}"
+    return (
+        f"To allow the clip by hand, add this value inside the brackets of {SECTION} in {path}, after a comma if "
+        f"the list is not empty, with no comment after it on that line:\n    {hint.text}"
+    )
 
 
 def _as_loaded(path: Path, text: str) -> Config:
@@ -295,8 +323,13 @@ def _check_same_settings(path: Path, text: str, edited: str, sha256: str, *, by_
 
 
 def _replace(path: Path, before: bytes, data: bytes, *, by_hand: str) -> None:
-    """Write ``data`` to a temporary name beside ``path``, then rename it over ``path``, unless the file no
-    longer holds ``before`` (someone changed it meanwhile). The file keeps its permissions."""
+    """Write ``data`` to a temporary name beside ``path``, then rename it over ``path`` (``_replace_unchanged``:
+    not if the file no longer holds ``before``).
+
+    What carries over: the POSIX mode bits (``shutil.copymode``; on Windows only the read-only flag). What
+    does not: the owner and group, an ACL, and other attributes. The renamed file is a new file, so it has
+    those of a new file in the folder. A hard link to the old file keeps the old content.
+    """
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
     try:
         with open(tmp, "xb") as handle:
@@ -304,9 +337,7 @@ def _replace(path: Path, before: bytes, data: bytes, *, by_hand: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         shutil.copymode(path, tmp)
-        if path.read_bytes() != before:
-            raise AdminError(f"{path} changed while this command ran, so nothing changed. Run it again.")
-        _replace_retrying(tmp, path)
+        _replace_unchanged(tmp, path, before)
     except OSError as exc:
         raise AdminError(
             f"cannot write {path} ({exc.strerror or type(exc).__name__}), so nothing changed. {by_hand}"
@@ -317,17 +348,38 @@ def _replace(path: Path, before: bytes, data: bytes, *, by_hand: str) -> None:
     fsync_dir(path.parent)
 
 
-def _replace_retrying(tmp: Path, path: Path) -> None:
-    """``os.replace``, retried while Windows refuses it because another program has the file open for a moment
-    (an editor saving, a virus scan): about a second in all, as the store does (``narration.store.files``)."""
+def _replace_unchanged(tmp: Path, path: Path, before: bytes) -> None:
+    """``os.replace(tmp, path)``, but only while ``path`` still holds ``before``.
+
+    Before every attempt the file is read again. If it changed (an editor saved it, another run added a hash)
+    or is gone, this raises the "changed while this command ran" ``AdminError`` and writes nothing. Windows
+    refuses a rename, or a read, while another program has the file open for a moment (an editor saving, a
+    virus scan). Both are then retried for about a second in all, as the store does
+    (``narration.store.files``), and each retry reads the file again first.
+
+    A short window remains between the last read and the rename. A change made in it is overwritten, since
+    there is no lock between writers. Two ``voices allow`` runs at the same moment can therefore lose one hash.
+    """
+    refused: PermissionError | None = None
     for attempt in range(REPLACE_ATTEMPTS):
+        if attempt:
+            time.sleep(0.005 * attempt)
+        try:
+            current: bytes | None = path.read_bytes()
+        except FileNotFoundError:
+            current = None
+        except PermissionError as exc:  # it is being replaced this moment: read it again
+            refused = exc
+            continue
+        if current != before:
+            raise AdminError(f"{path} changed while this command ran, so nothing changed. Run it again.")
         try:
             os.replace(tmp, path)
             return
-        except PermissionError:
-            if attempt == REPLACE_ATTEMPTS - 1:
-                raise
-            time.sleep(0.005 * (attempt + 1))
+        except PermissionError as exc:  # another program has it open: read it again, then try again
+            refused = exc
+    assert refused is not None
+    raise refused
 
 
 # ---------------------------------------------------------------- list

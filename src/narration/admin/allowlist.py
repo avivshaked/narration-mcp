@@ -12,13 +12,14 @@ edit, not a load and re-dump of the TOML (which would drop the comments):
   the item before it when that item has none. A one-line array (``[]``, ``["..."]``) is opened onto lines, so
   that the note can follow the new item. A missing ``allow_sha256`` goes into the ``[voices]`` table, after
   the comment lines directly below its header; a missing ``[voices]`` table goes at the end of the file. New
-  lines end as the file's first line does (CRLF or LF).
+  lines end as the line where they go in does (CRLF or LF), so a file with mixed endings keeps each part's.
 - The edited text is then parsed again with ``tomllib``, and must equal the original with the one hash
   appended and nothing else changed. A file the scanner cannot follow, or an edit that fails that check,
   raises ``AllowlistEditError``, so a wrong edit is never returned, let alone written.
 
 ``allow_sha256`` written in a form this edit does not follow (inside an inline table, ``voices = {...}``) is
-refused with ``AllowlistEditError`` too; the command then prints the line to add by hand.
+refused with ``AllowlistEditError`` too; the command then prints what to add by hand (``hand_edit``: the bare
+value for an array written on one line, where a comment would swallow the rest of the line).
 """
 
 from __future__ import annotations
@@ -371,22 +372,21 @@ def add_hash(text: str, sha256: str, note: str | None) -> str | None:
         return None
     statements = _Scanner(text).statements()
     item = f'"{sha}",' + (f"  # {comment_text(note)}" if note else "")
-    newline = _newline_of(text)
     found = _find(statements, PATH)
     if found is not None:
         if found.array is None:
             raise AllowlistEditError(f"{KEY} is not written as an array")
-        edited = _append_item(text, found, found.array, item, newline)
+        edited = _append_item(text, found, found.array, item)
     else:
         header = _find(statements, (TABLE,), kind="table")
         if any(s.path[:1] == (TABLE,) and s is not header for s in statements):
             raise AllowlistEditError(f"[{TABLE}] is written in a form this command does not edit")
         if header is not None:
-            edited = _add_key(text, statements, header, item, newline)
+            edited = _add_key(text, statements, header, item)
         elif TABLE in data:
             raise AllowlistEditError(f"could not find where [{TABLE}] is defined")
         else:
-            edited = _add_table(text, item, newline)
+            edited = _add_table(text, item)
     expected = copy.deepcopy(data)
     expected.setdefault(TABLE, {}).setdefault(KEY, []).append(sha)
     try:
@@ -398,9 +398,47 @@ def add_hash(text: str, sha256: str, note: str | None) -> str | None:
     return edited
 
 
-def _append_item(text: str, statement: _Statement, array: _Array, item: str, newline: str) -> str:
-    """Add ``item`` as the array's last item, on a line of its own."""
+@dataclass(frozen=True, slots=True)
+class HandEdit:
+    """What to add to the file by hand to allow a hash, when the command cannot (``hand_edit``)."""
+
+    kind: Literal["line", "value", "key"]
+    text: str
+
+
+def hand_edit(text: str | None, sha256: str, note: str | None) -> HandEdit:
+    """What an operator adds by hand to allow ``sha256``, fitted to how ``text`` writes ``allow_sha256``:
+
+    - ``line``: a multi-line array. The text is a line of its own, ``"<sha256>",  # <note>``.
+    - ``value``: ``allow_sha256`` fits on one line (a one-line array, or an inline ``voices = {...}`` table),
+      or the file cannot be followed or read (``text`` None). The text is the bare ``"<sha256>"``, with no
+      comment, which would swallow the rest of the line (an inline table must stay on one line).
+    - ``key``: there is no ``allow_sha256``. The text is ``allow_sha256 = ["<sha256>"]``, for ``[voices]``.
+    """
+    value = f'"{sha256.strip().lower()}"'
+    if text is None:
+        return HandEdit("value", value)
+    try:
+        data = _parse(text)
+        _listed(data)
+    except AllowlistEditError:
+        return HandEdit("value", value)
+    table = data.get(TABLE)
+    if not isinstance(table, dict) or KEY not in table:
+        return HandEdit("key", f"{KEY} = [{value}]")
+    try:
+        found = _find(_Scanner(text).statements(), PATH)
+    except AllowlistEditError:
+        found = None
+    if found is not None and found.array is not None and "\n" in text[found.array.open : found.array.close]:
+        return HandEdit("line", f"{value},  # {comment_text(note)}" if note else f"{value},")
+    return HandEdit("value", value)
+
+
+def _append_item(text: str, statement: _Statement, array: _Array, item: str) -> str:
+    """Add ``item`` as the array's last item, on a line of its own that ends as the ``]``'s line does."""
     close = array.close
+    newline = _ending_at(text, close)
     close_line = text.rfind("\n", 0, close) + 1
     key_indent = _indent_before(text, statement.start)
     indent = _item_indent(text, array.items)
@@ -420,9 +458,10 @@ def _append_item(text: str, statement: _Statement, array: _Array, item: str, new
     return text[:at] + insertion + text[cut:]
 
 
-def _add_key(text: str, statements: Sequence[_Statement], header: _Statement, item: str, newline: str) -> str:
+def _add_key(text: str, statements: Sequence[_Statement], header: _Statement, item: str) -> str:
     """Add ``allow_sha256 = [...]`` to the ``[voices]`` table: after its last key, or after the comment lines
-    directly below its header (they describe the table)."""
+    directly below its header (they describe the table). The new lines end as the header's line does."""
+    newline = _ending_at(text, header.start)
     body: list[_Statement] = []
     for statement in statements[statements.index(header) + 1 :]:
         if statement.kind != "keyval":
@@ -443,8 +482,10 @@ def _add_key(text: str, statements: Sequence[_Statement], header: _Statement, it
     return text[:at] + lead + block + text[at:]
 
 
-def _add_table(text: str, item: str, newline: str) -> str:
-    """Add a ``[voices]`` table with ``allow_sha256`` at the end of the file, after a blank line."""
+def _add_table(text: str, item: str) -> str:
+    """Add a ``[voices]`` table with ``allow_sha256`` at the end of the file, after a blank line. The new lines
+    end as the file's last line does."""
+    newline = _ending_at(text, len(text))
     lead = newline if text and not text.endswith("\n") else ""
     if (text + lead).strip() and not (text + lead).endswith(("\n\n", "\n\r\n")):
         lead += newline
@@ -460,7 +501,7 @@ def comment_text(note: str) -> str:
         if char == "\t":
             out.append(" ")
         elif unicodedata.category(char) in {"Cc", "Cs", "Zl", "Zp"}:
-            out.append("�")
+            out.append("\ufffd")
         else:
             out.append(char)
     return "".join(out).strip()
@@ -495,10 +536,15 @@ def _find(
     return None
 
 
-def _newline_of(text: str) -> str:
-    """The line ending of the file's first line (LF for a file of one line)."""
-    first = text.find("\n")
-    return "\r\n" if first > 0 and text[first - 1] == "\r" else "\n"
+def _ending_at(text: str, pos: int) -> str:
+    """The line ending (CRLF or LF) of the line that holds ``pos``. For a last line that has none, the ending of
+    the line before it; LF for a text with no line break at all."""
+    stop = text.find("\n", pos)
+    if stop == -1:
+        stop = text.rfind("\n", 0, pos)
+    if stop == -1:
+        return "\n"
+    return "\r\n" if stop > 0 and text[stop - 1] == "\r" else "\n"
 
 
 def _indent_before(text: str, pos: int) -> str:
@@ -521,4 +567,16 @@ def _canonical(data: Any) -> str:
     return json.dumps(data, sort_keys=True, ensure_ascii=False, default=repr)
 
 
-__all__ = ["ITEM_INDENT", "KEY", "PATH", "TABLE", "AllowlistEditError", "Entry", "add_hash", "comment_text", "entries"]
+__all__ = [
+    "ITEM_INDENT",
+    "KEY",
+    "PATH",
+    "TABLE",
+    "AllowlistEditError",
+    "Entry",
+    "HandEdit",
+    "add_hash",
+    "comment_text",
+    "entries",
+    "hand_edit",
+]

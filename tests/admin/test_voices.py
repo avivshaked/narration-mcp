@@ -13,16 +13,19 @@ import json
 import os
 import stat
 import sys
+import threading
+import time
 import tomllib
 from collections.abc import Iterator
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 import pytest
 import soundfile
 
 import narration.admin.voices as voices
-from narration.admin.allowlist import AllowlistEditError, add_hash, comment_text, entries
+from narration.admin.allowlist import AllowlistEditError, add_hash, comment_text, entries, hand_edit
 from narration.admin.cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE
 from narration.backend import NarrationBackend
 from narration.config import Config, load_config
@@ -206,6 +209,41 @@ def test_allow_keeps_crlf_line_endings_and_the_tables_after_voices_dc_17(
     assert settings_without_allowlist(after) == settings_without_allowlist(before)
 
 
+SHA = "a" * 64
+
+
+@pytest.mark.parametrize(
+    ("text", "old", "new"),
+    [
+        (
+            f'[server]\r\nstore_root = "s"\n[voices]\nallow_sha256 = [\n  "{OTHER}",\n]\n',
+            f'"{OTHER}",\n]',
+            f'"{OTHER}",\n  "{SHA}",  # x.wav\n]',
+        ),
+        (
+            f'[server]\nstore_root = "s"\r\n[voices]\r\nallow_sha256 = [\r\n  "{OTHER}",\r\n]\r\n',
+            f'"{OTHER}",\r\n]',
+            f'"{OTHER}",\r\n  "{SHA}",  # x.wav\r\n]',
+        ),
+        (
+            '[server]\r\nstore_root = "s"\n[voices]\n',
+            "[voices]\n",
+            f'[voices]\nallow_sha256 = [\n  "{SHA}",  # x.wav\n]\n',
+        ),
+        (
+            '[server]\nstore_root = "s"\r\n',
+            '"s"\r\n',
+            f'"s"\r\n\r\n[voices]\r\nallow_sha256 = [\r\n  "{SHA}",  # x.wav\r\n]\r\n',
+        ),
+    ],
+    ids=["lf-array-crlf-first-line", "crlf-array-lf-first-line", "lf-header", "crlf-last-line"],
+)
+def test_new_lines_end_as_the_line_where_they_go_in_dc_17(text: str, old: str, new: str) -> None:
+    """The review's TOML F3: in a file with mixed endings, the edit takes the ending of the edit site."""
+    assert text.count(old) == 1
+    assert add_hash(text, SHA, "x.wav") == text.replace(old, new)
+
+
 def test_allow_stores_lower_case_and_compares_without_case_dc_17() -> None:
     text = "[voices]\nallow_sha256 = []\n"
     upper = ("ab" * 32).upper()
@@ -283,25 +321,49 @@ def test_the_note_cannot_break_out_of_its_comment_dc_17() -> None:
     assert comment_text("a\tb\nc") == "a b\ufffdc"
 
 
-def test_an_inline_voices_table_is_refused_with_the_line_to_add_by_hand_dc_17(
+def test_an_inline_voices_table_is_refused_with_a_value_that_pastes_into_valid_toml_dc_17(
     admin: AdminRun, tmp_path: Path, clip: tuple[Path, str]
 ) -> None:
     path, sha = clip
     config = tmp_path / "service" / "narration.toml"
     config.parent.mkdir()
-    config.write_text(
-        'voices = { allow_sha256 = [] }\n[server]\nstore_root = "s"\nmodels_root = "m"\n', encoding="utf-8"
-    )
+    inline = "voices = { allow_sha256 = [] }\n"
+    config.write_text(f'{inline}[server]\nstore_root = "s"\nmodels_root = "m"\n', encoding="utf-8")
     original = config.read_bytes()
     code, _, err = allow(admin, config, path, "--yes")
     assert code == EXIT_FAILED
-    assert "nothing changed" in err and f'"{sha}",  # {path.resolve()}' in err
     assert config.read_bytes() == original
+    assert "nothing changed" in err and "inside the brackets" in err
+    value = err.rstrip().splitlines()[-1].strip()
+    assert value == f'"{sha}"', "the bare value: a comment would swallow the rest of the one-line table"
+    pasted = inline.replace("[]", f"[{value}]")
+    assert tomllib.loads(pasted) == {"voices": {"allow_sha256": [sha]}}
+
+
+@pytest.mark.parametrize(
+    ("text", "kind", "hint"),
+    [
+        ("[voices]\nallow_sha256 = [\n]\n", "line", '"{sha}",  # clip.wav'),
+        ('[voices]\nallow_sha256 = ["{other}"]\n', "value", '"{sha}"'),
+        ("voices = {{ allow_sha256 = [] }}\n", "value", '"{sha}"'),
+        ("[voices]\n", "key", 'allow_sha256 = ["{sha}"]'),
+        ("[server]\n", "key", 'allow_sha256 = ["{sha}"]'),
+        ("not toml = = =\n", "value", '"{sha}"'),
+        (None, "value", '"{sha}"'),
+    ],
+    ids=["multi-line", "one-line", "inline-table", "no-key", "no-table", "not-toml", "unreadable"],
+)
+def test_the_hand_edit_fits_how_the_file_writes_the_list_dc_17(text: str | None, kind: str, hint: str) -> None:
+    sha = "a" * 64
+    found = hand_edit(None if text is None else text.format(other=OTHER), sha.upper(), "clip.wav")
+    assert (found.kind, found.text) == (kind, hint.format(sha=sha))
 
 
 # ==================================================================== the confirmation
 @pytest.mark.parametrize(
-    "answer", ["", "no\n", "\n", "yess\n", "  n  \n", "maybe yes\n"], ids=["eof", "no", "empty", "typo", "n", "not-yes"]
+    "answer",
+    ["", "no\n", "\n", "yess\n", "  n  \n", "maybe yes\n", "y\n", " Y \n"],
+    ids=["eof", "no", "empty", "typo", "n", "not-yes", "y", "Y"],
 )
 def test_an_unconfirmed_run_changes_nothing_dc_17(
     admin: AdminRun, config_path: Path, clip: tuple[Path, str], answer: str
@@ -311,9 +373,22 @@ def test_an_unconfirmed_run_changes_nothing_dc_17(
     code, out, err = allow(admin, config_path, path, answer=answer)
     assert code == EXIT_FAILED
     assert "Is this clip synthetic?" in out
-    assert "nothing changed" in err and ("--yes" in err or "answer yes" in err)
+    assert "nothing changed" in err
+    if answer:
+        assert "answer yes" in err
     assert config_path.read_bytes() == original
     assert leftovers(config_path.parent) == []
+
+
+def test_no_answer_says_a_person_must_confirm_and_does_not_steer_to_yes_flag_dc_17(
+    admin: AdminRun, config_path: Path, clip: tuple[Path, str]
+) -> None:
+    path, _ = clip
+    code, _, err = allow(admin, config_path, path)  # stdin at its end, as in an agent's shell
+    assert code == EXIT_FAILED
+    assert "A person must confirm" in err and "must not allow a clip" in err
+    assert "--yes is only for the operator's own scripts" in err
+    assert "pass --yes" not in err
 
 
 def test_a_closed_or_missing_stdin_changes_nothing_dc_17(
@@ -336,7 +411,7 @@ def test_a_closed_or_missing_stdin_changes_nothing_dc_17(
     assert config_path.read_bytes() == original
 
 
-@pytest.mark.parametrize("answer", ["yes\n", "YES\r\n", "  y \n", "Yes"])
+@pytest.mark.parametrize("answer", ["yes\n", "YES\r\n", "  yes \n", "Yes"])
 def test_an_explicit_yes_allows_the_clip_dc_17(
     admin: AdminRun, config_path: Path, clip: tuple[Path, str], answer: str
 ) -> None:
@@ -392,6 +467,8 @@ def test_allow_ends_by_saying_what_to_restart_dc_17(
     assert "narration-admin daemon stop" in advice
     assert ("narration-admin daemon start" in advice) is not autostart
     assert str(config) in advice
+    # The daemon first: a front-end restarted before it would admit jobs the old daemon then fails.
+    assert advice.index("daemon stop") < advice.index("restart or reconnect")
 
 
 def test_allow_warns_about_a_clip_the_limit_would_refuse_dc_17(
@@ -503,7 +580,7 @@ def test_allow_refuses_a_read_only_configuration_before_asking_dc_17(
     original = read_only_config.read_bytes()
     code, out, err = allow(admin, read_only_config, path, answer="yes\n")
     assert code == EXIT_FAILED
-    assert "read-only" in err and f'"{sha}",' in err
+    assert "read-only" in err and f'allow_sha256 = ["{sha}"]' in err  # the file has no [voices] yet
     assert "Is this clip synthetic?" not in out
     assert read_only_config.read_bytes() == original
 
@@ -538,8 +615,91 @@ def test_a_failed_rename_leaves_the_file_as_it_was_dc_17(
     monkeypatch.setattr(voices.os, "replace", refuse)
     code, _, err = allow(admin, config_path, path, "--yes")
     assert code == EXIT_FAILED
-    assert "cannot write" in err and f'"{sha}",' in err
+    assert "cannot write" in err and f'allow_sha256 = ["{sha}"]' in err
     assert config_path.read_bytes() == original
+    assert leftovers(config_path.parent) == []
+
+
+def test_a_rename_refused_for_a_moment_is_retried_dc_17(
+    admin: AdminRun, config_path: Path, clip: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, sha = clip
+    real_replace = os.replace
+    tries: list[int] = []
+
+    def busy_once(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        tries.append(1)
+        if len(tries) == 1:
+            raise PermissionError(13, "The process cannot access the file")  # Windows: another program has it open
+        real_replace(src, dst)
+
+    monkeypatch.setattr(voices.os, "replace", busy_once)
+    assert allow(admin, config_path, path, "--yes")[0] == EXIT_OK
+    assert len(tries) == 2
+    assert load_config(config_path).voices.allow_sha256 == (sha,)
+    assert leftovers(config_path.parent) == []
+
+
+def test_a_save_made_while_the_rename_is_retried_is_not_overwritten_dc_17(
+    admin: AdminRun, config_path: Path, clip: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review's F1: the file is read again before every rename attempt, not only before the first."""
+    path, _ = clip
+    saved = config_path.read_text(encoding="utf-8") + "[retention]\nretention_days = 7\n"
+    real_replace = os.replace
+    tries: list[int] = []
+
+    def editor_saves_then_releases(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+        tries.append(1)
+        if len(tries) == 1:  # the editor holds the file, and saves it before the next attempt
+            config_path.write_text(saved, encoding="utf-8")
+            raise PermissionError(13, "The process cannot access the file")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(voices.os, "replace", editor_saves_then_releases)
+    code, _, err = allow(admin, config_path, path, "--yes")
+    assert code == EXIT_FAILED and "changed while this command ran" in err
+    assert len(tries) == 1, "no second rename once the file changed"
+    assert config_path.read_text(encoding="utf-8") == saved
+    assert leftovers(config_path.parent) == []
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32", reason="only Windows refuses to rename over a file another program has open"
+)
+def test_an_editor_holding_the_file_open_keeps_its_save_dc_17(
+    admin: AdminRun, config_path: Path, clip: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The review's reproduction of F1, with a real open file: a thread holds the configuration open (so the
+    rename is refused and retried), writes its own content 50 ms later, and closes it 100 ms after that."""
+    path, _ = clip
+    saved = (config_path.read_text(encoding="utf-8") + "[retention]\nretention_days = 7\n").encode("utf-8")
+    real_copymode = voices.shutil.copymode
+    editors: list[threading.Thread] = []
+
+    def edit(handle: BinaryIO) -> None:
+        with handle:
+            time.sleep(0.05)
+            handle.seek(0)
+            handle.write(saved)
+            handle.truncate()
+            handle.flush()
+            time.sleep(0.1)
+
+    def open_in_an_editor(src: Path, dst: Path) -> None:
+        real_copymode(src, dst)  # just before the command's check and rename
+        editor = threading.Thread(target=edit, args=(config_path.open("r+b"),))
+        editor.start()
+        editors.append(editor)
+
+    monkeypatch.setattr(voices.shutil, "copymode", open_in_an_editor)
+    try:
+        code, _, err = allow(admin, config_path, path, "--yes")
+    finally:
+        for editor in editors:
+            editor.join(timeout=5)
+    assert code == EXIT_FAILED and "changed while this command ran" in err
+    assert config_path.read_bytes() == saved
     assert leftovers(config_path.parent) == []
 
 
