@@ -7,14 +7,13 @@ The analysis key names the ASR and speaker models by repo and revision, and the 
 - the **CTC aligner** (``[alignment] model``, the wav2vec2 model by default) on the CPU, which WP15's
   ``CtcAligner`` drives with the thresholds of ``[alignment]``.
 
-``QA_VRAM_MB`` is the VRAM the group needs (section 4 item 2): WP22 measured transcription with word times
-peaking at 10.6 GB reserved, flat from 30 s, and the embedding of longer takes is windowed (DC-15), so its
-peak stays under that for a take of any length. WP22 proposed 11500 and the lead set it (KNOW:
-``status/WP22.md`` and ``spikes/h-i-qa-load`` on ``wp/22-qa-worker``).
+``QA_VRAM_NEED_MB`` is the VRAM the group needs (section 4 item 2), and ``QA_MEASURED`` the configuration it
+was measured with; see their docstrings.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
 
 from narration.align import CtcAligner
@@ -25,7 +24,55 @@ from narration.jobs.pins import ModelPin, QaPins
 from .models import WAVLM_SV, WHISPER, PinnedModel, pinned
 from .profile import EngineSetupError
 
-QA_VRAM_MB: Final = 11500
+QA_VRAM_NEED_MB: Final = 11_500
+"""The VRAM the QA group needs on the GPU, in MB (section 4 item 2: a load waits for this plus the margin).
+
+KNOW (WP22's spike h, ``spikes/h-i-qa-load/README.md`` and ``results.json``; the lead's decision): it covers the
+whole group, the CUDA context included, for a take of any length, as ``QA_MEASURED`` describes it: Whisper in
+float16 with five beams and word times, and WavLM-SV embedding in 60 s windows (DC-15), with the aligner on the
+CPU. The worker returns the allocator's cached memory after each op, so the ops' footprints do not add up; the
+peak is transcription's, about 10.9 GB with the context, and 11 500 adds about 5 % for the allocator. Both
+peaks are bounded (Whisper's 30 s window, the embedding's 60 s windows), so one number holds for any take.
+
+It is not the ``load`` reply's ``vram_mb`` (3606 in the spike): that is the resident models alone, before any
+op runs. Re-run spike h and change this with ``QA_MEASURED`` when any part of that configuration changes."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class QaMeasured:
+    """The QA group's configuration as spike h measured ``QA_VRAM_NEED_MB`` with it. The models are written out
+    here, not taken from ``models``, so that a new pin there fails ``tests/engine/test_qa_need.py`` until the
+    spike is run again."""
+
+    asr_repo: str
+    asr_revision: str
+    asr_dtype: str
+    """Whisper's dtype on the GPU (float32 on the CPU)."""
+    asr_attn_implementation: str
+    asr_num_beams: int
+    word_timestamps: bool
+    sv_repo: str
+    sv_revision: str
+    sv_dtype: str
+    sv_window_s: int
+    """WavLM-SV embeds a take longer than this in windows of this length (DC-15 as amended)."""
+    aligner_device: str
+
+
+QA_MEASURED: Final = QaMeasured(
+    asr_repo="openai/whisper-large-v3",
+    asr_revision="06f233fe06e710322aca913c1bc4249a0d71fce1",
+    asr_dtype="float16",
+    asr_attn_implementation="eager",
+    asr_num_beams=5,
+    word_timestamps=True,
+    sv_repo="microsoft/wavlm-base-plus-sv",
+    sv_revision="feb593a6c23c1cc3d9510425c29b0a14d2b07b1e",
+    sv_dtype="float32",
+    sv_window_s=60,
+    aligner_device="cpu",
+)
+"""What spike h ran (``spikes/h-i-qa-load``, 2026-09-27): see ``QA_VRAM_NEED_MB``."""
 
 
 def model_pin(config: Config, model: PinnedModel) -> ModelPin:
@@ -59,7 +106,7 @@ def qa_pins(config: Config) -> QaPins:
         asr=model_pin(config, WHISPER),
         sv=model_pin(config, WAVLM_SV),
         aligner=model_pin(config, aligner),
-        vram_need_mb=QA_VRAM_MB,
+        vram_need_mb=QA_VRAM_NEED_MB,
         licence=Licence(aligner=aligner.licence, asr=WHISPER.licence, sv=WAVLM_SV.licence),
     )
 
@@ -82,4 +129,13 @@ def aligner_method_id(config: Config) -> str:
     return aligner(config).method_id
 
 
-__all__ = ["QA_VRAM_MB", "aligner", "aligner_method_id", "aligner_model", "model_pin", "qa_pins"]
+__all__ = [
+    "QA_MEASURED",
+    "QA_VRAM_NEED_MB",
+    "QaMeasured",
+    "aligner",
+    "aligner_method_id",
+    "aligner_model",
+    "model_pin",
+    "qa_pins",
+]

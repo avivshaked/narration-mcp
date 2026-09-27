@@ -16,7 +16,7 @@ from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
 from narration.engine.canary import CanaryGuard
 from narration.engine.models import CTC_ALIGNER, WAVLM_SV, WHISPER
-from narration.engine.qa import QA_VRAM_MB, aligner_method_id, qa_pins
+from narration.engine.qa import QA_VRAM_NEED_MB, aligner_method_id, qa_pins
 from narration.jobs.engine import JobEngine
 from narration.jobs.gpu import NoProbe, NvmlProbe
 from narration.jobs.handlers import Registry
@@ -68,8 +68,8 @@ def test_the_installed_engine_runs_generate_and_analyse_with_the_pinned_parts_s4
     assert parts.qa_pins.asr.name == f"{names.MODEL_ASR}@{WHISPER.revision}"
     assert parts.qa_pins.sv.name == f"{names.MODEL_SV}@{WAVLM_SV.revision}"
     assert Path(parts.qa_pins.sv.snapshot_dir) == WAVLM_SV.snapshot_dir(install.models_root)
-    assert parts.qa_pins.vram_need_mb == QA_VRAM_MB
-    assert engine.residency.need_mb["qa"] == QA_VRAM_MB
+    assert parts.qa_pins.vram_need_mb == QA_VRAM_NEED_MB
+    assert engine.residency.need_mb["qa"] == QA_VRAM_NEED_MB
     assert isinstance(parts.guard, CanaryGuard) and parts.guard.sv == parts.qa_pins.sv
     assert isinstance(parts.probe, NvmlProbe)  # [gpu] device is cuda:0 by default
     assert parts.check_path is not None
