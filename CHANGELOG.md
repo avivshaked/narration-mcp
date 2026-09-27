@@ -173,6 +173,31 @@ are tracked here but no version is tagged; nothing described below is installabl
 
   After each op on the GPU it returns the memory PyTorch keeps cached, so between ops it holds only its
   models on a shared GPU.
+- `narration-admin`, the operator CLI: `narration-admin [--config <path>] <command>`, finding the
+  configuration by the same rule as `narration-mcp`. `--help` lists every command of design section 7.1;
+  a command whose module is not in this build says so (exit code 3) instead of failing, and the others
+  still run.
+- `narration-admin daemon start | stop [--now] | status`. `start` starts the daemon detached unless one
+  serves, and waits until it serves; when the terminal cannot detach it, `start --foreground` runs it in
+  the terminal. `stop` posts a stop only when a daemon runs, then waits for its answer. `status` shows what
+  the daemon is doing, or `--json`.
+- `narration-admin doctor [--quick] [--json]`: checks the platform, the configuration, that the store
+  root is writable with enough free disk, that every pinned model is installed with the files its install
+  recorded (hashed again unless `--quick`), that each worker venv matches its `uv.lock`, the NVIDIA GPU
+  (a machine without one is told plainly that it cannot run jobs), and the engine pin. Each problem says
+  what to do next; the exit code is 1 when a check fails.
+- `narration-admin gc [--apply] [--json]`: a dry run by default that lists what retention no longer keeps;
+  `--apply` removes it. `narration-admin verify [--json]`: hashes the store's immutable files and the
+  installed model files again, and runs the database's integrity check; it changes nothing.
+- `narration-admin install [--dry-run] [--from-cache <dir>] [--models-only | --workers-only]`: puts each
+  pinned model in its snapshot folder, every file checked against the hash Hugging Face publishes for its
+  revision before it is renamed into place, and records them in `<models_root>/manifest.json`; syncs each
+  worker venv from its `uv.lock` when it is out of date; and asks a running daemon to stop when it
+  repaired something the daemon uses. Certificates are always verified (`SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE` and `UV_NATIVE_TLS=1` are honoured; design section 17.8), an `HF_ENDPOINT` mirror
+  must be `https`, and no redirect leaves `https`. A listed file name that is not a plain path inside the
+  model's folder is refused. Files are fetched into `<models_root>/.staging/`, never into a snapshot
+  folder.
 
 ### Changed
 
