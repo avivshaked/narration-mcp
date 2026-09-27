@@ -13,7 +13,7 @@ push, set its status file to `blocked:paused-by-owner`, and stop. To resume:
 3. **Merge order:**
    - the pace hotfix (`wp/47-pace-warn`; PR opened by its agent, or open one) first, after an adversarial
      review and green CI;
-   - then PR #40 (verified: merge with follow-ups; its agent was on the last six small wording fixes);
+   - PR #40 is merged;
    - then PR #37;
    - then PR #41 (its fixes in progress) and PR #39 (WP34; renumber its contracts to 1.6.8);
    - then WP47 (contracts 1.6.9; merges main first).
@@ -28,7 +28,7 @@ Where each one stopped (all pushed, with `blocked:paused-by-owner` in each statu
   - the code and the tests are done: targeted suites pass, and the store tests were fixed;
   - the check that a measured voice stays measured is done (KNOW, with file:line in its status);
   - left: ruff, basedpyright and check_tracked; a final commit message; open the PR.
-- **PR #40, `wp/36-guidance` d491eea:** all fixes done, including the last six-item round. Left: CI, then merge.
+- **PR #40 merged** (e9334e1, 2026-09-27, CI green). Its worktree and branch can be removed. **WP34 must now take design_voice and profile_voice out of `NOT_IN_THIS_BUILD`** when it merges main (the equality test enforces it).
 - **WP47, `wp/47-pace-cps` bcdc7b2** (`wip:`, untested):
   - the rate is characters per second of speaking time, excluding silences of 0.25 s or more, taken from the
     signal stage's speech mask (ASSUME until it is measured on the re-measured voice);
@@ -82,7 +82,7 @@ Code session.
   |---|---|---|---|
   | The daemon-detach fix (WP30's area) | `wp/30-escape`, PR #37 | a9adeef63f4026ccc (Fable) | review fixes verified (two read-only verifiers: merge with follow-ups; CI green). **Merge after the owner's narration session**: it changes how the daemon starts |
   | WP34 design and profile | `wp/34-design`, PR #39 | aee097b972cdb073f | review fixes done (contracts 1.6.7); CI green. **Merge after the owner's session**, after a full-suite run |
-  | The caller's guidance in the tool texts | `wp/36-guidance`, PR #40 | aa82ffe101d84906f | read-only review running; texts only, so it may merge during the session |
+  | The caller's guidance in the tool texts | `wp/36-guidance`, PR #40 | aa82ffe101d84906f | **merged** (e9334e1) |
   | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | fixing its review (lead's decisions: revive a queued job only after a crash, never after an operator's stop; one daemon spawn per start window; explicit shield and retryable sets); merge after the owner's session |
   | WP47 pace in characters per second (D2), with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | paused mid-build; merges after the hotfix, then the voice is measured again (cached renders, QA only) |
   | The pace hotfix: PACE_FAST warns only (QA profile default.v4, contracts 1.6.7) | `wp/47-pace-warn` | a7b16acd7a70c2651 | paused mid-build; merges first |
