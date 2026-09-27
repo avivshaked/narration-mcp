@@ -11,15 +11,21 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import pytest
 from narration_worker.threads import THREAD_ENV_VARS
 
+import narration.daemon.__main__ as entry
+import narration.platform
+import narration.store
 from narration.config import load_config
-from narration.daemon.__main__ import DEFAULT_RUNNER, launch_time, warn_without_safe_path
+from narration.daemon.__main__ import DEFAULT_RUNNER, aligner_method, launch_time, warn_without_safe_path
 from narration.daemon.seam import JobRunner, NullRunner
 from narration.daemon.start import daemon_argv
+from narration.engine.qa import aligner_method_id
 from narration.jobs.runner import EngineRunner, log_path
+from narration.platform.testing import StandInPlatform
 
 pytestmark = pytest.mark.timeout(120)
 
@@ -170,6 +176,36 @@ def test_the_default_runner_is_the_job_engine_s4() -> None:
     runner = getattr(importlib.import_module(module), attr)()  # as the entry point loads it
     assert isinstance(runner, JobRunner) and isinstance(runner, EngineRunner)
     assert isinstance(NullRunner(), JobRunner)  # still there, for --runner narration.daemon.seam:NullRunner
+
+
+def test_the_daemon_opens_its_store_with_the_configured_aligners_method_s11_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The store finds the benchmark whose measured error every take reports by the aligner's method id."""
+    path = write_config(tmp_path / "service")
+    config = load_config(path)
+    opened: dict[str, Any] = {}
+
+    def store(root: Path, platform: Any, **options: Any) -> Any:
+        opened.update(options)
+        raise OSError("the test stops the daemon here")
+
+    for name, value in StandInPlatform().hardening_env().items():
+        monkeypatch.setenv(name, value)  # restored after the test, as the daemon sets it
+    monkeypatch.setattr(entry, "cap_threads_env", lambda threads: None)  # not in the test's own process
+    monkeypatch.setattr(narration.platform, "get_platform", StandInPlatform)
+    monkeypatch.setattr(narration.store, "NarrationStore", store)
+
+    assert entry.main(["--store", str(config.server.store_root), "--config", str(path)]) == 1
+    assert opened["alignment_method_id"] == aligner_method_id(config)
+
+
+def test_an_aligner_the_service_cannot_run_leaves_the_store_without_a_method_s11_2(tmp_path: Path) -> None:
+    path = write_config(tmp_path / "service")
+    with path.open("a", encoding="utf-8") as config:
+        config.write("\n[alignment]\nmodel = 'someone/aligner'\n")
+    method_id, reason = aligner_method(load_config(path))
+    assert method_id is None and reason is not None and "[alignment] model" in reason
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the daemon runs on Windows only in v1 (plan.md Q2)")

@@ -37,6 +37,37 @@ are tracked here but no version is tagged; nothing described below is installabl
   carry `retry_after_s`, and `[limits]` caps the submit rate and the queue. `design_voice`,
   `profile_voice` and `audition_pronunciation` still answer `BACKEND_NOT_INSTALLED`. README.md says
   how to add the server to Claude Code.
+- Engine profiles (`narration.engine`): each pins the Qwen model's revision, every snapshot file's sha256,
+  the worker's `uv.lock` and package versions, the determinism switches and every audio-changing setting,
+  and hashes them. After every Qwen load the daemon checks the worker against its profile: a changed
+  `uv.lock`, weight file or package version fails the job with `ENGINE_DRIFT` before anything renders. A
+  weight file replaced by another with the same size and time (moved over it) is found too, without a
+  restart.
+  The daemon's job engine is now assembled with the cue aligner and the pinned QA models (Whisper
+  large-v3, WavLM-base-plus-sv, the wav2vec2 aligner), so jobs no longer fail with
+  `BACKEND_NOT_INSTALLED` once the models are installed and the engine is pinned. The daemon runs
+  `measure_voice`'s jobs on the same engine, sharing its resident models and its canary gate.
+- `narration-admin engine pin | repin | bridge | show`. `pin` records the Base and VoiceDesign engine
+  profiles and designs the service's canary on this machine from the text in `material/canary/`: no
+  canary audio ships. It repeats the canary render in one worker and in a fresh one to decide the
+  determinism tier (`bit_exact` or `similar`), and calibrates the canary's similarity threshold with
+  three more seeds, never below 0.10. A pinned canary embedding that cannot be compared (empty, all zero,
+  or of another length than the render's) fails the job with `ENGINE_DRIFT`, saying why. `pin` keeps
+  what is pinned and refuses an installation that has changed. In a profile it keeps, it records the
+  snapshots' new folder after the models root moves, and a new estimate of the VRAM Qwen needs; neither
+  changes the profile's hash (DC-16). `repin` makes a new profile the one in use (new render keys; voices are
+  measured again) for each engine whose installation changed, or whose machine did (GPU, driver, CUDA or
+  cuDNN, as the worker reports them); `repin --force` does it for both engines whatever changed. A GPU or
+  driver the worker cannot read now (NVML failed) is not taken for a changed machine: `repin` refuses,
+  says to run `doctor`, and names `--force`. A `repin` that keeps both profiles says so and names
+  `--force`. A pin or repin is all or nothing: both canaries are rendered, embedded and calibrated before
+  anything is stored, so a failure on either engine leaves both as they were. Every `ENGINE_DRIFT` from
+  the canary gate names `engine repin`, and `engine repin --force` where a plain repin would keep the
+  profile (the canary moved, cannot be compared, or a worker failed during it). `show` prints each
+  profile's tier and canary threshold (and whether it is the floor); `pin` and `repin` print the
+  calibration similarities. `bridge` reports how similar the canary and the calibration corpus sound
+  under two profiles; a profile replaced after the models root moved is rendered from its new folder.
+  They run only while no daemon holds the store and the GPU has room for Qwen.
 - The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
   then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
   `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same
@@ -240,6 +271,12 @@ are tracked here but no version is tagged; nothing described below is installabl
   out of memory", `CUBLAS_STATUS_ALLOC_FAILED`) now reports `GPU_OOM`, as for any other allocation, so the
   daemon unloads, waits and retries once instead of failing with `INTERNAL`.
 
+- The daemon opens its store with the configured aligner's method id, so every take's alignment reports the
+  measured error of that aligner's published benchmark (design section 11.2); an aligner the service cannot
+  run is logged at start, and each job then fails with `BACKEND_NOT_INSTALLED`.
+- `narration-admin doctor` also checks that the cue aligner can run `[alignment]` as configured, as the job
+  engine does: a pinned model that is not a CTC model, or a device other than the CPU, fails the models
+  check and says what to set, instead of surfacing only when a job fails.
 - The default design text (`[voice_design] design_text`, also the canary's design text in
   `material/canary/canary.v1`) is a new text written for the service: "Good bread asks for patience: the
   dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp,

@@ -254,6 +254,34 @@ def test_an_aligner_this_build_does_not_pin_is_a_warning_s11_2(tmp_path: Path, p
 
 
 @pytest.mark.parametrize(
+    "alignment",
+    [f'model = "{names.MODEL_QWEN_BASE}"', 'device = "cuda:0"'],
+    ids=["pinned_but_not_ctc", "not_on_the_cpu"],
+)
+def test_an_aligner_the_ctc_method_cannot_run_fails_s11_2(
+    tmp_path: Path, platform: StandInPlatform, alignment: str
+) -> None:
+    """Doctor finds it, not the first job: a pinned model that is not a CTC model, or the aligner on a GPU."""
+    config_path = write_config(tmp_path / "s", "[alignment]\n" + alignment + "\n")
+    (config_path.parent / "models").mkdir()
+    admin, _ = make_admin(config_path, platform)
+    pins = {names.MODEL_ALIGNER: REV_A, names.MODEL_QWEN_BASE: REV_B}
+    findings = [f for f in diagnose(admin, probes=probes(pins=pins)) if f.area == "models"]
+    (cannot,) = [f for f in findings if "the aligner cannot run" in f.summary]
+    assert cannot.level == "fail"
+    assert cannot.next_step is not None and "[alignment]" in cannot.next_step
+
+
+def test_the_default_aligner_is_not_reported_s11_2(tmp_path: Path, platform: StandInPlatform) -> None:
+    config_path = write_config(tmp_path / "s", "")
+    (config_path.parent / "models").mkdir()
+    admin, _ = make_admin(config_path, platform)
+    findings = [f for f in diagnose(admin, probes=probes(pins={names.MODEL_ALIGNER: REV_A})) if f.area == "models"]
+    assert findings  # the models root exists, so the pinned models were checked
+    assert not [f for f in findings if "the aligner cannot run" in f.summary]
+
+
+@pytest.mark.parametrize(
     ("synced", "level"),
     [
         (SyncCheck(True, "matches"), "ok"),

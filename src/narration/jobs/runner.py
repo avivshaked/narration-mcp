@@ -350,21 +350,18 @@ def build_runner(
     return EngineRunner(JobEngine(config, parts))
 
 
-def installed_engine(host: RunnerHost) -> JobEngine:
-    """The engine as this installation provides it: built from the daemon's config, with the service's text
-    pipeline, post-processing and QA, the cue aligner and the QA group's pinned models.
+def installed_engine(host: RunnerHost) -> Registry:
+    """The job engine as this installation provides it (WP32, ``narration.engine.installed``): built from the
+    daemon's config with the service's text pipeline, post-processing and QA, the cue aligner (WP15) and the
+    QA group's pinned models, the engine guard (the fingerprint check and the canary gate), NVML's free-VRAM
+    probe and the daemon platform's path check. It returns the registry of every job kind it runs.
 
-    The cue aligner (WP15) and the QA models' pins (WP22, installed by ``narration-admin``) are not part of
-    this build yet, so no take could be scored: this raises ``BACKEND_NOT_INSTALLED``, and each job the
-    daemon claims fails with it, rather than rendering takes it cannot check. Once they are, this assembles
-    them with ``build_runner``'s parts.
+    A model snapshot that is not installed raises ``BACKEND_NOT_INSTALLED``: the runner fails that job with it,
+    and builds again at the next job, so an installation completed meanwhile is picked up.
     """
-    raise NarrationError(
-        codes.BACKEND_NOT_INSTALLED,
-        "this installation cannot score takes: the cue aligner and the QA models are not installed",
-        hint="Run narration-admin doctor to see what is missing; nothing was rendered.",
-        retryable=False,
-    )
+    from narration.engine import installed  # here: narration.engine builds on narration.jobs
+
+    return installed.registry(host)
 
 
 def default_runner() -> EngineRunner:

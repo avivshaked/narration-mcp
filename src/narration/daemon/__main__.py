@@ -116,6 +116,20 @@ def main(argv: list[str] | None = None) -> int:
     return _serve(args, config)
 
 
+def aligner_method(config: Config) -> tuple[str | None, str | None]:
+    """The configured aligner's method id (``narration.engine.qa.aligner_method_id``), with which the store finds
+    the alignment benchmark whose measured error every take reports (section 11.2); or None and the reason, when
+    ``[alignment]`` names an aligner the service cannot run. The daemon starts either way: each job then fails
+    with ``BACKEND_NOT_INSTALLED``, saying what to change. Call it after the thread cap (it imports numpy)."""
+    from narration.contracts.errors import NarrationError
+    from narration.engine.qa import aligner_method_id
+
+    try:
+        return aligner_method_id(config), None
+    except NarrationError as exc:
+        return None, f"{exc.message}; {exc.hint}"
+
+
 def _serve(args: argparse.Namespace, config: Config) -> int:
     import importlib
 
@@ -142,14 +156,17 @@ def _serve(args: argparse.Namespace, config: Config) -> int:
     # The daemon runs in the store root: this OS's hardening applies to it and to everything it starts, as
     # to its workers (section 17; on Windows, cmd.exe no longer looks for programs in the working folder).
     os.environ.update(platform.hardening_env())
+    method_id, no_method = aligner_method(config)
     try:
-        store = NarrationStore(settings.store_root, platform, retention=config.retention)
+        store = NarrationStore(settings.store_root, platform, retention=config.retention, alignment_method_id=method_id)
     except Exception as exc:
         print(f"narration daemon: cannot open the store at {settings.store_root}: {exc}", file=sys.stderr)
         return _EXIT_ERROR
     try:
         _log_to_file(store.layout.logs_dir(), args.log_level)
         warn_without_safe_path(bool(sys.flags.safe_path))
+        if no_method is not None:
+            log.warning("no alignment benchmark can be read for the configured aligner: %s", no_method)
         try:
             module_name, _, attr = args.runner.partition(":")
             runner = getattr(importlib.import_module(module_name), attr)()
