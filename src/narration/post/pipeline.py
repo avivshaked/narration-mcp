@@ -232,7 +232,8 @@ def measure_signal(
     max(p95 - 40 dB, -70 dBFS)) on the delivery, leaving out the ``fade_s`` at each end: the fades turn a
     DC offset into ramps that are not speech. ``voiced_start_s`` / ``voiced_end_s`` are the edges of its
     first and last speech frames (None when it has none), and the longest silence is the longest run of
-    non-speech frames between them.
+    non-speech frames between them. ``internal_silences_s`` is every such run's length, in order (empty when
+    there is no speech, or none between the edges).
     """
     n = int(raw.shape[0])
     finite = np.isfinite(raw)
@@ -242,6 +243,7 @@ def measure_signal(
     total = int(delivery.shape[0])
     edge = round(fade_s * delivery_rate)
     speech = np.flatnonzero(speech_frames(delivery, delivery_rate, VOICED_REL_DB, VOICED_FLOOR_DBFS, edge=edge))
+    silences: tuple[float, ...] = ()
     if speech.size == 0:
         start: float | None = None
         end: float | None = None
@@ -251,6 +253,7 @@ def measure_signal(
         end = min((int(speech[-1]) + 1) * frame, total) / delivery_rate
         gaps = np.diff(speech) - 1
         longest = int(gaps.max()) * frame / delivery_rate if gaps.size else 0.0
+        silences = tuple(int(g) * frame / delivery_rate for g in gaps if g > 0)
     return SignalStats(
         raw_samples=n,
         raw_sample_rate=raw_rate,
@@ -261,6 +264,7 @@ def measure_signal(
         voiced_start_s=start,
         voiced_end_s=end,
         longest_internal_silence_s=longest,
+        internal_silences_s=silences,
     )
 
 

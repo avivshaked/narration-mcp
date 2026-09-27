@@ -43,7 +43,7 @@ from narration.contracts.models import (
     TranscriptCheck,
     Trim,
 )
-from narration.contracts.names import ALIGNMENT_METHOD, MODEL_ALIGNER, MODEL_ASR, MODEL_SV, Verdict
+from narration.contracts.names import ALIGNMENT_METHOD, MODEL_ALIGNER, MODEL_ASR, MODEL_SV, PACE_METHOD, Verdict
 from narration.text import TextPipeline
 from narration.text import words as text_words
 
@@ -117,16 +117,20 @@ ANCHOR = Anchor(model=MODEL_SV, dim=DIM, embedding=unit(1.0))
 
 
 def pace(
-    curve: Sequence[tuple[int, float]] = ((80, 120.0), (300, 150.0)),
+    curve: Sequence[tuple[int, float]] = ((80, 16.0), (300, 17.1)),
     *,
     tol: float = 0.10,
-    intercept: float = 110.0,
-    per_100: float = 13.0,
+    intercept: float = 15.6,
+    per_100: float = 0.5,
+    speaking_share: float = 0.9,
 ) -> Pace:
+    """A pace model in spoken characters per second of speaking time (invented numbers)."""
     return Pace(
-        trend=PaceTrend(intercept_wpm=intercept, per_100_chars=per_100, band_max_chars=300),
+        method=PACE_METHOD,
+        trend=PaceTrend(intercept_cps=intercept, per_100_chars=per_100, band_max_chars=300),
         tol=tol,
-        curve=tuple(PacePoint(chars=c, wpm=w) for c, w in curve),
+        curve=tuple(PacePoint(chars=c, cps=v) for c, v in curve),
+        speaking_share=speaking_share,
     )
 
 
@@ -188,6 +192,7 @@ def signal(
     clipping: float = 0.0,
     nonfinite: bool = False,
     dc: float = 0.0,
+    silences: tuple[float, ...] | None = None,
 ) -> SignalStats:
     return SignalStats(
         raw_samples=int(duration_s * 24000),
@@ -199,6 +204,7 @@ def signal(
         voiced_start_s=voiced[0],
         voiced_end_s=voiced[1],
         longest_internal_silence_s=silence_s,
+        internal_silences_s=silences,
     )
 
 
@@ -286,8 +292,10 @@ def take_result(
             exact=qa.exact,
             terms=qa.terms,
             spk_sim_anchor=qa.metrics.spk_sim_anchor,
-            pace=PaceValue(spoken_wpm=qa.metrics.spoken_wpm),
-            pace_expected=PaceValue(spoken_wpm=qa.metrics.expected_spoken_wpm),
+            pace=PaceValue(spoken_wpm=qa.metrics.spoken_wpm, articulation_cps=qa.metrics.articulation_cps),
+            pace_expected=PaceValue(
+                spoken_wpm=qa.metrics.expected_spoken_wpm, articulation_cps=qa.metrics.expected_articulation_cps
+            ),
         )
     return TakeResult(
         take_id=take_id,

@@ -204,8 +204,9 @@ def measurement_key_object(
     *, voice_hash: str, engine_profile_hash: str, corpus_version: str, settings: MeasurementConfig
 ) -> dict[str, Any]:
     """The object the measurement key hashes: {schema, voice_hash, engine_profile_hash, corpus_version,
-    ladder_settings}, where ``ladder_settings`` holds every field of ``settings`` except ``corpus`` (whose
-    content ``corpus_version`` already names)."""
+    ladder_settings, pace_method}, where ``ladder_settings`` holds every field of ``settings`` except ``corpus``
+    (whose content ``corpus_version`` already names), and ``pace_method`` is ``names.PACE_METHOD``, the rule the
+    pace model is measured by (added with ``narration.measurement-key/v2``, WP47)."""
     _check_key(voice_hash, "voice_hash")
     _check_key(engine_profile_hash, "engine_profile_hash")
     if not isinstance(corpus_version, str) or not CORPUS_VERSION_PATTERN.fullmatch(corpus_version):
@@ -216,6 +217,7 @@ def measurement_key_object(
         "engine_profile_hash": engine_profile_hash,
         "corpus_version": corpus_version,
         "ladder_settings": _fields_object(settings, exclude=("corpus",)),
+        "pace_method": names.PACE_METHOD,
     }
 
 

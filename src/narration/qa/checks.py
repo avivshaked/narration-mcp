@@ -1,5 +1,8 @@
 """Signal, speaker, pace and cue-alignment checks for one take (design section 11.1 steps 1, 3, 8 and 9).
 
+Pace is spoken characters per second of speaking time, by the one rule the voice's measurement also uses
+(``narration.qa.pace``; WP47).
+
 Each check has a small numeric core (``*_flags`` taking plain numbers) and a wrapper that derives those
 numbers from the take's records, so every threshold edge can be tested directly.
 """
@@ -9,7 +12,6 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
-from itertools import pairwise
 
 import numpy as np
 
@@ -21,6 +23,7 @@ from narration.text import words
 
 from ._flags import make_flag
 from .errors import QaUnavailable
+from .pace import expected_cps, expected_wpm_at, take_rate
 from .profile import QaProfile
 
 __all__ = [
@@ -28,7 +31,6 @@ __all__ = [
     "SpeakerCheck",
     "alignment_flags",
     "cosine",
-    "expected_wpm",
     "pace_check",
     "pace_flags",
     "signal_flags",
@@ -200,78 +202,63 @@ def spoken_words(text: str) -> int:
     return len(words(text))
 
 
-def expected_wpm(pace: Pace, spoken_chars: int) -> float | None:
-    """The voice's pace curve at this spoken length, in spoken words per minute.
-
-    Inside the curve's range: straight lines between its points. Outside it: the nearest end point moved along
-    the trend's slope (``per_100_chars``), so the value is continuous and follows the fitted trend. With no
-    curve: the trend itself. None when the result is not a positive pace.
-    """
-    slope = pace.trend.per_100_chars / 100.0
-    by_chars: dict[int, list[float]] = {}
-    for point in pace.curve:
-        by_chars.setdefault(point.chars, []).append(point.wpm)
-    points = sorted((c, sum(v) / len(v)) for c, v in by_chars.items())
-    if not points:
-        value = pace.trend.intercept_wpm + slope * spoken_chars
-    elif spoken_chars <= points[0][0]:
-        value = points[0][1] + slope * (spoken_chars - points[0][0])
-    elif spoken_chars >= points[-1][0]:
-        value = points[-1][1] + slope * (spoken_chars - points[-1][0])
-    else:
-        value = points[0][1]
-        for (c0, w0), (c1, w1) in pairwise(points):
-            if c0 <= spoken_chars <= c1:
-                value = w0 + (w1 - w0) * (spoken_chars - c0) / (c1 - c0)
-                break
-    return value if value > 0 else None
-
-
 def pace_flags(
-    wpm: float | None,
+    cps: float | None,
     expected: float | None,
     tol: float | None,
     profile: QaProfile,
+    *,
+    pause_s: float | None = None,
 ) -> tuple[Flag, ...]:
     """``PACE_FAST`` warn above ``expected x (1 + tol)`` and fail above ``expected x (1 + 2 tol)``;
-    ``PACE_SLOW`` warn below ``expected x (1 - tol)`` (default.v3 has no slow fail)."""
-    if wpm is None or expected is None or tol is None:
+    ``PACE_SLOW`` warn below ``expected x (1 - tol)`` (there is no slow fail).
+
+    ``cps`` is the take's pace and ``expected`` the voice's curve at its length, both in spoken characters per
+    second of speaking time (``narration.qa.pace``). ``pause_s`` is the pause time taken out of the voiced span,
+    reported in ``details`` (None: the silences were not measured, and the pace is over the whole span).
+    """
+    if cps is None or expected is None or tol is None:
         return ()
     fast_warn = expected * (1 + tol)
     fast_fail = expected * (1 + profile.pace_fail_tol_factor * tol)
     slow_warn = expected * (1 - tol)
     details = {
-        "spoken_wpm": round(wpm, 3),
-        "expected_spoken_wpm": round(expected, 3),
+        "articulation_cps": round(cps, 3),
+        "expected_articulation_cps": round(expected, 3),
         "tol": tol,
         "fast_warn_above": round(fast_warn, 3),
         "fast_fail_above": round(fast_fail, 3),
         "slow_warn_below": round(slow_warn, 3),
+        "pause_s": round(pause_s, 3) if pause_s is not None else None,
+        "basis": "speaking_time" if pause_s is not None else "voiced_span",
     }
-    if wpm > fast_fail:
+    if cps > fast_fail:
         return (
             make_flag(
                 codes.PACE_FAST,
                 "fail",
-                f"{wpm:.0f} spoken wpm against {expected:.0f} expected at this length (fail above {fast_fail:.0f})",
+                f"{cps:.1f} characters per second of speaking against {expected:.1f} expected at this length "
+                f"(fail above {fast_fail:.1f})",
                 details=details,
             ),
         )
-    if wpm > fast_warn:
+    if cps > fast_warn:
         return (
             make_flag(
                 codes.PACE_FAST,
                 "warn",
-                f"{wpm:.0f} spoken wpm against {expected:.0f} expected at this length (warn above {fast_warn:.0f})",
+                f"{cps:.1f} characters per second of speaking against {expected:.1f} expected at this length "
+                f"(warn above {fast_warn:.1f})",
                 details=details,
             ),
         )
-    if wpm < slow_warn:
+    if cps < slow_warn:
         return (
             make_flag(
                 codes.PACE_SLOW,
                 "warn",
-                f"{wpm:.0f} spoken wpm against {expected:.0f} expected at this length (warn below {slow_warn:.0f})",
+                f"{cps:.1f} characters per second of speaking against {expected:.1f} expected at this length "
+                f"(warn below {slow_warn:.1f})",
                 details=details,
             ),
         )
@@ -280,8 +267,15 @@ def pace_flags(
 
 @dataclass(frozen=True, slots=True)
 class PaceCheck:
+    """A take's pace (``narration.qa.pace``) against the voice's curve: ``articulation_cps`` is judged,
+    against ``expected_cps``; ``spoken_wpm`` and ``spoken_cps`` are over the whole voiced span (information);
+    ``expected_wpm`` is ``spoken_wpm`` at the expected pace (``pace.expected_wpm_at``)."""
+
     spoken_wpm: float | None
     spoken_cps: float | None
+    articulation_cps: float | None
+    pause_s: float | None
+    expected_cps: float | None
     expected_wpm: float | None
     tol: float | None
     flags: tuple[Flag, ...]
@@ -294,26 +288,24 @@ def pace_check(
     config: MeasurementConfig,
     profile: QaProfile,
 ) -> PaceCheck:
-    """Spoken words per minute (and spoken characters per second) over the voiced span, against the curve.
+    """Spoken characters per second of speaking time (the voiced span less its pauses), against the curve.
 
     The tolerance is the measurement's ``tol``, never below ``pace_tol_min``. No voiced span means no pace;
     no curve means no comparison.
     """
-    start, end = signal.voiced_start_s, signal.voiced_end_s
-    span = end - start if start is not None and end is not None else None
-    if span is None or span <= 0:
-        wpm = cps = None
-    else:
-        wpm = spoken_words(segment.spoken_text) / span * 60.0
-        cps = segment.spoken_chars / span
-    expected = expected_wpm(pace, segment.spoken_chars) if pace is not None else None
+    count = spoken_words(segment.spoken_text)
+    rate = take_rate(segment.spoken_chars, count, signal)
+    expected = expected_cps(pace, segment.spoken_chars) if pace is not None else None
     tol = max(pace.tol, config.pace_tol_min) if pace is not None else None
     return PaceCheck(
-        spoken_wpm=wpm,
-        spoken_cps=cps,
-        expected_wpm=expected,
+        spoken_wpm=rate.spoken_wpm,
+        spoken_cps=rate.spoken_cps,
+        articulation_cps=rate.articulation_cps,
+        pause_s=rate.pause_s,
+        expected_cps=expected,
+        expected_wpm=expected_wpm_at(rate, count, expected, segment.spoken_chars),
         tol=tol,
-        flags=pace_flags(wpm, expected, tol, profile),
+        flags=pace_flags(rate.articulation_cps, expected, tol, profile, pause_s=rate.pause_s),
     )
 
 

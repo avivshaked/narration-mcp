@@ -169,7 +169,9 @@ def report_md(results: Mapping[str, Any]) -> str:
                     f"**{qa.get('verdict', '?')}**",
                     f"wer_adj {_num(qa.get('wer_adj'))} (raw {_num(qa.get('wer_raw'))})",
                     f"similarity {_num(qa.get('spk_sim_anchor'), 4)}",
-                    f"{_num(pace.get('spoken_wpm'), 0)} spoken wpm (expected {_num(expected.get('spoken_wpm'), 0)})",
+                    f"pace {_num(pace.get('articulation_cps'), 1)} characters/s of speaking "
+                    f"(expected {_num(expected.get('articulation_cps'), 1)}), "
+                    f"{_num(pace.get('spoken_wpm'), 0)} spoken wpm",
                     f"exact spans {'ok' if qa.get('exact_ok', True) else 'NOT ok'}",
                 ]
             else:

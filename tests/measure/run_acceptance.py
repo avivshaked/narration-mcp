@@ -215,9 +215,11 @@ def report(voice: Voice, measurement: MeasurementRecord, check: CalibrationCheck
             for t in check.takes
         ],
         "pace": {
-            "intercept_wpm": measurement.pace.trend.intercept_wpm,
+            "method": measurement.pace.method,
+            "intercept_cps": measurement.pace.trend.intercept_cps,
             "per_100_chars": measurement.pace.trend.per_100_chars,
             "tol": measurement.pace.tol,
+            "speaking_share": measurement.pace.speaking_share,
         },
         "ladder": [{"paragraph_id": r.paragraph_id, "chars": r.chars, "passes": r.passes} for r in measurement.ladder],
         "max_segment_chars": measurement.max_segment_chars,

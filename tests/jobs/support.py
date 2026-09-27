@@ -559,7 +559,8 @@ def measurement(
     anchor: Sequence[float],
     *,
     max_segment_chars: int | None = 400,
-    intercept_wpm: float = 130.0,
+    intercept_cps: float = 13.0,
+    speaking_share: float = 1.0,
     corpus_hex: str = "0" * 64,
 ) -> MeasurementRecord:
     """A finished measurement of the test voice: the anchor the fake's embeddings of it sit near, a wide
@@ -581,7 +582,11 @@ def measurement(
         corpus=names.CORPUS,
         similarity=SimilarityBaseline(anchor_p5=0.95, anchor_p50=0.98, consistency_p5=0.95),
         pace=Pace(
-            trend=PaceTrend(intercept_wpm=intercept_wpm, per_100_chars=0.0, band_max_chars=300), tol=0.6, curve=()
+            method=names.PACE_METHOD,
+            trend=PaceTrend(intercept_cps=intercept_cps, per_100_chars=0.0, band_max_chars=300),
+            tol=0.6,
+            curve=(),
+            speaking_share=speaking_share,
         ),
         max_segment_chars=max_segment_chars,
         max_segment_seconds=30.0 if max_segment_chars is not None else None,

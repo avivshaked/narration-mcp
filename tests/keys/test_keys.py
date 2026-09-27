@@ -85,15 +85,20 @@ MEASUREMENT_BYTES = (
     '{"corpus_version":"' + CORPUS_VERSION + '","engine_profile_hash":"' + ENGINE_PROFILE_HASH + '",'
     '"ladder_settings":{"length_ladder_spoken_chars":[80,150,250,300,350,400,450,500,560],"pace_tol_min":0.1,'
     '"seeds":3,"sim_fail_floor":0.9,"sim_warn_margin":0.01,"trend_band_max_chars":300},'
-    '"schema":"narration.measurement-key/v1","voice_hash":"' + VOICE_HASH + '"}'
+    '"pace_method":"narration.pace/articulation-cps@1",'
+    '"schema":"narration.measurement-key/v2","voice_hash":"' + VOICE_HASH + '"}'
 ).encode("utf-8")
-MEASUREMENT_KEY = "sha256:c2fb0d03432c4234eac019f7f5ff7a71314041231bedeffafdccb8438f29cb2d"
+MEASUREMENT_KEY = "sha256:56f527d352b6b17650c12aba0260569e94bd76a5ea60ee75a89eaec9c0e5753a"
+"""``narration.measurement-key/v2`` (WP47: the key names the pace method). ``/v1``, without ``pace_method``,
+was ``sha256:c2fb0d03…``, which the analysis golden below still takes as its input."""
+ANALYSIS_MEASUREMENT_KEY = "sha256:c2fb0d03432c4234eac019f7f5ff7a71314041231bedeffafdccb8438f29cb2d"
+"""The analysis golden's ``measurement_key`` input: any key will do, and this one keeps the golden fixed."""
 
 ANALYSIS_BYTES = (
     '{"aligner_method_id":"ctc-forced-align+silence-snap","asr_model":"' + ASR + '",'
     '"cue_spans":[[0,53],[54,127]],"delivery_sha256":"' + "cd" * 32 + '","exact_spans":[[1,3,7]],'
     '"hints_qa":[{"align_as":null,"asr_aliases":["Osavine","Ossa vine"],"term":"Ossavine"}],'
-    '"measurement_key":"' + MEASUREMENT_KEY + '","number_reader":"whisper-english-normalizer+nought@1",'
+    '"measurement_key":"' + ANALYSIS_MEASUREMENT_KEY + '","number_reader":"whisper-english-normalizer+nought@1",'
     '"qa_profile":"default.v3","schema":"narration.analysis-key/v1","spoken_text":"' + SPOKEN + '",'
     '"sv_model":"' + SV + '","text_checks_version":"text-1.1.0"}'
 ).encode("utf-8")
@@ -149,7 +154,7 @@ def analysis_inputs(**changes: Any) -> AnalysisKeyInputs:
         asr_model=ASR,
         sv_model=SV,
         aligner_method_id="ctc-forced-align+silence-snap",
-        measurement_key=MEASUREMENT_KEY,
+        measurement_key=ANALYSIS_MEASUREMENT_KEY,
     )
     return dataclasses.replace(base, **changes)
 
@@ -244,6 +249,14 @@ def test_measurement_key_golden_s10_2() -> None:
     assert keys.measurement_key(**measurement_kwargs()) == MEASUREMENT_KEY
 
 
+def test_measurement_key_names_the_pace_method_s10_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A measurement made under another pace rule is another measurement (WP47): its key differs, so
+    ``measure_voice`` does not answer with it."""
+    assert keys.measurement_key_object(**measurement_kwargs())["pace_method"] == names.PACE_METHOD
+    monkeypatch.setattr(names, "PACE_METHOD", "narration.pace/articulation-cps@2")
+    assert _differs(keys.measurement_key(**measurement_kwargs()), MEASUREMENT_KEY)
+
+
 def test_analysis_key_golden_s10_2() -> None:
     assert keys.canonical_json(keys.analysis_key_object(analysis_inputs())) == ANALYSIS_BYTES
     assert sha(ANALYSIS_BYTES) == ANALYSIS_KEY
@@ -299,7 +312,14 @@ def test_hashed_objects_carry_exactly_the_members_of_s10_2() -> None:
     assert set(delivery["delivery_profile"]) == {f.name for f in dataclasses.fields(DeliveryConfig)}
     assert delivery["stretch"] is None
     measurement = keys.measurement_key_object(**measurement_kwargs())
-    assert set(measurement) == {"schema", "voice_hash", "engine_profile_hash", "corpus_version", "ladder_settings"}
+    assert set(measurement) == {
+        "schema",
+        "voice_hash",
+        "engine_profile_hash",
+        "corpus_version",
+        "ladder_settings",
+        "pace_method",
+    }
     assert set(measurement["ladder_settings"]) == {f.name for f in dataclasses.fields(MeasurementConfig)} - {"corpus"}
     analysis = keys.analysis_key_object(analysis_inputs())
     assert set(analysis) == {"schema"} | {f.name for f in dataclasses.fields(AnalysisKeyInputs)}
@@ -538,7 +558,7 @@ def test_keys_refuse_malformed_inputs(call: Any) -> None:
         lambda nl: keys.measurement_key(**measurement_kwargs(corpus_version=CORPUS_VERSION + nl)),
         lambda nl: keys.delivery_key(raw_sha256="ab" * 32 + nl, profile=DELIVERY_PROFILE, tools=TOOLS),
         lambda nl: keys.analysis_key(analysis_inputs(delivery_sha256="cd" * 32 + nl)),
-        lambda nl: keys.analysis_key(analysis_inputs(measurement_key=MEASUREMENT_KEY + nl)),
+        lambda nl: keys.analysis_key(analysis_inputs(measurement_key=ANALYSIS_MEASUREMENT_KEY + nl)),
         lambda nl: keys.seed(voice_hash=VOICE_HASH + nl, engine_text=ENGINE_TEXT, attempt=0),
         lambda nl: keys.take_id(DELIVERY_KEY + nl),
         lambda nl: ulid.decode("01ARYZ6S41TSV4RRFFQ69G5FAV" + nl),

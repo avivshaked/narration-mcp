@@ -17,7 +17,8 @@ by the cache first and made at most once under a lease (sections 4 and 10.2).
    with ``seeds`` attempts (0 .. seeds-1), all rendered in one Qwen load. In the QA load that follows, the
    calibration takes are scored first, with no speaker or pace check; then the anchor and the similarity
    baseline are computed (``baseline``), and the band's takes are scored against them.
-3. **The trend and ``tol``** from the band, and each band rung judged (``ladder``). The band is rendered
+3. **The trend, ``tol`` and the speaking share** from the band, and each band rung judged (``ladder``). Pace
+   is spoken characters per second of speaking time, as QA measures it (``narration.qa.pace``). The band is rendered
    together because the trend that judges its rungs needs all of them. A ladder with no rung in the band is
    refused when the job is planned (``BACKEND_NOT_INSTALLED``: there would be no trend to judge by).
 4. **The rungs above the band**, one at a time from the shortest (a Qwen load, then a QA load each), for as
@@ -144,6 +145,7 @@ class MeasureRun(JobRun):
     calibration: Calibration | None = None
     trend: PaceTrend | None = None
     tol: float | None = None
+    speaking_share: float | None = None
     judgements: list[lad.RungJudgement] = field(default_factory=list)
     """The judged rungs, shortest first; it stops at the first rung that fails."""
 
@@ -502,6 +504,7 @@ class MeasureHandler:
                     "daemon's log has the details.",
                 ) from exc
             run.tol = lad.pace_tol(band, settings.trend_band_max_chars, settings.pace_tol_min)
+            run.speaking_share = lad.speaking_share(band, settings.trend_band_max_chars)
         assert run.tol is not None
         sim_warn = round(calibration.similarity.anchor_p5 - settings.sim_warn_margin, 6)
         while len(run.judgements) < len(run.rungs):
@@ -599,6 +602,7 @@ class MeasureHandler:
         """The measurement (section 6, App. B) from the calibration set and the judged ladder."""
         calibration, transcript, trend, tol = run.calibration, run.transcript, run.trend, run.tol
         assert calibration is not None and transcript is not None and trend is not None and tol is not None
+        share = run.speaking_share if run.speaking_share is not None else 1.0
         rungs = [self._rung(run, plan) for plan in run.rungs[: len(run.judgements)]]
         result = lad.outcome(rungs, run.judgements)
         takes: list[CalibrationTake] = []
@@ -627,7 +631,7 @@ class MeasureHandler:
             transcript_check=transcript,
             corpus=run.corpus_version,
             similarity=calibration.similarity,
-            pace=Pace(trend=trend, tol=tol, curve=result.curve),
+            pace=Pace(method=names.PACE_METHOD, trend=trend, tol=tol, curve=result.curve, speaking_share=share),
             max_segment_chars=result.max_segment_chars,
             max_segment_seconds=result.max_segment_seconds,
             ladder=tuple(lad.ladder_rung(r, j) for r, j in zip(rungs, run.judgements, strict=True)),
@@ -760,7 +764,7 @@ def _seed_take(attempt: Attempt) -> lad.SeedTake:
             seed=attempt.seed,
             attempt=attempt.attempt,
             take_id=take.take_id if take is not None else None,
-            wpm=None,
+            cps=None,
             wer_adj=None,
             word_errors=None,
             sim=None,
@@ -775,7 +779,7 @@ def _seed_take(attempt: Attempt) -> lad.SeedTake:
         seed=attempt.seed,
         attempt=attempt.attempt,
         take_id=take.take_id if take is not None else None,
-        wpm=qa.metrics.spoken_wpm,
+        cps=qa.metrics.articulation_cps,
         wer_adj=qa.metrics.wer_adj,
         word_errors=qa.metrics.word_errors,
         sim=qa.metrics.spk_sim_anchor,
@@ -785,6 +789,8 @@ def _seed_take(attempt: Attempt) -> lad.SeedTake:
         head_insertion=codes.HEAD_INSERTION in found,
         token_cap=codes.TOKEN_CAP_HIT in found or bool(render is not None and render.hit_token_cap),
         flags=tuple(dict.fromkeys(f.code for f in qa.flags)),
+        spoken_cps=qa.metrics.spoken_cps,
+        wpm=qa.metrics.spoken_wpm,
     )
 
 

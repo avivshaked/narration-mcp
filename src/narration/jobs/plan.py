@@ -22,8 +22,8 @@ from narration.config import DefaultsConfig
 from narration.contracts.models import Hint, MeasurementRecord, SegmentIn, SegmentText
 from narration.contracts.names import Priority
 from narration.contracts.serial import ContractError, from_json
-from narration.qa.checks import expected_wpm
-from narration.text import canonical_form, words
+from narration.qa.pace import estimated_seconds
+from narration.text import canonical_form
 
 from .admission import CHARS_PER_AUDIO_S
 
@@ -135,13 +135,13 @@ def hints_used(segment: SegmentText, hints: Sequence[Hint]) -> tuple[Hint, ...]:
 
 
 def estimated_audio_s(segment: SegmentText, measurement: MeasurementRecord | None) -> float:
-    """The audio seconds one take of the segment should last: its spoken words at the voice's pace curve for
-    this length, or ``CHARS_PER_AUDIO_S`` without one. Only for progress and estimates, never for a verdict."""
+    """The audio seconds one take of the segment should last: its spoken characters at the voice's pace curve
+    for this length, with the voice's share of pauses (``narration.qa.pace.estimated_seconds``), or
+    ``CHARS_PER_AUDIO_S`` without a measurement. Only for progress and estimates, never for a verdict."""
     if measurement is not None:
-        wpm = expected_wpm(measurement.pace, segment.spoken_chars)
-        count = len(words(segment.spoken_text))
-        if wpm is not None and count:
-            return max(1.0, count / wpm * 60.0)
+        seconds = estimated_seconds(measurement.pace, segment.spoken_chars)
+        if seconds is not None:
+            return max(1.0, seconds)
     return max(1.0, segment.spoken_chars / CHARS_PER_AUDIO_S)
 
 
