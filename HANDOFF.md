@@ -1,6 +1,6 @@
 # HANDOFF
 
-*Updated 2026-09-27, afternoon. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-27, evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
@@ -12,14 +12,14 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
   configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), WP22 the QA
-  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), WP36 the MCP tools and `narration-admin render` (PR #32), DC-16 (PR #33), WP32 engine profiles and the canary (PR #34), gate H1's freeze (PR #35), contracts 1.1–1.6.6, the private-text guard. Design
+  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), WP36 the MCP tools and `narration-admin render` (PR #32), DC-16 (PR #33), WP32 engine profiles and the canary (PR #34) and its follow-ups (PR #36), gate H1's freeze (PR #35), contracts 1.1–1.6.6, the private-text guard. Design
   revision 5.14.
 - **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
   its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP32's five Low follow-ups | `wp/32-followups` | a203bffe41405429f | fixing (hints, a scratch copy, the kept-profile line, `_located`) |
+  | The daemon dies when the MCP client exits (WP30's area) | `wp/30-escape` | a9adeef63f4026ccc (Fable) | investigating; the lead reviews, verifies adversarially, then PR |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -58,41 +58,37 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **Gate H1 is approved and the material is frozen** (PR #35); **DC-16** is merged (PR #33).
+- **Which re-designed d2 take becomes the first measured voice** (seed 2006, 2003 or 2008; the clips are
+  in the gitignored `.dev/d2-redesign/out/`), and the ladder: the full one (about 28 min, the lead's
+  recommendation) or one stopped at 300 characters (about 13 min).
 - **DC-14 and DC-15** (plan.md §1.5): lead gap-fills the owner may overrule.
 - **4a in the owner's list:** cross-job grouping (§4 item 3); the lead recommends leaving it out of v1.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
 - Later:
-  - one run of the daemon under the owner's real MCP client: spike (g) modelled a session's job object,
-    but not a real client's;
+  - one run of the daemon under Claude Code itself, once `wp/30-escape` merges (the smoke run's `mcp`
+    Python client killed the daemon on exit);
   - the GitHub description, which still says voices are "locked" (WP44);
   - gates H2 to H4.
 
 ## Next steps (the lead)
 
-1. WP30, WP31, WP33 and WP36 are merged. **WP32 is M1's last package**: it is fixing its review's findings and
-   rebasing onto `main` (f7f88ed); then the reviewer re-verifies, and it merges.
-2. **WP37 follow-ups:** `render` over WP36's backend once WP36 is on `main`; `doctor` checks the material
-   manifests once WP33's corpus loader is; a single-item evict in the store for what `verify` finds damaged
-   (the store's area); `reset_workers` stays a proposal.
-3. WP22 is merged (the main checkout's `workers/qa` venv is synced).
-4. **WP32** registers WP33's `measure` handler in `more_handlers` (its test is in place).
-5. **Gate H1:** the result is in `OWNER-ACTIONS.md` §1 (the fault is the seed's; recommend approving 05
-   and 08 as written). On the owner's approval, the lead freezes the manifests (status `frozen`) and adds
-   the calibration's design text to `calibration/narration-en.v1/paragraphs.json` as a top-level
-   `design_text` item (`segment_id` `cal-design`; WP33's ruling). That unblocks the real `measure_voice`
-   runs, WP38 and WP39. **The freeze includes `canary.v1`**, whose material id enters every pin, so the
-   owner's real `engine pin` comes after the freeze and after DC-16 (both change what a pin records).
-6. **M1 on this machine:** the local config is written (the gitignored `narration.toml` in the main
-   checkout: models in `.dev/models`, the store in `.dev/stores/service`, d2 and d4 in `allow_sha256`); the
-   worker venvs are synced. Then: `narration-admin engine pin`; a smoke run on real models in a scratch store
-   with a short ladder, to find integration faults before the real thing; after the corpus freeze, the owner
-   measures d2 or d4 (20–50 min of GPU, at a time the owner chooses) and narrates through a real Claude Code
-   session. **The owner's `.mcp.json` on this machine** should start the server through the venv's
-   interpreter (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not
-   `uv run … narration-mcp`, whose venv launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
-   The smoke run's config is ready: the gitignored `.dev/m1-smoke/narration.toml` (store
-   `.dev/stores/m1-smoke`, ladder `[80, 150]`; it loads).
+1. **Every M1 package is on `main`, and the smoke run passed** (plan.md §9, 2026-09-27 evening). The
+   owner's first real narration, once the owner picks the re-designed take:
+   - copy the clip into the gitignored `.dev/voices/` and add its sha256 to `[voices] allow_sha256` in the
+     gitignored `narration.toml`;
+   - `narration-admin engine pin` on the real store (`.dev/stores/service`; about 5.5 min);
+   - `measure_voice` on the chosen ladder, under the GPU lock;
+   - narrate from a Claude Code session, with the daemon started from a terminal first until
+     `wp/30-escape` merges.
+   **The owner's `.mcp.json`** should start the server through the venv's interpreter
+   (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not
+   `uv run … narration-mcp`, whose launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
+2. **The daemon fix (`wp/30-escape`):** review the Fable agent's report, verify it adversarially (a
+   workflow), then PR, CI and merge.
+3. **After M1:** WP34, WP35, WP38, WP39 and WP45, then Wave 3 (WP40–WP44), with the follow-ups below.
+4. **WP37 follow-ups:** `doctor` checks the material manifests (WP33's corpus loader is on `main`); a
+   single-item evict in the store for what `verify` finds damaged (the store's area); `reset_workers`
+   stays a proposal.
 
 ## Follow-ups to fold into the packages
 
@@ -110,7 +106,6 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
   - measure the aligner's memory beyond about 40 s of audio.
 
   The aligner's `_is_broken_file` treats any non-memory `RuntimeError` as a damaged snapshot; narrow it.
-- **WP32**: assemble the aligner and the QA model pins in the job engine's `installed_engine`.
 - **WP38**: re-set the aligner's snap reaches (ASSUME) from a hand-marked boundary next to an unplaced
   cue, and consider a separate reach for wildcard edges.
 - **Store (low, from WP12's re-verification):** treat a zero file id (`st_ino == 0`) as unknown in the
@@ -144,6 +139,11 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
   gate is a weak alarm by nature (lead decision, plan.md §9, 2026-09-27).
 - **WP36, after M1:** §7.3's all-cached submit completes at once (a WP31-owned "complete from the cache
   or say no" function called at submit).
+
+- **Pace on short segments (WP40, from the M1 smoke run):** two takes of a short segment failed
+  PACE_FAST against a two-rung ladder's trend; check the trend's slope on a real measurement and plant
+  short-segment pace cases.
+- **`get_server_status`'s `spec_revision`** reads "2026-07-28"; check it against design revision 5.14.
 
 - **QA blind spots found by gate H1's investigation (for WP14's area and WP40's planted faults):**
   - §11.1 step 7's acoustic head check (speech before the first word that matches the voice's

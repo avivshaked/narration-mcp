@@ -668,7 +668,7 @@ Updated by the lead on `main` only.
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `done` | PR #34 | 2026-09-27; review, re-verification workflow and a check of its fixes (all hold); DC-16 in; five Low follow-ups on `wp/32-followups` |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `done` | PRs #34, #36 | 2026-09-27; review, re-verification workflow and a check of its fixes (all hold); DC-16 in; its five Low follow-ups merged (PR #36) |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
@@ -1033,3 +1033,36 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     sets stay draft. Verified by a three-lens adversarial workflow (no finding survived).
   - **Every M1 package is on `main`.** The M1 smoke run (scratch store, two-rung ladder, through
     `narration-mcp` over stdio) started.
+
+- 2026-09-27, evening: **M1 works on real models** (a smoke run in a scratch store, driven over stdio by the
+  `mcp` Python client as Claude Code drives it). KNOW from the local run; its driver, logs and results are in
+  the lead's gitignored `.dev/m1-smoke/`, not in `spikes/`.
+  - `narration-admin engine pin`: 5.5 min for both engines.
+  - `measure_voice` on d4 with a two-rung ladder: 574 s. The transcript check took about 50 s, Qwen's load
+    and canary about 50 s, 18 renders 7.5 min (about 2.1 s of GPU per second of audio), and the QA of
+    18 takes about 20 s. A full ladder is BELIEVE about 28 min a voice; one stopped at 300 characters about
+    13 min.
+  - `submit_job` with two invented paragraphs, two takes each: 124 s with two retakes. Cue times were
+    placed; the verdicts were pass, warn (PACE_FAST) and, for one segment's first two takes, fail
+    (PACE_FAST); a retake passed.
+  - **Watch item for WP40 (BELIEVE):** those fails measured 184 and 188 wpm against an expected 152.6. The
+    two-rung ladder's pace trend is likely too steep for short segments. Recheck on a real measurement;
+    WP40 plants short-segment pace cases.
+  - **The daemon dies when the MCP client exits.** The `mcp` SDK's Windows stdio client runs the server in
+    a kill-on-close job object that does not allow breakaway, and the detached daemon went with it. A
+    Fable agent is on it (`wp/30-escape`). Until it merges: start the daemon from a terminal
+    (`narration-admin daemon start`) before the client.
+  - **Follow-up:** `get_server_status` reports `spec_revision` "2026-07-28", which looks stale against
+    design revision 5.14.
+- 2026-09-27, evening: **WP32's five Low follow-ups merged (PR #36).**
+- 2026-09-27, evening: **d2 re-designed to speak the service's design text** (the owner's idea, so the
+  first measured voice has a public transcript). KNOW from a local run (script and results in the lead's
+  gitignored `.dev/d2-redesign/`):
+  - The pinned VoiceDesign profile **reproduced d2** from its description, text and seed: the same length,
+    every sample within one 16-bit step (d2 was saved as 16-bit PCM). That is a fresh process and a
+    different venv from the bake-off's.
+  - With the corpus's design text and eight seeds, WavLM-SV similarity to d2 was 0.867–0.978 (seed 2006
+    the highest, then 2003 at 0.952 and 2008 at 0.936). d2's own seed gave 0.918: a seed does not hold a
+    voice across texts (design §1).
+  - The owner listens and picks. The pick is allowlisted in the owner's local configuration, pinned in
+    the real store and measured.
