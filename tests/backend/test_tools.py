@@ -450,6 +450,20 @@ def test_only_a_current_measurement_is_answered_at_once_s7_6(service: Service) -
     assert backend.measure_voice_sync({"voice": service.voice()})["status"] == "completed"
 
 
+def test_a_calibration_corpus_that_cannot_be_read_is_backend_not_installed_s14(service: Service) -> None:
+    config = service.world.config
+    missing = dataclasses.replace(config, measurement=dataclasses.replace(config.measurement, corpus="no-such-set.v1"))
+    backend, _, _ = make_backend(service.world)
+    backend.measurements = StoreMeasurements(service.world.store, missing)
+    with pytest.raises(NarrationError) as caught:
+        backend.measure_voice_sync({"voice": service.voice()})
+    error = caught.value
+    assert (error.code, error.retryable) == (codes.BACKEND_NOT_INSTALLED, False)
+    assert error.hint == "Reinstall the service: its material folder is missing or changed."
+    assert error.details == {"corpus": "no-such-set.v1"}
+    assert service.world.store.jobs_created_since("2000-01-01T00:00:00Z") == 0
+
+
 # ======================================================================== DC-2 on every tool
 
 

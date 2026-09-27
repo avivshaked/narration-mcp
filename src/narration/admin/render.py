@@ -25,7 +25,7 @@ import json
 import os
 import secrets
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Final
 
@@ -33,6 +33,7 @@ import anyio
 
 from narration.backend import DaemonLauncher, NarrationBackend, backend_for
 from narration.contracts.names import TERMINAL_JOB_STATUSES
+from narration.mcp.validation import build_validators
 
 from .cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE, PROGRAM, Admin, AdminError, Subparsers
 
@@ -41,6 +42,8 @@ WAIT_S: Final = 1800.0
 POLL_S: Final = 30.0
 """Each ``get_job`` long-poll's ``wait_s`` (the tool takes at most 55)."""
 SEGMENT_ID: Final = "render"
+TOOL: Final = "submit_job"
+"""The tool whose request ``render`` sends, and whose input schema checks it."""
 MAX_TEXT_BYTES: Final = 64 * 1024
 """A text or transcript file is read up to this size; the service's own limits are far below it."""
 
@@ -112,14 +115,20 @@ def _sha256(path: Path) -> str:
         raise AdminError(f"cannot read the voice clip {path}: {exc.strerror or exc}", exit_code=EXIT_USAGE) from exc
 
 
-def build_request(args: argparse.Namespace) -> dict[str, Any]:
-    """The ``submit_job`` request ``render``'s arguments make: the voice, one segment, the options."""
+def build_request(args: argparse.Namespace, check_path: Callable[[str], Path]) -> dict[str, Any]:
+    """The ``submit_job`` request ``render``'s arguments make: the voice, one segment, the options. It is
+    checked against the tool's input schema (``narration.mcp.validation``), so it is refused exactly as the
+    tool would refuse it (a ``NarrationError``) before anything is queued.
+
+    Without ``--sha256``, the clip's sha256 is computed here, from the file ``check_path`` (section 17.3,
+    ``Platform.check_readable_path``) returns: a path the service would refuse is never opened.
+    """
     voice = Path(args.voice).expanduser()
     if not voice.is_absolute():
         voice = Path(os.path.abspath(voice))
     transcript = args.transcript if args.transcript is not None else _read_text(args.transcript_file, "transcript")
     text = args.text if args.text is not None else _read_text(args.text_file, "text")
-    sha = args.sha256.lower() if args.sha256 else _sha256(voice)
+    sha = args.sha256.lower() if args.sha256 else _sha256(check_path(str(voice)))
     options: dict[str, Any] = {}
     if args.takes is not None:
         options["takes"] = args.takes
@@ -132,6 +141,7 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
     }
     if options:
         request["options"] = options
+    build_validators()[TOOL].validate(request)
     return request
 
 
@@ -147,7 +157,7 @@ def render(admin: Admin, args: argparse.Namespace) -> int:
     """Submit, wait, read the results, and copy the suggested take (see the module docstring)."""
     if args.out is not None and args.out.exists() and not args.force:
         raise AdminError(f"{args.out} is there already; pass --force to replace it", exit_code=EXIT_USAGE)
-    request = build_request(args)
+    request = build_request(args, admin.platform().check_readable_path)
     backend = backend_for(admin.config(), admin.store(), admin.platform(), launcher=launcher_for(admin))
     submitted = backend.submit_job_sync(request)
     for warning in submitted.get("warnings", []):

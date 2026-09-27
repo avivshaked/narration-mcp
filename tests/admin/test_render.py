@@ -198,9 +198,52 @@ def test_the_request_is_the_tools_request(tmp_path: Path) -> None:
         dry_run=False,
         segment_id="p01",
     )
-    request = render_module.build_request(parser_args)
+    request = render_module.build_request(parser_args, StandInPlatform().check_readable_path)
     assert request["voice"] == {"path": str(clip), "sha256": sha, "transcript": "A quiet morning."}
     assert request["segments"] == [{"segment_id": "p01", "text": "The ferry leaves."}]
     assert request["options"] == {"takes": 2}
     validator = Draft202012Validator(TOOLS_BY_NAME["submit_job"].input_schema)
     assert [e.message for e in validator.iter_errors(request)] == []
+
+
+def test_a_request_the_tool_would_refuse_is_refused_before_anything_is_queued_s14(rig: Rig) -> None:
+    ran = rig(*rig.voice(), "--text", LAMPS, "--segment-id", "Not An Id!")
+    assert ran.code == EXIT_FAILED
+    assert "INVALID_ARGUMENT" in ran.err and "Traceback" not in ran.err
+    assert rig.world.store.queued_jobs() == ()
+    assert rig.launcher.ensured == 0
+
+
+@pytest.mark.parametrize("transcript", ["", "   \n\t  \n"])
+def test_an_empty_transcript_is_refused_as_the_tool_refuses_it_s7_2(rig: Rig, tmp_path: Path, transcript: str) -> None:
+    empty = tmp_path / "transcript.txt"
+    empty.write_text(transcript, encoding="utf-8")
+    ran = rig("--voice", str(rig.world.clip), "--transcript-file", str(empty), "--text", LAMPS)
+    assert ran.code == EXIT_FAILED
+    assert "INVALID_ARGUMENT" in ran.err and "Traceback" not in ran.err
+    assert rig.world.store.queued_jobs() == ()
+
+
+def test_a_path_the_service_refuses_is_never_opened_s17_3(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[Path] = []
+    monkeypatch.setattr(render_module, "_sha256", lambda path: opened.append(path) or "0" * 64)
+    ran = rig("--voice", "\\\\fileserver\\share\\clip.wav", "--transcript", VOICE_TRANSCRIPT, "--text", LAMPS)
+    assert ran.code == EXIT_FAILED
+    assert "PATH_NOT_ALLOWED" in ran.err
+    assert opened == [], "the clip is hashed only after section 17.3's check"
+    assert rig.world.store.queued_jobs() == ()
+
+
+def test_without_sha256_the_clip_is_hashed_from_the_checked_path_s17_3(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checked: list[str] = []
+    real = rig.platform.check_readable_path
+
+    def check(path: str) -> Path:
+        checked.append(path)
+        return real(path)
+
+    monkeypatch.setattr(rig.platform, "check_readable_path", check)
+    assert rig(*rig.voice(), "--text", LAMPS, "--wait", "0").code == EXIT_OK
+    assert checked[0] == str(rig.world.clip), "the first look at the clip is the path check"
