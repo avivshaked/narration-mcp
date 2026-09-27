@@ -1,6 +1,6 @@
 # HANDOFF
 
-*Updated 2026-09-27, morning. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-27, afternoon. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Where things stand
@@ -12,16 +12,15 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
   configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), WP22 the QA
-  worker (PR #29), WP37 `narration-admin` (PR #30), contracts 1.1–1.6.5, the private-text guard. Design
+  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), contracts 1.1–1.6.5, the private-text guard. Design
   revision 5.13.
 - **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
   its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f | building; the real `installed_engine` done; `engine` commands on WP37's interface next; DC-16 awaits the owner |
-  | WP33 `measure_voice` | `wp/33-measure` | a21fe923fab0198e7 (reviewer a9759b8d3287035d1, Fable) | review: merge with follow-ups; fixing one High (path-check fallback) and one Low |
-  | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | in review; created-`completed` at submit (§7.3) is a follow-up |
+  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f (reviewer a4e02ce9beb000009, Fable) | review: rebased onto ceb8267; the real canary ran on this GPU (both profiles `bit_exact`, `hash_match` after a fresh load); after review it rebases onto `main` and registers WP33's `measure` kind in `more_handlers`; the VoiceDesign gate's threshold (0.33) is an open question for the reviewer and the lead; DC-16 awaits the owner |
+  | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | review fixes 1, 3, 4, 5 and `narration-admin render`; then rebase onto `main` (WP33 is there) |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -73,12 +72,13 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps (the lead)
 
-1. WP30 and WP31 are merged; WP32, WP33 and WP36 are rebasing onto `main`.
+1. WP30, WP31 and WP33 are merged; WP32 and WP36 are in review and rebase onto `main` before merging.
 2. **WP37 follow-ups:** `render` over WP36's backend once WP36 is on `main`; `doctor` checks the material
    manifests once WP33's corpus loader is; a single-item evict in the store for what `verify` finds damaged
    (the store's area); `reset_workers` stays a proposal.
 3. WP22 is merged (the main checkout's `workers/qa` venv is synced).
-4. **WP32, WP33, WP36:** reviews and merges, as each is ready. Then WP37 (the CLI; `engine pin` is WP32's).
+4. **WP32, WP36:** reviews and merges, as each is ready. Whichever merges first, WP32 adds WP33's
+   `measure` handler to `more_handlers` (its test is in place).
 5. **Gate H1:** the result is in `OWNER-ACTIONS.md` §1 (the fault is the seed's; recommend approving 05
    and 08 as written). On the owner's approval, the lead freezes the manifests (status `frozen`) and adds
    the calibration's design text to `calibration/narration-en.v1/paragraphs.json` as a top-level
@@ -90,8 +90,7 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
    with a short ladder, to find integration faults before the real thing; after the corpus freeze, the owner
    measures d2 or d4 (20–50 min of GPU, at a time the owner chooses) and narrates through a real Claude Code
    session. **The owner's `.mcp.json` on this machine** should start the server through the venv's
-   interpreter (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>
-arration.toml`), not
+   interpreter (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not
    `uv run … narration-mcp`, whose venv launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
 
 ## Follow-ups to fold into the packages

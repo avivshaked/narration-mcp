@@ -666,8 +666,8 @@ Updated by the lead on `main` only.
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | profiles, drift check and the real `installed_engine` built; rebasing onto `main`; `engine pin` on WP37's interface next; DC-16 contract awaits the owner's OK |
-| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `review` | `wp/33-measure` | Fable review: merge with follow-ups; fixing one High (the platform path-check fallback) and one Low; acceptance (d4) after WP32 |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `review` | `wp/32-engine` | rebased onto `main`; the real canary ran on this GPU (both profiles `bit_exact`, `hash_match` after a fresh load); Fable review under way; WP33's two lines and DC-16 wait |
+| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
 | WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `review` | `wp/36-backend` | every tool built; first narration end to end on the fake workers, through the real daemon; `narration-mcp` serves it; independent (Fable) review running |
@@ -998,3 +998,6 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **WP22 merged (PR #29):** the QA worker; design revision 5.13 (DC-14, DC-15, the QA group's
     memory). WP37 fixed its review's findings (a path-traversal hole in `install` among them) and is in CI.
   - **WP37 merged (PR #30):** `narration-admin`. Default suite on the merged tree: 3344 passed.
+  - **WP33 merged (PR #31):** `measure_voice`; its d4 acceptance runs on `main` once WP32 registers the
+    `measure` kind. **WP32 is in review** (Fable): the real canary ran on this GPU, both profiles
+    `bit_exact`, `hash_match` after a fresh load; the VoiceDesign gate's calibrated threshold is weak (0.33).
