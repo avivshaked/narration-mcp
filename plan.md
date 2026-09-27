@@ -519,15 +519,15 @@ because the bakeoff set no determinism switches. Spike (d) decides the tier and 
 
 | WP | Title | Design | Depends | GPU |
 |---|---|---|---|---|
-| WP22 | QA worker (real models) | §4 QA worker, §11.1 ASR/SV, §3.6 | WP16, WP15 | yes (bounded) |
+| WP22 | QA worker | 2 | WP16, WP15 | yes | `review` | `wp/22-qa-worker` | acceptance passes with DC-14 and DC-15 (60 s); QA group needs 11500 MB; independent review running |
 | WP30 | Daemon process management | §4, §4.1, spike (g) | WP12, WP16, WP19 | no |
-| WP31 | Job engine: scheduler, rounds, retakes | §4 GPU scheduler, §8 | WP12, WP13, WP14, WP16 | no (fake worker) |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
 | WP32 | Engine profiles, fingerprints, canary gate | §6 EngineProfile, §10.1 | WP20, WP22, WP12 | yes (bounded) |
 | WP33 | `measure_voice` | §3.2 | WP31, WP22, WP14, WP18 (H1) | yes (long) |
 | WP34 | `design_voice`, provenance, `profile_voice` | §3.1, §3.5, §3.6, §17.4 | WP31, WP20, WP22, WP10 | yes (bounded) |
 | WP35 | `audition_pronunciation` | §7.6 | WP31 | yes (bounded) |
 | WP36 | Front-end ↔ daemon wiring | §7.3–§7.7, §12, §17.3 | WP17, WP31, WP12, WP10, WP19 | no |
-| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `active` | `wp/37-admin` | the dispatcher, `daemon`, `doctor` first (M1); `engine` commands come from WP32's `narration.engine.admin` |
+| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `review` | `wp/37-admin` | dispatcher, daemon, doctor, gc, verify, install; `render` after WP36, `bench` after WP38; independent review running |
 | WP38 | Alignment benchmark + `bench alignment` | §11.2, spike (a) | WP15, WP18, WP20 | yes (renders); **H2, H3** |
 | WP39 | Phase 0 (c): length ladder for d2 and d4 | §3.2, §20 (c) | WP33 (or a spike harness), H1 | yes (40–100 min) |
 
@@ -991,3 +991,7 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **WP32:** the engine profile, the drift check and `installed_engine` are built (the real engine:
     aligner, QA pins, canary guard). **DC-16:** `vram_need_mb` is kept but not hashed. `CANARY_MISMATCH`
     only in the `bit_exact` tier (a WP31 fix).
+  - **WP31 merged (PR #28):** contracts 1.6.5, design revision 5.12; the daemon runs the job engine by
+    default. WP32, WP33 and WP36 rebase onto `main`. WP22 and WP37 are in independent review.
+  - **WP33's measure job and WP36's tools work end to end on the fake workers:** measure a voice, then
+    narrate with `takes: 2` over JSON-RPC, with results validated against the output schema.

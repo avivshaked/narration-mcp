@@ -11,16 +11,15 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   in parallel now; the rest of plan.md follows M1.
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
-  configuration rule (PR #27, `narration.config.find_config`), contracts 1.1–1.6.4, the private-text guard.
-  Design revision 5.11.
-- **In flight.** Agent ids resume with SendMessage. Branches marked "stacked" start from `wp/31-jobs` at
-  `2cb9905`; they rebase with `git rebase --onto <new base> 2cb9905` when WP31 moves or merges.
+  configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), contracts
+  1.1–1.6.5, the private-text guard. Design revision 5.12.
+- **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
+  its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP37 operator CLI | `wp/37-admin` | a1b119ea6c733e52b (WP30's agent) | building: the dispatcher, `daemon`, `doctor` first |
-  | WP31 job engine | `wp/31-jobs` | a14018acdf37134e4 (reviewer ab46fd42f89f13995) | re-verified: merge with follow-ups; fixing two Mediums (a SQLite connection leaked per lease renewal; a flaky lease test); then rebase on WP30, contracts 1.6.5 |
-  | WP22 QA worker | `wp/22-qa-worker` | a560deac0c56c674c | DC-14 built; DC-15 at 60 s windows, one GPU acceptance run left; then review. QA group `vram_need_mb` = 11500 |
+  | WP37 operator CLI | `wp/37-admin` | a1b119ea6c733e52b (reviewer a9dd8b1a7ed2648b1) | in review; `render` follows WP36 |
+  | WP22 QA worker | `wp/22-qa-worker` | a560deac0c56c674c (reviewer ad2cf436a03859564) | in review; acceptance passes (DC-14, DC-15 at 60 s); QA group `vram_need_mb` = 11500 |
   | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` (stacked) | a203bffe41405429f | building; `installed_engine` first |
   | WP33 `measure_voice` | `wp/33-measure` (stacked) | a21fe923fab0198e7 | building, against the draft corpus |
   | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` (stacked) | a35085aca80cfb4e8 | building; M1's tools first |
@@ -75,10 +74,10 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps (the lead)
 
-1. **WP30 is merged**; WP31 is told to rebase on it.
-2. **WP31:** check its fixes and its after-WP30 diff; merge with design §7.3 and §8's text (`outcome` is
-   `needs_attention` only for a tier-4 suggestion or a segment with no take). Then tell WP32, WP33 and
-   WP36 to rebase with `--onto main 2cb9905`.
+1. WP30 and WP31 are merged; WP32, WP33 and WP36 are rebasing onto `main`.
+2. **WP37 follow-ups:** `render` over WP36's backend once WP36 is on `main`; `doctor` checks the material
+   manifests once WP33's corpus loader is; a single-item evict in the store for what `verify` finds damaged
+   (the store's area); `reset_workers` stays a proposal.
 3. **WP22:** independent review, then merge with design §11.1's text for DC-14 and DC-15.
 4. **WP32, WP33, WP36:** reviews and merges, as each is ready. Then WP37 (the CLI; `engine pin` is WP32's).
 5. **Gate H1:** the result is in `OWNER-ACTIONS.md` §1 (the fault is the seed's; recommend approving 05
