@@ -63,9 +63,11 @@ def _sha256(path: Path) -> str:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
-def stage_clip(store: Store, voice: VoiceSpec, *, check_path: PathCheck | None) -> Path:
+def stage_clip(store: Store, voice: VoiceSpec, *, check_path: PathCheck | None, target: Path | None = None) -> Path:
     """The working copy of the request's clip, copied from ``voice.path`` if it is not there (see the module
-    docstring).
+    docstring). ``target`` puts the copy elsewhere inside the store's scratch instead of the shared
+    ``clip_path``: a job's own folder, for audio that is not a voice to clone (``profile_voice``), so the copy
+    goes when the job's scratch does.
 
     A caller's file is read only through ``check_path`` (section 17.3, ``Platform.check_readable_path``):
     with none wired, nothing is read (``INTERNAL``: the service was built without its path check). Raises
@@ -73,7 +75,7 @@ def stage_clip(store: Store, voice: VoiceSpec, *, check_path: PathCheck | None) 
     file over ``MAX_CLIP_BYTES``; ``VOICE_FILE_MISMATCH`` when the file cannot be read or its sha256 is not
     the one sent; ``STORE_FULL`` when the store's disk fills during the copy. Nothing is left half copied.
     """
-    target = clip_path(store, voice.sha256)
+    target = target if target is not None else clip_path(store, voice.sha256)
     if target.is_file() and _sha256(target) == voice.sha256:
         return target
     if check_path is None:

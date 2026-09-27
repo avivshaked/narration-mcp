@@ -12,7 +12,10 @@ sha256, a WAV of at most 20 MB).
    (``names.PROFILE_VERSION``) completes the job at once. A profile is a function of the audio's bytes alone:
    ``profile_voice`` is sent no transcript, so its speaking rate is null.
 2. **The audio** is copied into the store before a worker sees it (``narration.jobs.voice.stage_clip``: through
-   the daemon's path check, and only if the file still has the sha256 sent).
+   the daemon's path check, and only if the file still has the sha256 sent), into the job's own scratch folder,
+   which goes when the job ends, whatever its outcome: the audio may be anyone's recording, and the store keeps
+   only its profile (section 0.2). It is never put where a voice's working copy lives, and never on the
+   provenance list, so profiling a clip never makes it one the service may clone (section 17.4).
 3. **The profile** runs on the CPU, in seconds (section 7.6): the QA worker's ``profile`` op. When the QA group is
    already loaded, its worker is used as it is; otherwise the worker is loaded with no model, on the CPU
    (App. A: ``models: {}``), which never waits for or holds the GPU.
@@ -60,6 +63,8 @@ PROFILE_NEED: Final = GroupNeed(
 """What a profile needs when the QA group is not loaded: the QA worker loaded with no model, on the CPU."""
 NOMINAL_S: Final = 1.0
 """A profile's size in the job's progress (``narration.jobs.admission``'s nominal figure for the kind)."""
+AUDIO_WAV: Final = "audio.wav"
+"""The audio's working copy, in the job's scratch folder (``scratch/jobs/<job_id>/``)."""
 
 
 @dataclass(slots=True, eq=False, kw_only=True)
@@ -109,13 +114,20 @@ class ProfileHandler:
             run.current = found
             run.message = "already profiled: the profile of these bytes is in the cache"
             return run
-        # Section 17.3: a caller's file is read only through the daemon's path check (or the one built in).
+        # Section 17.3: a caller's file is read only through the daemon's path check (or the one built in). The
+        # copy goes in the job's own scratch folder, removed however the job ends: it may be anyone's recording,
+        # and nothing needs it once its profile is made (section 0.2).
         check = parts.check_path if parts.check_path is not None else host.platform.check_readable_path
+        run.scratch.mkdir(parents=True, exist_ok=True)
         try:
             run.wav = stage_clip(
-                store, VoiceSpec(path=audio.path, sha256=audio.sha256, transcript=""), check_path=check
+                store,
+                VoiceSpec(path=audio.path, sha256=audio.sha256, transcript=""),
+                check_path=check,
+                target=run.scratch / AUDIO_WAV,
             )
         except NarrationError as exc:
+            self.endings.release(run)
             raise _as_audio(exc) from exc
         run.message = "planned: a profile on the CPU"
         return run

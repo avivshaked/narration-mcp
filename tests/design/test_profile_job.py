@@ -65,6 +65,24 @@ def test_a_profile_uses_the_qa_group_as_it_is_when_it_is_loaded_s4(world: Design
     assert len(world.pool.loads) == loads, "no load: the resident QA group's worker profiles as it is"
 
 
+def _wavs_in_scratch(world: DesignWorld) -> list[Path]:
+    return [p for p in (world.store.root / "scratch").rglob("*.wav") if p.is_file()]
+
+
+def test_the_audio_is_neither_kept_nor_made_clonable_s0_2_s17_4(world: DesignWorld) -> None:
+    """``profile_voice`` takes anyone's recording: its working copy goes with the job, whatever the outcome, and
+    profiling never puts a clip on the provenance list."""
+    audio = world.root / "elsewhere" / "someone.wav"
+    sha = write_wav(audio)
+    job = world.profile(audio, sha)
+    world.run()
+    profiled(world, job.job_id)
+    (request,) = world.requests("profile")
+    assert Path(request["wav"]).parent == world.store.root / "scratch" / "jobs" / job.job_id
+    assert _wavs_in_scratch(world) == [], "no copy of the audio is left in scratch"
+    assert not world.store.is_provenance(sha)
+
+
 def test_the_same_bytes_are_answered_from_the_cache_s15(world: DesignWorld) -> None:
     audio = world.root / "elsewhere" / "take.wav"
     sha = write_wav(audio)
@@ -102,6 +120,8 @@ def test_audio_that_changed_or_went_fails_the_job_naming_the_field_s14(
     assert (done.error.code, done.error.field, done.error.retryable) == (code, field, False)
     assert done.error.hint
     assert world.requests("profile") == []
+    assert _wavs_in_scratch(world) == []
+    assert not (world.store.root / "scratch" / "jobs" / job.job_id).exists()
 
 
 class _Silent:
@@ -134,6 +154,7 @@ def test_silent_audio_is_unsupported_audio_s14(world: DesignWorld, monkeypatch: 
     assert done.status == "failed" and done.error is not None
     assert (done.error.code, done.error.field) == (codes.UNSUPPORTED_AUDIO, "audio.path")
     assert done.error.hint
+    assert _wavs_in_scratch(world) == [], "a failed profile leaves no copy of the audio either"
 
 
 def test_a_profile_reply_is_read_as_the_record_s3_6() -> None:
