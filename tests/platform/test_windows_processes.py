@@ -22,9 +22,11 @@ from narration.contracts.errors import NarrationError
 from narration.platform import get_platform
 
 from ._support import (
+    HOST_FORBIDS_BREAKAWAY,
     WINDOWS_ONLY,
     child_argv,
     heartbeat_stopped,
+    host_lets_a_child_leave_every_job,
     is_beating,
     read_json,
     run_child,
@@ -46,6 +48,9 @@ NO_SUCH_PID = 0xFFFFFFFC
 
 SUSPENDED_DETACHED = 0x01000000 | 0x00000008 | 0x00000200 | 0x00000004
 """``CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED``."""
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+SYNCHRONIZE = 0x00100000
 
 
 class FakeSuspended:
@@ -249,6 +254,49 @@ def test_a_job_check_that_fails_ends_the_daemon_s4_1(tmp_path: Path, monkeypatch
     assert made[0].killed
 
 
+@pytest.mark.parametrize("where", ["_in_job", "_resume"])
+def test_an_interrupt_during_the_check_or_the_resume_ends_the_child_s4_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, where: str
+) -> None:
+    # Ctrl+C in narration-admin's main thread, say: whatever interrupts the check or the resume, no suspended
+    # child is left behind, unreaped and never running.
+    made: list[FakeSuspended] = []
+
+    def interrupt(*args: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        _windows, "_DetachedPopen", lambda argv, **kwargs: made.append(FakeSuspended(argv, **kwargs)) or made[-1]
+    )
+    monkeypatch.setattr(_windows, "_in_job", interrupt if where == "_in_job" else (lambda pid, job: False))
+    monkeypatch.setattr(_windows, "_resume", interrupt if where == "_resume" else (lambda pid: None))
+    with pytest.raises(KeyboardInterrupt):
+        get_platform().spawn_detached(["python"], cwd=tmp_path, env={})
+    assert made[0].killed, f"the suspended child survived an interrupt in {where}"
+
+
+def test_a_daemon_in_no_job_is_resumed_and_runs_s4_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The success path with a real process, whatever this host's jobs: the membership question is answered
+    # "no job" here, so the real suspended child must be resumed, run, and exit with its own code. (On a host
+    # whose jobs forbid breakaway the child sits in the host's job meanwhile, as every test process does.)
+    import _winapi
+
+    monkeypatch.setattr(_windows, "_in_job", lambda pid, job: False)
+    marker, go = tmp_path / "ran.json", tmp_path / "go"
+    pid = get_platform().spawn_detached(child_argv("exit", marker, 7, go), cwd=tmp_path, env=dict(os.environ))
+    assert wait_for_file(marker), "the suspended child was never resumed"
+    seen = read_json(marker)
+    assert pid in (seen["pid"], seen["ppid"])
+    # The child waits for `go`, so it is alive here and this handle is its own: its exit code is read from it.
+    handle = _winapi.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, pid)
+    try:
+        go.touch()
+        assert _winapi.WaitForSingleObject(handle, 30_000) == _winapi.WAIT_OBJECT_0, "the child did not exit"
+        assert _winapi.GetExitCodeProcess(handle) == 7, "the child exits with its own code"
+    finally:
+        _winapi.CloseHandle(handle)
+
+
 def test_a_daemon_that_cannot_be_resumed_is_ended_s4_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     made: list[FakeSuspended] = []
 
@@ -335,22 +383,40 @@ def test_a_daemon_that_would_stay_in_a_clients_job_is_refused_s4_1(tmp_path: Pat
     }
 
 
+def assert_refused_by_the_host(client: dict[str, object], marker: Path) -> None:
+    """On a host whose own jobs forbid breakaway (``HOST_FORBIDS_BREAKAWAY``), a client stand-in's detached
+    start is refused with ``left_in_job`` (its own job allows breakaway, so the refusal comes from the host's),
+    and no daemon ever runs: the marker a daemon would write never appears."""
+    refused = client.get("refused")
+    assert isinstance(refused, dict), f"{HOST_FORBIDS_BREAKAWAY}; yet a daemon was let run: {client}"
+    assert refused["code"] == codes.DAEMON_UNAVAILABLE
+    assert refused["details"]["reason"] == _windows.LEFT_IN_JOB, refused
+    assert refused["retry_after_s"] == _windows.DAEMON_RETRY_AFTER_S
+    assert not wait_for_file(marker, timeout_s=3.0), "a daemon ran although its start was refused"
+
+
 def test_a_daemon_leaves_nested_jobs_that_allow_breakaway_s4_1(tmp_path: Path) -> None:
-    # libuv's job (Node's, so Claude Code's: kill-on-close, breakaway and silent breakaway) around the venv
-    # launcher's: the daemon must end up in no job, and outlive both the client and the client's job.
+    # libuv's job (Node.js's, measured; Claude Code's, we believe: kill-on-close, breakaway and silent
+    # breakaway) around the venv launcher's: the daemon must end up in no job, and outlive both the client
+    # and the client's job. On a host whose own jobs forbid breakaway it must be refused instead (the rule
+    # is "in no Job Object at all"), and nothing must run.
     marker, go, out, cwd = tmp_path / "daemon.json", tmp_path / "go", tmp_path / "client.json", tmp_path / "cwd"
     cwd.mkdir()
     client_job = _windows._JobObject(kill_on_close=True, allow_breakaway=True, silent_breakaway=True)  # pyright: ignore[reportPrivateUsage]
     try:
         run_in_job(client_job, "client", marker, go, out, cwd, "mark-k", "nested")
         client = read_json(out)
-        assert "refused" not in client, client
-        assert client["daemon_in_any_job"] is False, "the daemon's first process left every job"
-        assert client_job.contains(client["daemon_pid"]) is False
+        if host_lets_a_child_leave_every_job():
+            assert "refused" not in client, client
+            assert client["daemon_in_any_job"] is False, "the daemon's first process left every job"
+            assert client_job.contains(client["daemon_pid"]) is False
     finally:
         client_job.close()  # the client's job closes, as when the client exits
     time.sleep(0.5)
     go.touch()
+    if not host_lets_a_child_leave_every_job():
+        assert_refused_by_the_host(client, marker)
+        return
     assert wait_for_file(marker), "the daemon died with its client's job"
     seen = read_json(marker)
     assert client["daemon_pid"] in (seen["pid"], seen["ppid"])
@@ -369,8 +435,10 @@ def _client(tmp_path: Path, how: str) -> tuple[dict[str, object], Path, Path]:
 
 def test_a_detached_daemon_survives_its_client_s4_1(tmp_path: Path) -> None:
     client, marker, cwd = _client(tmp_path, "platform")
-    if "refused" in client:
-        pytest.skip("this test runner's own Job Object forbids breakaway, so no detached start can succeed here")
+    if not host_lets_a_child_leave_every_job():
+        assert_refused_by_the_host(client, marker)
+        return
+    assert "refused" not in client, client
     assert wait_for_file(marker), "the daemon died with its client's job"
     seen = read_json(marker)
     # The pid returned is argv[0]'s: under a venv that is the launcher, whose child is the interpreter.

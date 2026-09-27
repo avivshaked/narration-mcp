@@ -234,6 +234,34 @@ def test_start_refused_breakaway_offers_the_foreground_s4_1(
     assert "breakaway from the job was refused" in ran.err and "daemon start --foreground" in ran.err
 
 
+@pytest.mark.parametrize(
+    ("reason", "said"),
+    [
+        ("breakaway_refused", "forbids breakaway"),
+        ("left_in_job", "forbids breakaway"),
+        ("job_check_failed", "could not confirm"),
+        (None, "forbids breakaway"),
+    ],
+)
+def test_start_refused_names_only_the_cause_windows_established_s4_1(
+    admin: AdminRun, config_path: Path, platform: StandInPlatform, reason: str | None, said: str
+) -> None:
+    details = None if reason is None else {"reason": reason}
+    platform.refuse_spawn = NarrationError("DAEMON_UNAVAILABLE", "no detached start", details=details)
+    ran = admin("--config", str(config_path), "daemon", "start")
+    assert ran.code == EXIT_FAILED
+    assert said in ran.err, ran.err
+    assert "no Job Object at all" in ran.err, "the rule is stated"
+    assert "daemon start --foreground" in ran.err, "the way out is offered in every case"
+    assert ("could not confirm" in ran.err) is (reason == "job_check_failed"), "an unknown cause is not asserted"
+
+
+def test_start_says_when_the_daemon_exits_for_want_of_work_s4_1(admin: AdminRun, config_path: Path) -> None:
+    ran = admin("--config", str(config_path), "daemon", "start", "--wait", "0")
+    assert ran.code == EXIT_OK
+    assert "idle_exit_min" in ran.out and "15 min" in ran.out, ran.out  # the default [daemon] idle_exit_min
+
+
 def test_start_on_an_unsupported_os_says_so_s4_1(admin: AdminRun, config_path: Path, platform: StandInPlatform) -> None:
     platform.refuse_spawn = UnsupportedPlatform("spawn_detached", "plan9")
     ran = admin("--config", str(config_path), "daemon", "start")

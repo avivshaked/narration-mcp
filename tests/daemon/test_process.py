@@ -42,7 +42,7 @@ if sys.platform != "win32":
     )
 
 from narration.platform import _windows, get_platform
-from tests.platform._support import start_in_job
+from tests.platform._support import HOST_FORBIDS_BREAKAWAY, host_lets_a_child_leave_every_job, start_in_job
 
 pytestmark = pytest.mark.timeout(180)
 
@@ -295,8 +295,15 @@ def test_a_detached_daemon_outlives_its_session_s4_1(service: Path, real_store: 
     )
     assert session.returncode == 0, session.stderr
     result = json.loads(out.read_text(encoding="utf-8"))
-    if "code" in result:
-        pytest.skip(f"this test runner's own Job Object forbids breakaway ({result})")
+    if not host_lets_a_child_leave_every_job():
+        # The rule is "in no Job Object at all": on such a host the start is refused, and no daemon runs.
+        assert result.get("code") == "DAEMON_UNAVAILABLE", f"{HOST_FORBIDS_BREAKAWAY}; yet: {result}"
+        assert result["details"]["reason"] == _windows.LEFT_IN_JOB, result
+        time.sleep(1.0)
+        assert read_status(real_store) is None, "the daemon was ended before it wrote anything"
+        assert not (real_store.layout.logs_dir() / "daemon.log").exists(), "it never ran"
+        return
+    assert "code" not in result, result
     launcher = int(result["spawned_pid"])
     owned: OwnedDaemon | None = None
     try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import subprocess
 import sys
@@ -13,6 +14,40 @@ from typing import Any
 
 WINDOWS_ONLY = "narration.platform is implemented for Windows only in v1 (plan.md Q2)"
 CHILD = Path(__file__).with_name("_child.py")
+
+HOST_FORBIDS_BREAKAWAY = (
+    "this host's own Job Objects forbid breakaway (KNOW: GitHub's hosted Windows runner does), so no child of "
+    "this test can be in no job at all, and a detached start is refused here (left_in_job): the test asserts "
+    "that refusal instead of the daemon's survival"
+)
+
+
+@functools.cache
+def host_lets_a_child_leave_every_job() -> bool:
+    """Whether a child this process starts with ``CREATE_BREAKAWAY_FROM_JOB`` ends up in no Job Object at all.
+
+    False where a job around this process forbids breakaway (GitHub's hosted Windows runner is one, KNOW from
+    PR #37's CI): then ``spawn_detached`` refuses with ``left_in_job`` (or ``breakaway_refused``, if that job is
+    the innermost) rather than run a daemon, and the survival tests assert the refusal. Probed once per test
+    process with a suspended child that never runs. Windows only.
+    """
+    from narration.platform import _windows  # pyright: ignore[reportPrivateUsage]
+
+    try:
+        probe = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=_windows.CREATE_BREAKAWAY_FROM_JOB | _windows.CREATE_SUSPENDED,
+        )
+    except PermissionError:
+        return False  # the innermost job forbids breakaway: CreateProcess itself refused
+    try:
+        return not _windows._in_job(probe.pid, None)  # pyright: ignore[reportPrivateUsage]
+    finally:
+        probe.kill()
+        probe.wait(timeout=30)
 
 
 def child_argv(*args: object) -> list[str]:

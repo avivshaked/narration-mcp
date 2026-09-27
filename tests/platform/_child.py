@@ -57,6 +57,14 @@ def sleep(marker: str, seconds: str) -> None:
         time.sleep(0.05)
 
 
+def exit_with(marker: str, code: str, go: str) -> None:
+    """Say this interpreter ran (its pid), wait for ``go`` (so the test can take a handle while this process is
+    provably alive), then exit with ``code``: the stand-in for a daemon that was resumed."""
+    write_json(marker, {"pid": os.getpid(), "ppid": os.getppid()})
+    wait_for(go)
+    sys.exit(int(code))
+
+
 def singleton(store_root: str, out: str) -> None:
     """Try the singleton once and report whether it was acquired."""
     with get_platform().singleton(Path(store_root)) as acquired:
@@ -177,6 +185,7 @@ def supervisor(worker_pid: str, out: str, go: str) -> None:
 
 MODES = {
     "sleep": sleep,
+    "exit": exit_with,
     "singleton": singleton,
     "hold": hold,
     "refused": refused,
