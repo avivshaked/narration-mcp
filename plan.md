@@ -666,11 +666,11 @@ Updated by the lead on `main` only.
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `review` | `wp/32-engine` | rebased onto `main`; the real canary ran on this GPU (both profiles `bit_exact`, `hash_match` after a fresh load); Fable review under way; WP33's two lines and DC-16 wait |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | Fable review: merge with follow-ups; fixing its High (`repin` after a driver update), Medium (a moved models root), the threshold floor and three smaller items; rebasing onto `main` and registering WP33's `measure` |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
-| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `review` | `wp/36-backend` | every tool built; first narration end to end on the fake workers, through the real daemon; `narration-mcp` serves it; independent (Fable) review running |
+| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `review` | `wp/36-backend` | review fixes done, WP33 wired in, `narration-admin render` added; rebased onto `main`; its Fable reviewer re-verifying |
 | WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `done` | PR #30 | 2026-09-27; daemon, doctor, gc, verify, install (review fixes incl. a path-traversal hole); `engine` from WP32, `render` after WP36, `bench` after WP38 |
 | WP38 | Alignment benchmark (spike a) | 2 | WP15, WP18, WP20 | yes | `todo` | – | H2, H3 |
 | WP39 | Ladder d2/d4 (spike c) | 2 | WP33 | yes (long) | `todo` | – | needs H1 |
@@ -1001,3 +1001,12 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **WP33 merged (PR #31):** `measure_voice`; its d4 acceptance runs on `main` once WP32 registers the
     `measure` kind. **WP32 is in review** (Fable): the real canary ran on this GPU, both profiles
     `bit_exact`, `hash_match` after a fresh load; the VoiceDesign gate's calibrated threshold is weak (0.33).
+  - **WP32's review (Fable): merge with follow-ups.** Being fixed before merge: `engine repin` could not
+    re-pin after a driver update (now a changed GPU, driver, CUDA or cuDNN is a new pin, plus
+    `repin --force`); a moved models root kept the old `snapshot_dir`; a floor under the calibrated
+    threshold. **The VoiceDesign gate (lead decision): option (a).** Its calibrated threshold (0.33 here)
+    stays a drift alarm: a numerical change re-samples a designed voice just as another seed does, so the
+    weakness is the property's, not the calibration's; `engine show` prints it, and WP34 shows
+    `similarity_pass` on candidates as `CANARY_MISMATCH` info. No design change (§10.1 as written).
+  - **WP36's review fixes are done**, with WP33 wired in and `narration-admin render`; re-verification
+    under way.

@@ -19,8 +19,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f (reviewer a4e02ce9beb000009, Fable) | review: rebased onto ceb8267; the real canary ran on this GPU (both profiles `bit_exact`, `hash_match` after a fresh load); after review it rebases onto `main` and registers WP33's `measure` kind in `more_handlers`; the VoiceDesign gate's threshold (0.33) is an open question for the reviewer and the lead; DC-16 awaits the owner |
-  | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | review fixes 1, 3, 4, 5 and `narration-admin render`; then rebase onto `main` (WP33 is there) |
+  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f (reviewer a4e02ce9beb000009, Fable) | fixing the review's findings 1, 2, 5, 6 and the test gap 4, `engine show` printing thresholds, `doctor` calling `aligner_method_id`; rebasing onto `main` and registering `measure`; then the reviewer re-verifies |
+  | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | review fixes, WP33 wiring and `narration-admin render` done; rebased on 8d5c778; reviewer re-verifying |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -83,7 +83,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
    and 08 as written). On the owner's approval, the lead freezes the manifests (status `frozen`) and adds
    the calibration's design text to `calibration/narration-en.v1/paragraphs.json` as a top-level
    `design_text` item (`segment_id` `cal-design`; WP33's ruling). That unblocks the real `measure_voice`
-   runs, WP38 and WP39.
+   runs, WP38 and WP39. **The freeze includes `canary.v1`**, whose material id enters every pin, so the
+   owner's real `engine pin` comes after the freeze and after DC-16 (both change what a pin records).
 6. **M1 on this machine:** the local config is written (the gitignored `narration.toml` in the main
    checkout: models in `.dev/models`, the store in `.dev/stores/service`, d2 and d4 in `allow_sha256`); the
    worker venvs are synced. Then: `narration-admin engine pin`; a smoke run on real models in a scratch store
@@ -126,6 +127,19 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
 - **WP16 (Low, from the second follow-ups' review):** the snapshot reference is checked by three
   implementations (the fake, qwen3, the QA worker): share one check; the shared WAV writer can still raise
   `struct.error` past 4 GiB of data.
+
+- **After WP32 and WP36 are both merged:** `serve` passes WP32's installed QA pins as `AnalysisPins`
+  (until then a plan counts every analysis as needed; WP36's note).
+- **WP32's review, deferred:** the editable worker packages (`narration-worker`,
+  `narration-worker-qwen3tts`) are not fingerprinted, so a worker code edit with an unchanged version is
+  invisible to the hash (the canary would still catch an audio change); `[engines.qwen3_base]
+  x_vector_only_mode` must stay `false` (the canary clones with `false`), so document it or make the
+  canary follow it; a canary-text change forces new profile ids (a canary-only re-pin under the same id
+  would need a store change).
+- **WP34:** show a design candidate's `similarity_pass` as `CANARY_MISMATCH` (info); the VoiceDesign
+  gate is a weak alarm by nature (lead decision, plan.md §9, 2026-09-27).
+- **WP36, after M1:** §7.3's all-cached submit completes at once (a WP31-owned "complete from the cache
+  or say no" function called at submit).
 
 - **QA blind spots found by gate H1's investigation (for WP14's area and WP40's planted faults):**
   - §11.1 step 7's acoustic head check (speech before the first word that matches the voice's
