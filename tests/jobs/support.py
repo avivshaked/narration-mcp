@@ -99,6 +99,39 @@ class MonotonicClock:
             self.now += seconds
 
 
+class StoreClock:
+    """Unix seconds for a store, which a test can move ahead of the wall clock (a lease's TTL passing in an
+    instant)."""
+
+    def __init__(self) -> None:
+        self.ahead = 0.0
+        self._lock = threading.Lock()
+
+    def __call__(self) -> float:
+        with self._lock:
+            return time.time() + self.ahead
+
+    def advance(self, seconds: float) -> None:
+        with self._lock:
+            self.ahead += seconds
+
+
+GATE_TIMEOUT_S: Final = 120.0
+
+
+@dataclass
+class Gate:
+    """Holds the next request of one op inside its worker call (before it reaches the worker) until the test
+    releases it: ``entered`` is set once the request is held."""
+
+    op: str
+    entered: threading.Event = field(default_factory=threading.Event)
+    released: threading.Event = field(default_factory=threading.Event)
+
+    def release(self) -> None:
+        self.released.set()
+
+
 class CountingClient:
     """A worker client that counts the requests sent through it, by (group, op), and what they asked for."""
 
@@ -126,6 +159,11 @@ class CountingClient:
         with self._pool.lock:
             self._pool.calls[(self.group, op)] += 1
             self._pool.requests.append((self.group, op, dict(payload)))
+            gate = self._pool.gates.pop(op, None)
+        if gate is not None:
+            gate.entered.set()
+            if not gate.released.wait(GATE_TIMEOUT_S):
+                raise AssertionError(f"the test never released the held {op} request")
         return self.inner.request(op, payload, timeout_s=timeout_s)
 
     def is_alive(self) -> bool:
@@ -154,6 +192,14 @@ class FakePool:
         self.unloads: list[GpuHolder] = []
         self.starts = 0
         self.refused = 0
+        self.gates: dict[str, Gate] = {}
+
+    def hold(self, op: str) -> Gate:
+        """Hold the next ``op`` request inside its worker call until the returned gate is released."""
+        gate = Gate(op)
+        with self.lock:
+            self.gates[op] = gate
+        return gate
 
     @property
     def gpu_holder(self) -> GpuHolder | None:

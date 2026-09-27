@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -118,14 +118,20 @@ class World:
         self.runner = EngineRunner(self.engine)
 
 
-def make_world(root: Path, anchor: tuple[float, ...], *, holder: str | None = None) -> World:
+def make_world(
+    root: Path,
+    anchor: tuple[float, ...],
+    *,
+    holder: str | None = None,
+    store_clock: Callable[[], float] | None = None,
+) -> World:
     store_root = root / "store"
     models_root = root / "models"
     (store_root / "scratch").mkdir(parents=True, exist_ok=True)
     config = Config.for_tests(store_root, models_root)
     spec = root / "fake-spec.json"
     write_spec(spec)
-    store = NarrationStore(store_root, StandInPlatform(), alignment_method_id=METHOD_ID)
+    store = NarrationStore(store_root, StandInPlatform(), alignment_method_id=METHOD_ID, clock=store_clock)
     if store.get_engine_profile(ENGINE_ID) is None:
         store.put_engine_profile(engine_profile(models_root))
         store.set_current_engine_profile("base", ENGINE_ID)

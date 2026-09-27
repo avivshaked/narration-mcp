@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-import time
 from collections import Counter
 from pathlib import Path
 
@@ -19,9 +18,10 @@ from narration.contracts import codes
 from narration.contracts.models import JobRecord
 from narration.jobs import stages
 from narration.store import db
+from narration.store.store import SqliteLease
 
 from .conftest import World, make_world
-from .support import ENGINE_HASH, KETTLE, LAMPS, ORCHARD, voice_hash
+from .support import ENGINE_HASH, KETTLE, LAMPS, ORCHARD, StoreClock, voice_hash
 
 
 def _take_ids(job: JobRecord) -> dict[str, list[str | None]]:
@@ -160,35 +160,63 @@ def test_work_in_flight_elsewhere_costs_no_model_load_s4(world: World) -> None:
     assert world.pool.loads == ["qwen", "qa"]
 
 
-def test_a_render_keeps_its_lease_for_as_long_as_it_runs_s4(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(stages, "RENDER_LEASE_S", 0.6)  # a lease that would lapse halfway through the render
-    monkeypatch.setattr(stages, "LEASE_RENEW_S", 0.1, raising=False)
-    world.faults({"kind": "delay", "op": "synthesize", "seconds": 3.0})
+def test_a_render_keeps_its_lease_for_as_long_as_it_runs_s4(
+    tmp_path: Path, anchor: tuple[float, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Deterministic: the render is held inside its worker call until the test lets it go, and the store's
+    # clock jumps past the lease's TTL at once, so no timing decides the outcome.
+    clock = StoreClock()
+    world = make_world(tmp_path, anchor, store_clock=clock)
+    monkeypatch.setattr(stages, "LEASE_RENEW_S", 0.02)
+    moved = threading.Event()  # the store's clock has passed the render lease's TTL
+    renewed = threading.Event()  # and a renewal made after that has been written
+    renew = SqliteLease.renew
+
+    def watched(lease: SqliteLease, ttl_s: float) -> None:
+        after = moved.is_set()
+        renew(lease, ttl_s)
+        if after:
+            renewed.set()
+
+    monkeypatch.setattr(SqliteLease, "renew", watched)
     key = keys.render_key(
         engine_profile_hash=ENGINE_HASH,
         voice_hash=voice_hash(world.clip_sha256),
         engine_text=LAMPS,
         seed=_seed(world, LAMPS, 0),
     )
+    gate = world.pool.hold("synthesize")
     seen: list[str] = []
+    errors: list[BaseException] = []
 
     def another_holder() -> None:
-        deadline = time.monotonic() + 60
-        while world.pool.calls[("qwen", "synthesize")] == 0 and time.monotonic() < deadline:
-            time.sleep(0.02)
-        time.sleep(1.0)  # past the lease's TTL, still inside the render
-        status, lease = world.store.claim(key, "another-process", ttl_s=5)
-        seen.append(status)
-        if lease is not None:
-            lease.release()
+        try:
+            assert gate.entered.wait(60), "the render never started"
+            clock.advance(2 * stages.RENDER_LEASE_S)  # without a renewal, the lease has lapsed
+            moved.set()
+            assert renewed.wait(30), "the lease was not renewed while its render ran"
+            status, lease = world.store.claim(key, "another-process", ttl_s=5)
+            seen.append(status)
+            if lease is not None:
+                lease.release()
+        except BaseException as exc:  # handed to the test thread
+            errors.append(exc)
+        finally:
+            gate.release()
 
-    job = world.submit(LAMPS)
-    probe = threading.Thread(target=another_holder)
-    probe.start()
-    world.run()
-    probe.join(timeout=60)
-    assert seen == ["in_flight"]  # the render still held its key
-    assert world.job(job.job_id).status == "completed"
+    try:
+        job = world.submit(LAMPS)
+        probe = threading.Thread(target=another_holder)
+        probe.start()
+        world.run()
+        probe.join(timeout=60)
+        assert not errors, errors
+        assert seen == ["in_flight"]  # the render still held its key
+        assert world.job(job.job_id).status == "completed"
+    finally:
+        world.engine.close()
+        world.pool.close()
+        world.store.close()
 
 
 def test_the_leases_an_engine_keeps_share_one_store_connection_s4(
