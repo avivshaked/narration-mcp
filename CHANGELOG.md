@@ -37,6 +37,13 @@ are tracked here but no version is tagged; nothing described below is installabl
   carry `retry_after_s`, and `[limits]` caps the submit rate and the queue. `design_voice`,
   `profile_voice` and `audition_pronunciation` still answer `BACKEND_NOT_INSTALLED`. README.md says
   how to add the server to Claude Code.
+- Engine profiles (`narration.engine`): each pins the Qwen model's revision, every snapshot file's sha256,
+  the worker's `uv.lock` and package versions, the determinism switches and every audio-changing setting,
+  and hashes them. After every Qwen load the daemon checks the worker against its profile: a changed
+  `uv.lock`, weight file or package version fails the job with `ENGINE_DRIFT` before anything renders.
+  The daemon's job engine is now assembled with the cue aligner and the pinned QA models (Whisper
+  large-v3, WavLM-base-plus-sv, the wav2vec2 aligner), so jobs no longer fail with
+  `BACKEND_NOT_INSTALLED` once the models are installed and the engine is pinned.
 - The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
   then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
   `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same
