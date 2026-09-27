@@ -112,11 +112,13 @@ ERRORS: Final[dict[str, ErrorCode]] = {
             VOICE_NOT_SYNTHETIC,
             False,
             "the clip is neither one the service designed nor one the operator allowlisted",
-            "Use a clip from design_voice, or ask the operator to allow this synthetic clip: narration-admin "
-            "voices allow <clip.wav> adds its sha256 to [voices] allow_sha256 in the service's configuration "
-            "(narration.toml). The daemon and the MCP server read that list only when they start: after the "
-            "change, stop the daemon first (narration-admin daemon stop; narration-admin daemon start, or the "
-            "next submission, starts it again), then reconnect the client to the server (in Claude Code, /mcp).",
+            "Use a clip from design_voice, or ask the operator to allow this clip. Only a person allows a clip, "
+            "at this machine, after confirming that it is synthetic; a calling agent must not run the command. "
+            "The operator runs <venv_python> -m narration.admin --config <service_root>/narration.toml voices "
+            "allow <clip.wav>, which adds its sha256 to [voices] allow_sha256. The daemon and the MCP server read "
+            "that list only when they start, so the operator then stops the daemon first (the same command with "
+            "daemon stop; with [daemon] autostart on, the next submission starts it again, else daemon start) "
+            "and then reconnects the client to the server (in Claude Code, /mcp).",
         ),
         ErrorCode(
             VOICE_NOT_MEASURED,

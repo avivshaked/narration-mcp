@@ -237,8 +237,9 @@ _SEGMENT: Final[Schema] = {
             "minItems": 1,
             "maxItems": 40,
             "items": _CUE,
-            "description": "the segment's cues (a caption or sentence each), in order; each take gives every cue's "
-            "start and end time",
+            "description": "the segment's cues (a caption or sentence each), in order. Each take gives each cue's "
+            "start and end time, or null times with CUE_UNALIGNED for a cue it could not place (never "
+            "interpolated)",
         },
         "text": {
             "type": "string",
@@ -588,8 +589,11 @@ def _submit_job_input() -> Schema:
                     "dry_run": {
                         "type": "boolean",
                         "default": False,
-                        "description": "true: only the plan (what is cached, what would render, estimates) and the "
-                        "text echo; nothing is queued or rendered",
+                        "description": "true: plan only, and the text echo; nothing is queued or rendered. The plan "
+                        "covers the requested attempts (retakes are not planned): segments_cached (segments whose "
+                        "every attempt is already scored), renders_needed, deliveries_needed, analyses_needed "
+                        "(every attempt, when the installation's QA pins are not known), est_audio_s and "
+                        "est_wall_s",
                     },
                     "takes": {
                         "type": "integer",
@@ -718,7 +722,8 @@ def _get_results_output() -> Schema:
                         "suggested_take_id": {
                             **_STR_OR_NULL,
                             "description": "the take QA suggests for this segment (advice; you choose); use it "
-                            "rather than takes[0]",
+                            "rather than takes[0]. With suggestion.tier 4 every take failed QA (the job's outcome "
+                            "is then needs_attention): resolve its flags or redo the segment before keeping it",
                         },
                         "suggestion": {
                             **_nullable(_obj({"tier": {"enum": [1, 2, 3, 4]}, "reason": _STR})),

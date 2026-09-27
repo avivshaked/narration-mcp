@@ -81,16 +81,31 @@ REPORT_RESOURCE: Final = (
     "narration://jobs/{job_id}/report summarises a job in Markdown (per segment: the suggested take, every take's "
     "verdict and flags)."
 )
+REPORT_HOLDS: Final = (
+    "narration://jobs/{job_id}/report holds each segment's suggested take and every take's verdict and flags, "
+    "with no file paths or cue times: use it to review a large job, then take paths and cue times from "
+    "get_results or narration://takes/{take_id}."
+)
+"""What the report resource holds (``qa.report.report_md``), for the texts that offer it as the smaller read."""
+TIER_4: Final = (
+    "A suggestion of tier 4 means every take failed QA (the job's outcome is then needs_attention): resolve its "
+    "flags (the resolve_flags prompt) or redo the segment before keeping it."
+)
+"""Section 8's tier 4 (``qa.suggest``): the suggested take is the best of the failed ones."""
 OPTIONS: Final = (
     "submit_job's options: dry_run (the plan only), strict_text (refuse digits, symbols and unit-like tokens "
     "instead of speaking them as the engine reads them), takes, max_retakes, and priority 'interactive' (a short "
     "redo runs ahead of a long batch)."
 )
 
-NOT_IN_THIS_BUILD: Final[frozenset[str]] = frozenset({"audition_pronunciation"})
+NOT_IN_THIS_BUILD: Final[frozenset[str]] = frozenset({"design_voice", "profile_voice", "audition_pronunciation"})
 """Tools this build lists but cannot run yet: each answers ``BACKEND_NOT_INSTALLED`` at once, because the
-daemon has no handler for its job kind (``narration.backend.service.RUNNABLE_KINDS``). Take a tool out when
-its handler lands (WP35: ``audition_pronunciation``); a test fails while a tool here has a handler."""
+daemon has no handler for its job kind (``narration.backend.service.RUNNABLE_KINDS``). Take a tool out in the
+change that lands its handler (WP34: ``design_voice``, ``profile_voice``; WP35: ``audition_pronunciation``). A
+test holds this set equal to the tools whose kind is not runnable, so a handler merged without its text, or
+a text without its handler, fails. The set is kept here rather than read from the backend: these texts are
+built without a backend (the front-end serves any ``Backend``), and importing the concrete backend here
+would pull the job engine into the front-end."""
 
 
 def not_in_this_build(tool: str) -> str:
@@ -149,17 +164,18 @@ TOOL_TEXTS: Final[dict[str, ToolText]] = {
     "get_results": ToolText(
         "Get a job's results",
         "A finished job's result. For a narration job, per segment: suggested_take_id and suggestion (advice; "
-        "you choose), the text echo (received, spoken and engine text), and takes[]: every take rendered or "
-        "found for this request, failed and replaced attempts included, so use suggested_take_id rather than "
-        "takes[0]. Each take has its delivery file (path, sha256, samples, sample_rate, duration_s; audio is "
-        "never inlined), cues[] with start_s and end_s (and words[] with include_words), alignment, qa (verdict, "
-        "flags, wer_adj, terms: what the recogniser heard for each hinted term) and flags (delivery and per-job "
-        "flags such as RETAKEN, kept apart from qa.flags). Then consistency, listen_first and report_md. Send "
-        "include_words false unless you need word times: they make the result much larger, and a job of more "
-        "than about 10 segments can give a result larger than a client accepts from one tool call. "
-        + REPORT_RESOURCE
-        + " narration://takes/{take_id} gives one take's delivery file and analyses. For a design, measurement, "
-        "profile or audition job, its result. A failed or cancelled job returns what it finished, and job.error.",
+        "you choose), the text echo, and takes[]: every take rendered or found for this request, failed and "
+        "replaced attempts included, so use suggested_take_id, not takes[0]. "
+        + TIER_4
+        + " Each take has delivery (path, sha256, samples, sample_rate, duration_s; audio is never inlined), "
+        "cues[] (start_s and end_s, null for a cue that could not be placed; words[] with include_words), qa "
+        "(verdict, flags, wer_adj, terms: what the recogniser heard for each hinted term) and flags (such as "
+        "RETAKEN, apart from qa.flags). Then consistency, listen_first and report_md. Send include_words false "
+        "unless you need word times: they make the result much larger, and a job of more than about 10 "
+        "segments can exceed what a client accepts from one tool call. "
+        + REPORT_HOLDS
+        + " For a design, measurement, profile or audition job, its result. A failed or cancelled job returns "
+        "what it finished, and job.error.",
         retention=True,
     ),
     "cancel_job": ToolText(
@@ -175,8 +191,9 @@ TOOL_TEXTS: Final[dict[str, ToolText]] = {
         "exact transcript, its seed and a profile. A description with a negation is still rendered, and lint "
         "lists what it found. Returns a job: read it with get_job, then get_results. You listen and choose; "
         "the service records no choice. Every candidate's clip goes on the service's provenance list, so "
-        "measure_voice and submit_job accept it as synthetic with no allowlist edit. Keep the chosen clip with "
-        "its path, sha256 and transcript exactly as the candidate gives them. A candidate flagged WER_HIGH "
+        "measure_voice and submit_job accept it as synthetic with no allowlist edit. Copy the chosen clip out of "
+        "the store into your own folder (the store's copy is removed after the retention period), and keep its "
+        "sha256 and transcript exactly as the candidate gives them. A candidate flagged WER_HIGH "
         "does not say its transcript as the recogniser heard it, and measuring it fails (REF_TEXT_MISMATCH).",
         retention=True,
     ),
@@ -193,7 +210,8 @@ TOOL_TEXTS: Final[dict[str, ToolText]] = {
         "Measure a voice once per clip and engine: a transcript check, a calibration set and a length ladder, "
         "giving max_segment_chars and max_segment_seconds, the pace curve and the similarity baseline. A heavy "
         "GPU job (20 to 50 minutes): check get_server_status first. If the voice is already measured under "
-        "this engine, the measurement comes back at once. " + VOICE_AS_KEPT,
+        "this engine, the measurement comes back at once; otherwise it returns a job: call get_job with wait_s "
+        "until the job has completed before you run submit_job with this voice. " + VOICE_AS_KEPT,
         retention=True,
     ),
     "check_text": ToolText(
@@ -294,7 +312,8 @@ RESOURCE_DESCRIPTIONS: Final[dict[str, str]] = {
     "measurement": "A voice's measurements, one per engine profile.",
     "job": "A job, as get_job returns it. Subscribable (2026-07-28 clients, through subscriptions/listen).",
     "job report": "A job's report, in Markdown: per segment, the suggested take, every take's verdict and its "
-    "flags. Much smaller than get_results for a large job.",
+    "flags. Much smaller than get_results for a large job, but with no file paths or cue times: take those from "
+    "get_results or narration://takes/{take_id}.",
     "take": "A take: its delivery file, its render and its analyses.",
 }
 
@@ -367,9 +386,10 @@ def prompt_texts(unbuilt: Collection[str] = NOT_IN_THIS_BUILD) -> dict[str, Prom
             "6. Call get_job with wait_s until the job has ended, then get_results with include_words false "
             "unless you need word times. On a retryable error, wait at least retry_after_s, add your own "
             "jitter, and send the identical request again.\n"
-            "7. Per segment, use suggested_take_id: takes[] also lists failed and replaced attempts. Copy the "
-            "takes you keep and check their sha256; record the take and analysis ids; report listen_first to "
-            "the person, who listens and decides.",
+            "7. Per segment, use suggested_take_id: takes[] also lists failed and replaced attempts. "
+            + TIER_4
+            + " Copy the takes you keep and check their sha256; record the take and analysis ids; report "
+            "listen_first to the person, who listens and decides.",
         ),
         "resolve_flags": PromptText(
             "Resolve flags",
@@ -400,8 +420,9 @@ def prompt_texts(unbuilt: Collection[str] = NOT_IN_THIS_BUILD) -> dict[str, Prom
             "get_server_status first.\n"
             "3. Read each candidate's profile (pitch, speaking rate, brightness, the pictures) to shortlist.\n"
             "4. Ask the person to listen to the shortlisted clips and choose; you cannot hear them, and the "
-            "service records no choice. Copy the chosen clip and keep its path, sha256 and exact transcript: "
-            "every later call needs them, the transcript copied, never retyped.",
+            "service records no choice. Copy the chosen clip out of the store into your own folder (the store's "
+            "copy is removed after the retention period), and keep that path, its sha256 and its exact "
+            "transcript: every later call needs them, the transcript copied, never retyped.",
         ),
         "add_pronunciation": PromptText(
             "Add a pronunciation",

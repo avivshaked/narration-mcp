@@ -69,7 +69,8 @@ TEXT_MODE_HINT: Final = (
     'v1 speaks text as sent and has no normaliser for "written" text (design section 9.2).'
 )
 REFUSED_HOMES: Final = frozenset({"controls"})
-"""Object fields whose every property is refused, so a misplaced field is never pointed into them."""
+"""Object fields whose every property is refused, so a misplaced field is never pointed into them, nor, when
+it was sent inside one, further in (``controls.factor`` is never pointed to ``controls.pace.factor``)."""
 SHA256_HINT: Final = (
     "Send {field} as the file's sha256 in 64 lower-case hex digits. Some tools print it in upper case "
     "(PowerShell's Get-FileHash does): lower-case it."
@@ -223,7 +224,8 @@ def _describe(error: ValidationError) -> list[_Failure]:
         failures: list[_Failure] = []
         for name in extra:
             field = field_path([*parts, name])
-            home = nested_home(schema, name)
+            inside_refused = any(part in REFUSED_HOMES for part in parts)
+            home = None if inside_refused else nested_home(schema, name)
             if name in INSTRUCTION_LIKE_FIELDS:
                 hint = f"Remove {field}: it is not an input of this service. {SECTION_3_3}"
             elif home is not None:

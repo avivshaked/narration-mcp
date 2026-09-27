@@ -9,7 +9,10 @@ key.
 from __future__ import annotations
 
 import ast
+import json
 import re
+import subprocess
+import sys
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -167,10 +170,10 @@ def test_spec_revision_is_described_as_the_mcp_revision_s7_6() -> None:
 # ---------------------------------------------------------------- tools not in this build
 
 
-def test_only_a_tool_the_backend_cannot_run_is_marked_not_in_this_build() -> None:
-    """A tool whose handler lands (its kind joins ``RUNNABLE_KINDS``) must lose its mark in the same change."""
-    assert {tool for tool, kind in KIND_OF_TOOL.items() if kind not in RUNNABLE_KINDS} >= NOT_IN_THIS_BUILD
-    assert "audition_pronunciation" in NOT_IN_THIS_BUILD, "WP35's handler is not in this build"
+def test_exactly_the_tools_the_backend_cannot_run_are_marked_not_in_this_build() -> None:
+    """A handler that lands (its kind joins ``RUNNABLE_KINDS``) must take its tool's mark off in the same
+    change, and a mark taken off must come with the handler: a merge in either order fails here."""
+    assert {tool for tool, kind in KIND_OF_TOOL.items() if kind not in RUNNABLE_KINDS} == NOT_IN_THIS_BUILD
 
 
 @pytest.mark.parametrize("tool", sorted(NOT_IN_THIS_BUILD))
@@ -199,13 +202,12 @@ def test_a_built_tool_carries_no_mark() -> None:
     assert "design_voice, then a person listens" in server_instructions(everything)
 
 
-def test_design_voice_is_advertised_as_available_and_its_prompt_unmarked() -> None:
-    """WP34 builds design_voice and profile_voice (lead's brief, 2026-09-27): neither carries the mark."""
-    assert {"design_voice", "profile_voice"}.isdisjoint(NOT_IN_THIS_BUILD)
-    assert "design_voice, then a person listens" in SERVER_INSTRUCTIONS
-    design = PROMPT_TEXTS["design_narrator_voice"]
-    assert "not in this build" not in (design.description + design.template).lower()
-    assert "provenance list" in tool_description("design_voice", RETENTION)
+def test_while_design_voice_is_not_in_this_build_the_flow_starts_from_an_allowlisted_clip() -> None:
+    unbuilt = frozenset({"design_voice"})
+    assert "The flow: a synthetic clip whose sha256 the operator allowlisted" in server_instructions(unbuilt)
+    design = prompt_texts(unbuilt)["design_narrator_voice"]
+    assert "design_voice is not in this build yet" in design.description
+    assert "design_voice is not in this build yet" in design.template
 
 
 # ---------------------------------------------------------------- hints for common slips (section 14)
@@ -227,6 +229,12 @@ def test_a_field_is_never_pointed_into_the_refused_controls_s3_3() -> None:
     assert error.hint is not None and error.hint.startswith("Remove segments[0].pace;")
     assert "Move" not in error.hint and "section 3.3" in error.hint
 
+    inside = {**VALID_ARGUMENTS["submit_job"]["segments"][0], "controls": {"factor": 1.0}}
+    error = _refusal("submit_job", {**VALID_ARGUMENTS["submit_job"], "segments": [inside]})
+    assert error.field == "segments[0].controls.factor"
+    assert error.hint is not None and error.hint.startswith("Remove segments[0].controls.factor;")
+    assert "Move" not in error.hint, "never pointed further into the refused controls"
+
 
 @pytest.mark.parametrize(("tool", "field"), [("submit_job", "voice"), ("profile_voice", "audio")])
 def test_an_upper_case_sha256_is_told_to_lower_case_it_s14(tool: str, field: str) -> None:
@@ -241,24 +249,37 @@ def test_an_upper_case_sha256_is_told_to_lower_case_it_s14(tool: str, field: str
 
 def test_voice_not_synthetic_says_to_restart_the_daemon_and_reconnect_s17_4() -> None:
     hint = codes.ERRORS[codes.VOICE_NOT_SYNTHETIC].hint
-    assert "narration-admin voices allow" in hint and "allow_sha256" in hint
-    assert hint.index("narration-admin daemon stop") < hint.index("/mcp"), "the daemon first (WP45)"
+    assert "-m narration.admin --config <service_root>/narration.toml voices allow <clip.wav>" in hint
+    assert "Only a person allows a clip" in hint and "a calling agent must not run the command" in hint
+    assert "with [daemon] autostart on" in hint
+    assert hint.index("daemon stop") < hint.index("/mcp"), "the daemon first (WP45's restart advice)"
 
 
 # ---------------------------------------------------------------- keys (section 10.2)
 
 
-def test_the_keys_import_no_module_that_holds_a_published_text_s10_2() -> None:
-    """``narration.keys`` imports none of the modules that hold the published texts (the descriptions, the
-    schemas, the error hints), so a change to a text changes no key and needs no re-measure."""
-    published = {"narration.mcp", "narration.contracts.schemas", "narration.contracts.codes"}
+def test_the_keys_never_load_the_descriptions_or_the_schemas_s10_2() -> None:
+    """Imported alone, in a fresh interpreter, ``narration.keys`` loads neither ``narration.mcp`` (the
+    descriptions, instructions and prompts) nor ``contracts.schemas`` (the schema descriptions), directly or
+    through anything it imports, so no key can hash those texts."""
+    script = "import json, sys, narration.keys; print(json.dumps(sorted(sys.modules)))"
+    ran = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True)
+    loaded = set(json.loads(ran.stdout))
+    assert "narration.keys" in loaded
+    assert not {m for m in loaded if m == "narration.mcp" or m.startswith("narration.mcp.")}
+    assert "narration.contracts.schemas" not in loaded
+
+
+def test_the_keys_never_name_the_error_codes_or_their_hints_s10_2() -> None:
+    """``contracts.codes`` (the error hints) is loaded with ``narration.keys`` through the contracts it uses
+    (``config``, ``errors``), but nothing under ``narration.keys`` imports it or names it."""
     folder = Path(narration.keys.__file__).parent
-    imported: set[str] = set()
     for source in folder.glob("*.py"):
         for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module is not None:
-                imported.add(node.module)
-                imported.update(f"{node.module}.{a.name}" for a in node.names)
+            if isinstance(node, ast.ImportFrom):
+                assert node.module != "narration.contracts.codes", source.name
+                assert "codes" not in {a.name for a in node.names}, source.name
             elif isinstance(node, ast.Import):
-                imported.update(a.name for a in node.names)
-    assert not {m for m in imported for p in published if m == p or m.startswith(p + ".")}
+                assert "narration.contracts.codes" not in {a.name for a in node.names}, source.name
+            elif isinstance(node, ast.Name):
+                assert node.id not in {"codes", "ERRORS"}, source.name
