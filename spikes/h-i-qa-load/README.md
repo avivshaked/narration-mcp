@@ -32,23 +32,23 @@ WavLM-base-plus-sv. The Qwen half is `spikes/h-i-qwen-load`. The CTC aligner run
 
 ## Results (KNOW: one 24 GB consumer NVIDIA GPU, shared; torch 2.11.0+cu128, CUDA 12.8)
 
-The run of 2026-09-27, 12:57 UTC (`results.json`), with the worker as built: five beams (DC-14) and windowed
-embedding (DC-15).
+The run of 2026-09-27, 13:11 UTC (`results.json`), with the worker as built: five beams (DC-14) and windowed
+embedding (DC-15). A run at 12:57 UTC the same day measured every peak below to the same megabyte.
 
 | | Whisper-large-v3 | WavLM-base-plus-sv |
 |---|---|---|
 | Offline load from the SHA-named folder | yes, **0** network attempts | yes, **0** network attempts |
-| Load time: first / second in the process | 3.2 s / 3.3 s | 0.33 s / 0.27 s |
+| Load time: first / second in the process | 3.0 s / 2.8 s | 0.35 s / 0.25 s |
 | Reserved VRAM added by the load | 3184 MB | 420 MB |
 | Weights re-hashed against the manifest | 11 files, 0 mismatched | 3 files, 0 mismatched |
 
-- **The group resident:** 3331 MB allocated, 3606 MB reserved.
-- **CUDA context:** about 440 MB (the device-level change when the process started CUDA; an estimate, since
+- **The group resident:** 3331 MB allocated, 3606 MB reserved. After unload: 56 MB reserved.
+- **CUDA context:** about 450 MB (the device-level change when the process started CUDA; an estimate, since
   other jobs share the device).
 - **Load times were measured with a warm OS file cache**, as in the Qwen half.
-- **Speed:** transcription with word times runs at 0.20–0.23 × real time (40 s in 9.4 s, 119 s in 23.9 s);
-  embedding takes 0.18 s for 40 s and 0.32 s for 119 s on the GPU. On the CPU, embedding 40 s takes about
-  2 s, the first call included (it loads the CPU copy), and 119 s about 6 s; the CPU's embeddings equal the
+- **Speed:** transcription with word times runs at 0.21–0.25 × real time (40 s in 10.0 s, 119 s in 25.1 s);
+  embedding takes 0.2 s for 40 s and 0.4 s for 119 s on the GPU. On the CPU, embedding 40 s takes about
+  2.4 s, the first call included (it loads the CPU copy), and 119 s about 7 s; the CPU's embeddings equal the
   GPU's to 6 decimal places (cosine 1.000000), windows and all.
 
 ### What the peaks grow with (allocated above the resident models)
@@ -83,7 +83,7 @@ peaks are bounded, so **one need holds for a take of any length**:
 
 - the largest peak is transcription with word times: 9814 MB allocated, the resident models included, and up
   to 10.6 GB reserved (step 3 of the method; the allocator's cache);
-- plus the CUDA context, about 440 MB: **about 11.0 GB on the device**.
+- plus the CUDA context, about 450 MB: **about 11.0 GB on the device**.
 
 **Proposed: `vram_need_mb` = 11500** (the measured 11.0 GB and a margin of about 4 % for the allocator's
 fragmentation). The plan's ASSUMEd ~5 GB was an underestimate: word times and five beams cost most of it.

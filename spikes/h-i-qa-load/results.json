@@ -6,7 +6,7 @@
     "4",
     "11.1"
   ],
-  "ran_at": "2026-09-27T12:57:36+00:00",
+  "ran_at": "2026-09-27T13:11:48+00:00",
   "software": {
     "python": "3.12.10",
     "os": "Windows",
@@ -30,7 +30,7 @@
     "deterministic_algorithms": "warn_only",
     "CUBLAS_WORKSPACE_CONFIG": ":4096:8"
   },
-  "cuda_context_mb_estimate": 441,
+  "cuda_context_mb_estimate": 448,
   "cuda_context_note": "device-level used memory before and after this process started CUDA (NVML); other jobs on the shared GPU can move it, so it is an estimate",
   "audio": {
     "slice_40s": {
@@ -48,7 +48,7 @@
       "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
       "snapshot_named_by_sha": true,
       "first_load": {
-        "load_s": 3.2,
+        "load_s": 2.98,
         "memory_after_load": {
           "allocated_mb": 2944,
           "reserved_mb": 3186,
@@ -62,38 +62,38 @@
       },
       "transcribe": {
         "slice_40s": {
-          "seconds": 9.39,
+          "seconds": 9.95,
           "peak_max_allocated_mb": 9814,
           "peak_max_reserved_mb": 10348,
           "warnings": [],
-          "rtf": 0.2348,
+          "rtf": 0.2487,
           "words": 106,
           "words_with_times": 106,
           "last_word_end_s": 39.98
         },
         "whole_take": {
-          "seconds": 23.87,
+          "seconds": 25.05,
           "peak_max_allocated_mb": 9813,
           "peak_max_reserved_mb": 10600,
           "warnings": [],
-          "rtf": 0.2006,
+          "rtf": 0.2105,
           "words": 271,
           "words_with_times": 271,
           "last_word_end_s": 118.96
         }
       },
       "second_load_alone": {
-        "load_s": 3.26,
+        "load_s": 2.79,
         "memory_after_load": {
-          "allocated_mb": 2996,
-          "reserved_mb": 3232,
-          "max_allocated_mb": 2996,
-          "max_reserved_mb": 3232,
-          "device_free_mb": 19650,
+          "allocated_mb": 2995,
+          "reserved_mb": 3238,
+          "max_allocated_mb": 2995,
+          "max_reserved_mb": 3238,
+          "device_free_mb": 19644,
           "device_total_mb": 24563
         },
-        "reserved_added_mb": 2746,
-        "device_free_drop_mb": 2746
+        "reserved_added_mb": 3182,
+        "device_free_drop_mb": 3182
       },
       "weights_verified": {
         "files": 11,
@@ -106,7 +106,7 @@
       "revision": "feb593a6c23c1cc3d9510425c29b0a14d2b07b1e",
       "snapshot_named_by_sha": true,
       "first_load": {
-        "load_s": 0.33,
+        "load_s": 0.35,
         "memory_after_load": {
           "allocated_mb": 3331,
           "reserved_mb": 3606,
@@ -120,7 +120,7 @@
       },
       "embed_cuda": {
         "slice_40s": {
-          "seconds": 0.18,
+          "seconds": 0.21,
           "peak_max_allocated_mb": 3650,
           "peak_max_reserved_mb": 10600,
           "warnings": [
@@ -128,7 +128,7 @@
           ]
         },
         "whole_take": {
-          "seconds": 0.32,
+          "seconds": 0.4,
           "peak_max_allocated_mb": 3958,
           "peak_max_reserved_mb": 11074,
           "warnings": [
@@ -138,16 +138,16 @@
       },
       "embed_cpu": {
         "slice_40s": {
-          "seconds_including_any_copy_load": 1.97,
+          "seconds_including_any_copy_load": 2.38,
           "cosine_to_cuda": 1.0
         },
         "whole_take": {
-          "seconds_including_any_copy_load": 6.04,
+          "seconds_including_any_copy_load": 7.12,
           "cosine_to_cuda": 1.0
         }
       },
       "second_load_alone": {
-        "load_s": 0.27,
+        "load_s": 0.25,
         "memory_after_load": {
           "allocated_mb": 438,
           "reserved_mb": 474,
@@ -181,73 +181,73 @@
         "seconds": 10.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1247,
-        "seconds_taken": 2.04
+        "seconds_taken": 2.35
       },
       {
         "seconds": 10.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 4851,
-        "seconds_taken": 2.5
+        "seconds_taken": 2.72
       },
       {
         "seconds": 20.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1292,
-        "seconds_taken": 3.72
+        "seconds_taken": 4.36
       },
       {
         "seconds": 20.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 5851,
-        "seconds_taken": 4.58
+        "seconds_taken": 4.97
       },
       {
         "seconds": 30.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1308,
-        "seconds_taken": 5.25
+        "seconds_taken": 5.07
       },
       {
         "seconds": 30.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6450,
-        "seconds_taken": 6.62
+        "seconds_taken": 6.48
       },
       {
         "seconds": 60.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1309,
-        "seconds_taken": 9.9
+        "seconds_taken": 10.23
       },
       {
         "seconds": 60.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6450,
-        "seconds_taken": 11.78
+        "seconds_taken": 12.19
       },
       {
         "seconds": 90.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1310,
-        "seconds_taken": 14.46
+        "seconds_taken": 15.29
       },
       {
         "seconds": 90.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6451,
-        "seconds_taken": 16.76
+        "seconds_taken": 17.18
       },
       {
         "seconds": 119.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1310,
-        "seconds_taken": 18.33
+        "seconds_taken": 18.6
       },
       {
         "seconds": 119.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6452,
-        "seconds_taken": 21.84
+        "seconds_taken": 21.74
       }
     ],
     "embed": [
@@ -256,10 +256,10 @@
         "windows": 1,
         "windowed_peak_above_resident_mb": 126,
         "windowed_peak_reserved_mb": 3774,
-        "windowed_seconds_taken": 0.03,
+        "windowed_seconds_taken": 0.04,
         "one_pass_peak_above_resident_mb": 126,
         "one_pass_peak_reserved_mb": 3774,
-        "one_pass_seconds_taken": 0.03,
+        "one_pass_seconds_taken": 0.04,
         "cosine_windowed_to_one_pass": 1.0
       },
       {
@@ -289,7 +289,7 @@
         "windows": 2,
         "windowed_peak_above_resident_mb": 602,
         "windowed_peak_reserved_mb": 4432,
-        "windowed_seconds_taken": 0.18,
+        "windowed_seconds_taken": 0.17,
         "one_pass_peak_above_resident_mb": 2234,
         "one_pass_peak_reserved_mb": 6472,
         "one_pass_seconds_taken": 0.28,
@@ -300,10 +300,10 @@
         "windows": 3,
         "windowed_peak_above_resident_mb": 602,
         "windowed_peak_reserved_mb": 4432,
-        "windowed_seconds_taken": 0.27,
+        "windowed_seconds_taken": 0.26,
         "one_pass_peak_above_resident_mb": 4894,
         "one_pass_peak_reserved_mb": 9430,
-        "one_pass_seconds_taken": 0.53,
+        "one_pass_seconds_taken": 0.54,
         "cosine_windowed_to_one_pass": 0.996473
       },
       {
@@ -311,20 +311,20 @@
         "windows": 4,
         "windowed_peak_above_resident_mb": 595,
         "windowed_peak_reserved_mb": 4420,
-        "windowed_seconds_taken": 0.32,
+        "windowed_seconds_taken": 0.31,
         "one_pass_peak_above_resident_mb": 8446,
         "one_pass_peak_reserved_mb": 13260,
-        "one_pass_seconds_taken": 0.92,
+        "one_pass_seconds_taken": 0.85,
         "cosine_windowed_to_one_pass": 0.993649
       }
     ]
   },
   "memory_after_unload": {
-    "allocated_mb": 419,
-    "reserved_mb": 486,
+    "allocated_mb": 51,
+    "reserved_mb": 56,
     "max_allocated_mb": 11810,
     "max_reserved_mb": 13260,
-    "device_free_mb": 22396,
+    "device_free_mb": 22826,
     "device_total_mb": 24563
   },
   "network_attempts": [],
