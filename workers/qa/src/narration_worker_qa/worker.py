@@ -197,10 +197,11 @@ class QaHandler(WorkerHandler):
         """The WavLM-SV x-vector of a WAV, L2-normalised: ``protocol.EmbedReply``.
 
         ``device`` ``cuda`` runs on the GPU the model was loaded on, ``cpu`` on a CPU copy (the canary's path). Audio
-        of up to 30 s is embedded in one pass, exactly as the bake-off's evidence was; longer audio is cut into
-        ``ceil(length / 30 s)`` equal windows, and the reply is the mean of their L2-normalised embeddings,
-        normalised again (DC-15), which bounds the memory at a 30 s pass's. KNOW (``spikes/h-i-qa-load``): its
-        cosine to a one-pass embedding of the same audio is 0.999 at 60 s and 0.994 at 119 s.
+        of up to 60 s is embedded in one pass, exactly as the bake-off's evidence was; longer audio is cut into
+        ``ceil(length / 60 s)`` equal windows, and the reply is the mean of their L2-normalised embeddings,
+        normalised again (DC-15, amended to 60 s), which bounds the memory at a 60 s pass's. KNOW
+        (``spikes/h-i-qa-load``, a real take): its cosine to a one-pass embedding of the same audio is 0.998 at
+        90 s and 0.9976 at 119 s.
         """
         sv = self._need(self._sv, "embed", "sv")
         device = require_one_of(request, "device", EMBED_DEVICES)

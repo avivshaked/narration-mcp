@@ -26,7 +26,8 @@ each is embedded in one pass, and the result is the mean of the windows' L2-norm
 again. Why: WavLM attends over the whole clip, so one pass's memory grows with the square of its length (KNOW,
 ``spikes/h-i-qa-load``: 0.6 GB above the resident models at 30 s, 2.2 GB at 60 s, 8.4 GB at 119 s); windows keep
 it at the 60 s figure for any length, below transcription's peak. The cost is a slightly different vector for
-audio over 60 s; the same spike measures its cosine to the one-pass embedding on a real take.
+audio over 60 s: on a real take, its cosine to the one-pass embedding is 0.998 at 90 s and 0.9976 at 119 s (the
+same spike; 30 s windows gave 0.996 and 0.994).
 
 Why 60 s and not 30 s (KNOW, ``spikes/acceptance-wp22/windows.json``): the bake-off's ``voicelock.csv`` compares
 clips of up to 37 s, embedded in one pass. With 30 s windows 3 of its 52 rows moved by more than the acceptance's

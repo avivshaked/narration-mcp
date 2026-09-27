@@ -1,6 +1,6 @@
 {
   "check": "WP22 acceptance: the QA worker reproduces the bakeoff's eval numbers",
-  "ran_at": "2026-09-26T22:49:29+00:00",
+  "ran_at": "2026-09-27T13:41:09+00:00",
   "software": {
     "python": "3.12.10",
     "os": "Windows",
@@ -31,9 +31,9 @@
     "wer": 0.01
   },
   "worker": {
-    "load_s": 2.986,
+    "load_s": 3.693,
     "vram_mb": 3606,
-    "seconds": 280.0
+    "seconds": 317.6
   },
   "takes": {
     "d2 seed1": {
@@ -44,7 +44,7 @@
         "spk_to_ref": 0.9776,
         "words": 271,
         "words_without_times": 0,
-        "seconds": 43.6
+        "seconds": 47.8
       },
       "bakeoff": {
         "wer": 0.0859,
@@ -67,7 +67,7 @@
         "spk_to_ref": 0.9839,
         "words": 270,
         "words_without_times": 0,
-        "seconds": 42.5
+        "seconds": 49.0
       },
       "bakeoff": {
         "wer": 0.0547,
@@ -90,7 +90,7 @@
         "spk_to_ref": 0.9831,
         "words": 270,
         "words_without_times": 0,
-        "seconds": 43.3
+        "seconds": 76.8
       },
       "bakeoff": {
         "wer": 0.0742,
@@ -113,7 +113,7 @@
         "spk_to_ref": 0.9663,
         "words": 269,
         "words_without_times": 0,
-        "seconds": 43.8
+        "seconds": 45.3
       },
       "bakeoff": {
         "wer": 0.0586,
@@ -136,7 +136,7 @@
         "spk_to_ref": 0.9694,
         "words": 269,
         "words_without_times": 0,
-        "seconds": 44.6
+        "seconds": 43.0
       },
       "bakeoff": {
         "wer": 0.0586,
@@ -159,7 +159,7 @@
         "spk_to_ref": 0.9687,
         "words": 271,
         "words_without_times": 0,
-        "seconds": 50.8
+        "seconds": 43.4
       },
       "bakeoff": {
         "wer": 0.0547,

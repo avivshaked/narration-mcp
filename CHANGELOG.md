@@ -165,8 +165,8 @@ are tracked here but no version is tagged; nothing described below is installabl
     times, sequential long-form, decoded with five beams and not conditioned on the previous window, as
     the bake-off's evidence was (ADR 0004);
   - `embed`: the L2-normalised speaker embedding, on the GPU the group was loaded on or on the CPU (the
-    canary's path). Audio longer than 30 s is embedded as equal windows of at most 30 s and their
-    embeddings averaged, which bounds its memory; audio of up to 30 s is embedded in one pass, as before;
+    canary's path). Audio longer than 60 s is embedded as equal windows of at most 60 s and their
+    embeddings averaged, which bounds its memory; audio of up to 60 s is embedded in one pass, as before;
   - `f0` and `profile`: pitch by pYIN, and the voice measurements (speaking rate, pause ratio, loudness,
     spectral centroid, HNR, CPPS) with a spectrogram and pitch picture, all without GPL code;
   - `align`: the forced alignment on the CPU.
