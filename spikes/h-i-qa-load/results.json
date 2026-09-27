@@ -6,7 +6,7 @@
     "4",
     "11.1"
   ],
-  "ran_at": "2026-09-27T13:29:14+00:00",
+  "ran_at": "2026-09-27T13:42:30+00:00",
   "software": {
     "python": "3.12.10",
     "os": "Windows",
@@ -30,7 +30,7 @@
     "deterministic_algorithms": "warn_only",
     "CUBLAS_WORKSPACE_CONFIG": ":4096:8"
   },
-  "cuda_context_mb_estimate": 448,
+  "cuda_context_mb_estimate": 436,
   "cuda_context_note": "device-level used memory before and after this process started CUDA (NVML); other jobs on the shared GPU can move it, so it is an estimate",
   "audio": {
     "slice_40s": {
@@ -48,7 +48,7 @@
       "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
       "snapshot_named_by_sha": true,
       "first_load": {
-        "load_s": 2.69,
+        "load_s": 2.58,
         "memory_after_load": {
           "allocated_mb": 2944,
           "reserved_mb": 3186,
@@ -62,28 +62,30 @@
       },
       "transcribe": {
         "slice_40s": {
-          "seconds": 8.97,
+          "seconds": 9.42,
           "peak_max_allocated_mb": 9814,
           "peak_max_reserved_mb": 10348,
+          "reserved_after_mb": 3640,
           "warnings": [],
-          "rtf": 0.2243,
+          "rtf": 0.2355,
           "words": 106,
           "words_with_times": 106,
           "last_word_end_s": 39.98
         },
         "whole_take": {
-          "seconds": 23.52,
-          "peak_max_allocated_mb": 9813,
-          "peak_max_reserved_mb": 11400,
+          "seconds": 38.02,
+          "peak_max_allocated_mb": 9816,
+          "peak_max_reserved_mb": 10452,
+          "reserved_after_mb": 3640,
           "warnings": [],
-          "rtf": 0.1976,
+          "rtf": 0.3194,
           "words": 271,
           "words_with_times": 271,
           "last_word_end_s": 118.96
         }
       },
       "second_load_alone": {
-        "load_s": 3.17,
+        "load_s": 2.84,
         "memory_after_load": {
           "allocated_mb": 2995,
           "reserved_mb": 3238,
@@ -98,7 +100,7 @@
       "weights_verified": {
         "files": 11,
         "mismatched": [],
-        "hash_s": 2.3
+        "hash_s": 2.1
       }
     },
     "sv": {
@@ -106,7 +108,7 @@
       "revision": "feb593a6c23c1cc3d9510425c29b0a14d2b07b1e",
       "snapshot_named_by_sha": true,
       "first_load": {
-        "load_s": 0.43,
+        "load_s": 0.41,
         "memory_after_load": {
           "allocated_mb": 3331,
           "reserved_mb": 3606,
@@ -120,17 +122,19 @@
       },
       "embed_cuda": {
         "slice_40s": {
-          "seconds": 0.23,
+          "seconds": 0.25,
           "peak_max_allocated_mb": 4395,
-          "peak_max_reserved_mb": 11400,
+          "peak_max_reserved_mb": 4896,
+          "reserved_after_mb": 3640,
           "warnings": [
             "UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead."
           ]
         },
         "whole_take": {
-          "seconds": 0.65,
+          "seconds": 0.58,
           "peak_max_allocated_mb": 5567,
-          "peak_max_reserved_mb": 14174,
+          "peak_max_reserved_mb": 6434,
+          "reserved_after_mb": 3640,
           "warnings": [
             "UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead."
           ]
@@ -138,16 +142,16 @@
       },
       "embed_cpu": {
         "slice_40s": {
-          "seconds_including_any_copy_load": 2.35,
+          "seconds_including_any_copy_load": 2.64,
           "cosine_to_cuda": 1.0
         },
         "whole_take": {
-          "seconds_including_any_copy_load": 8.02,
+          "seconds_including_any_copy_load": 9.79,
           "cosine_to_cuda": 1.0
         }
       },
       "second_load_alone": {
-        "load_s": 0.28,
+        "load_s": 0.24,
         "memory_after_load": {
           "allocated_mb": 438,
           "reserved_mb": 474,
@@ -181,73 +185,73 @@
         "seconds": 10.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1247,
-        "seconds_taken": 1.97
+        "seconds_taken": 3.45
       },
       {
         "seconds": 10.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 4851,
-        "seconds_taken": 2.48
+        "seconds_taken": 4.42
       },
       {
         "seconds": 20.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1292,
-        "seconds_taken": 3.69
+        "seconds_taken": 6.26
       },
       {
         "seconds": 20.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 5851,
-        "seconds_taken": 4.56
+        "seconds_taken": 4.84
       },
       {
         "seconds": 30.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1308,
-        "seconds_taken": 5.26
+        "seconds_taken": 5.54
       },
       {
         "seconds": 30.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6450,
-        "seconds_taken": 6.59
+        "seconds_taken": 6.92
       },
       {
         "seconds": 60.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1309,
-        "seconds_taken": 9.9
+        "seconds_taken": 10.35
       },
       {
         "seconds": 60.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6450,
-        "seconds_taken": 15.7
+        "seconds_taken": 12.26
       },
       {
         "seconds": 90.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1310,
-        "seconds_taken": 19.92
+        "seconds_taken": 14.61
       },
       {
         "seconds": 90.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6451,
-        "seconds_taken": 26.65
+        "seconds_taken": 17.63
       },
       {
         "seconds": 119.0,
         "word_timestamps": false,
         "peak_above_resident_mb": 1310,
-        "seconds_taken": 20.8
+        "seconds_taken": 19.09
       },
       {
         "seconds": 119.0,
         "word_timestamps": true,
         "peak_above_resident_mb": 6452,
-        "seconds_taken": 24.0
+        "seconds_taken": 22.69
       }
     ],
     "embed": [
@@ -257,11 +261,11 @@
         "as_built_windows": 1,
         "as_built_peak_above_resident_mb": 126,
         "as_built_peak_reserved_mb": 3774,
-        "as_built_seconds_taken": 0.04,
+        "as_built_seconds_taken": 0.06,
         "as_built_cosine_to_one_pass": 1.0,
         "one_pass_peak_above_resident_mb": 126,
         "one_pass_peak_reserved_mb": 3774,
-        "one_pass_seconds_taken": 0.03,
+        "one_pass_seconds_taken": 0.04,
         "windows_30s": {
           "windows": 1,
           "peak_above_resident_mb": 126,
@@ -305,7 +309,7 @@
         "as_built_windows": 1,
         "as_built_peak_above_resident_mb": 602,
         "as_built_peak_reserved_mb": 4328,
-        "as_built_seconds_taken": 0.09,
+        "as_built_seconds_taken": 0.1,
         "as_built_cosine_to_one_pass": 1.0,
         "one_pass_peak_above_resident_mb": 602,
         "one_pass_peak_reserved_mb": 4328,
@@ -329,11 +333,11 @@
         "as_built_windows": 1,
         "as_built_peak_above_resident_mb": 2234,
         "as_built_peak_reserved_mb": 6472,
-        "as_built_seconds_taken": 0.4,
+        "as_built_seconds_taken": 0.28,
         "as_built_cosine_to_one_pass": 1.0,
         "one_pass_peak_above_resident_mb": 2234,
         "one_pass_peak_reserved_mb": 6472,
-        "one_pass_seconds_taken": 0.37,
+        "one_pass_seconds_taken": 0.27,
         "windows_30s": {
           "windows": 2,
           "peak_above_resident_mb": 602,
@@ -353,11 +357,11 @@
         "as_built_windows": 2,
         "as_built_peak_above_resident_mb": 1290,
         "as_built_peak_reserved_mb": 5154,
-        "as_built_seconds_taken": 0.35,
+        "as_built_seconds_taken": 0.33,
         "as_built_cosine_to_one_pass": 0.998083,
         "one_pass_peak_above_resident_mb": 4894,
         "one_pass_peak_reserved_mb": 9430,
-        "one_pass_seconds_taken": 0.6,
+        "one_pass_seconds_taken": 0.54,
         "windows_30s": {
           "windows": 3,
           "peak_above_resident_mb": 602,
@@ -381,7 +385,7 @@
         "as_built_cosine_to_one_pass": 0.997583,
         "one_pass_peak_above_resident_mb": 8446,
         "one_pass_peak_reserved_mb": 13260,
-        "one_pass_seconds_taken": 0.89,
+        "one_pass_seconds_taken": 0.85,
         "windows_30s": {
           "windows": 4,
           "peak_above_resident_mb": 595,
