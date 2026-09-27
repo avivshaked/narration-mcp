@@ -1,6 +1,8 @@
 # WP36 The caller's guidance in the tool texts (readiness audit item 1.1)
-State: review        Updated: 2026-09-27T22:12+01:00
+State: blocked:paused-by-owner        Updated: 2026-09-27T22:13+01:00
 
+Paused by the owner, with PR #40's last round finished: all six items are done and pushed (0872b72).
+Nothing is left but CI and the lead's merge; the full suite is left to CI.
 Branch `wp/36-guidance` (PR #40), on `main` at 4e0d85f (WP45 merged). `main` has since gained two
 docs-only commits (2a069e0, 8aa11ec); I did not rebase again, because a rebase would need a force push.
 Text only, except for the hint selection in `mcp/validation.py`. The audit ids it answers: mcp-2, qa-4,
