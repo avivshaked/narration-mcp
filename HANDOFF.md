@@ -19,7 +19,7 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f (reviewer a4e02ce9beb000009, Fable) | fixing the review's findings 1, 2, 5, 6 and the test gap 4, `engine show` printing thresholds, `doctor` calling `aligner_method_id`; rebasing onto `main` and registering `measure`; then the reviewer re-verifies |
+  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f | review fixes, DC-16, `measure` and the WP36 join done; re-verification workflow (wf_19ebc1c9-089): merge with follow-ups; fixing its four upheld findings (half pin, drift hints, NVML-unobserved, bridge after a moved root); then merge and the M1 smoke run |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -139,6 +139,8 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
   x_vector_only_mode` must stay `false` (the canary clones with `false`), so document it or make the
   canary follow it; a canary-text change forces new profile ids (a canary-only re-pin under the same id
   would need a store change).
+- **WP32, after M1:** a contract field `CanaryPin.calibration: tuple[float, ...] = ()` (unhashed), so
+  `engine show` can print the calibration similarities and a floored threshold is recorded, not inferred.
 - **WP34:** show a design candidate's `similarity_pass` as `CANARY_MISMATCH` (info); the VoiceDesign
   gate is a weak alarm by nature (lead decision, plan.md §9, 2026-09-27).
 - **WP36, after M1:** §7.3's all-cached submit completes at once (a WP31-owned "complete from the cache

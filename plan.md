@@ -666,7 +666,7 @@ Updated by the lead on `main` only.
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | Fable review: merge with follow-ups; fixing its High (`repin` after a driver update), Medium (a moved models root), the threshold floor and three smaller items; rebasing onto `main` and registering WP33's `measure` |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | review findings fixed, DC-16 and `measure` in, joined with WP36 (daemon behind the backend on `installed_engine`); re-verification (4 lenses × 2 skeptics): merge with follow-ups; fixing a half pin on a second-engine failure, drift hints naming `repin --force`, NVML-unobserved ≠ changed, `bridge` after a moved root |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
@@ -1015,3 +1015,8 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **The owner approved gate H1** (all ten texts, `ladder-080` and `align-03` as written) **and DC-16.**
     DC-16 merged (PR #33): contracts 1.6.6, design revision 5.14. The freeze is paused: the session's
     permission classifier refused a read in the lead's freeze worktree, and the lead asked the owner.
+  - **WP32's re-verification** (a workflow: four Fable lens reviewers, two skeptics per finding): merge
+    with follow-ups; the full suite passes (3679). Four findings upheld and being fixed before merge: a pin
+    that fails on the second engine left the first re-pinned while saying nothing was pinned (now
+    all-or-nothing); the gate's drift errors name `engine repin --force`; a GPU that NVML could not read is
+    not a changed machine; `bridge` finds a replaced profile's files after a moved models root.
