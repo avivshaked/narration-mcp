@@ -84,9 +84,15 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
    the calibration's design text to `calibration/narration-en.v1/paragraphs.json` as a top-level
    `design_text` item (`segment_id` `cal-design`; WP33's ruling). That unblocks the real `measure_voice`
    runs, WP38 and WP39.
-6. **M1 on this machine:** a local config (models in `.dev/models`, d2 and d4 in `allow_sha256`), the worker
-   venvs synced, `narration-admin engine pin`, then the owner measures d2 or d4 (20–50 min of GPU, at a time
-   the owner chooses) and narrates through a real Claude Code session.
+6. **M1 on this machine:** the local config is written (the gitignored `narration.toml` in the main
+   checkout: models in `.dev/models`, the store in `.dev/stores/service`, d2 and d4 in `allow_sha256`); the
+   worker venvs are synced. Then: `narration-admin engine pin`; a smoke run on real models in a scratch store
+   with a short ladder, to find integration faults before the real thing; after the corpus freeze, the owner
+   measures d2 or d4 (20–50 min of GPU, at a time the owner chooses) and narrates through a real Claude Code
+   session. **The owner's `.mcp.json` on this machine** should start the server through the venv's
+   interpreter (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>
+arration.toml`), not
+   `uv run … narration-mcp`, whose venv launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
 
 ## Follow-ups to fold into the packages
 
