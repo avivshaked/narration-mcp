@@ -2,7 +2,7 @@
 
 *Plan revision 3, 2026-09-27. Status: **Waves 0 and 1 merged; Wave 2 under way; first narration (M1, §6) is the priority.***
 
-**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.11**. It is the
+**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.12**. It is the
 bake-off's design copied into this repository, and differs only in two example paths and a header note.
 This plan cites it as "§n". Changes to it are proposed and approved in §1.5, and approved changes enter
 it as revision 5.2. Where this plan and the design disagree, the design wins, and the plan gets fixed.
