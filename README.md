@@ -86,16 +86,19 @@ folder of your clone.
    {
      "mcpServers": {
        "narration": {
+         "type": "stdio",
          "command": "uv",
-         "args": ["run", "--project", "<service_root>", "narration-mcp", "--config", "<service_root>/narration.toml"]
+         "args": ["run", "--project", "<service_root>", "--frozen", "--offline",
+                  "narration-mcp", "--config", "<service_root>/narration.toml"]
        }
      }
    }
    ```
 
-   `python -m narration.mcp` in place of `narration-mcp` runs the same server. Without `--config`, the
-   server reads the file `NARRATION_CONFIG` names, else `<service_root>/narration.toml`. If it finds
-   neither, it exits and says what to do.
+   `--frozen --offline` keeps uv from updating the lock file or reaching the network when the client
+   starts the server. `python -m narration.mcp` in place of `narration-mcp` runs the same server.
+   Without `--config`, the server reads the file `NARRATION_CONFIG` names, else
+   `<service_root>/narration.toml`. If it finds neither, it exits and says what to do.
 3. In a session, call `measure_voice` on your voice clip once. Then call `submit_job`, poll `get_job`,
    and read the takes with `get_results`. The first job starts the background daemon that does the work.
    The server clones only voices this service designed, or clips whose sha256 is in `[voices]
