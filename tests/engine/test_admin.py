@@ -1,50 +1,77 @@
 """``narration-admin engine`` as the operator runs it (design sections 7.1 and 10.1; plan.md WP32, WP37): the
-commands registered on a parser, their output, their exit codes and what they say to do next."""
+commands registered on a parser and run as the dispatcher runs them (``handler(admin, args)``), their output,
+their exit codes and what they say to do next.
+
+``_Admin`` stands in for the dispatcher's ``narration.admin.cli.Admin`` (the ``AdminContext`` protocol) until
+WP37 is merged; the tests then run through its ``main``.
+"""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib.metadata
+import dataclasses
 import json
-import os
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from narration.config import Config
-from narration.contracts.interfaces import WorkerClient
-from narration.engine.admin import CONFIG_ENV, EXIT_FAILED, EXIT_OK, EXIT_USAGE, Environment, register
+from narration.config import Config, GpuConfig
+from narration.engine.admin import EXIT_FAILED, EXIT_OK, Environment, register
 from narration.engine.models import QWEN_BASE
 from narration.engine.pinning import SubprocessStarter
 from narration.jobs.gpu import NoProbe, VramProbe, VramReading
-from tests.store.standin import StandInPlatform
+from narration.platform.testing import StandInPlatform
+from narration.store import NarrationStore
+from narration.store.layout import DB_NAME
 
-from .support import make_install
-
-WORKER_PACKAGES = ("narration-worker",)
-
-
-class _Platform(StandInPlatform):
-    """The stand-in platform, with the daemon's singleton free (``held``) or taken."""
-
-    def __init__(self, held: bool = True) -> None:
-        super().__init__()
-        self.held = held
-
-    def singleton(self, store_root: Path) -> contextlib.AbstractContextManager[bool]:
-        return contextlib.nullcontext(self.held)
+from .support import FAKE_WORKER_PACKAGES, CountingStarter, Install, fake_install
 
 
-class _Fake:
-    def __init__(self, config: Config) -> None:
-        base = {k: v for k, v in os.environ.items() if k != "NARRATION_FAKE_SPEC"}
-        self.inner = SubprocessStarter(config, role="fake", base_env=base)
+@dataclasses.dataclass
+class _Admin:
+    """The dispatcher's context for one command: a configuration, a platform, the store on first use, and
+    what the command printed."""
 
-    def start(self, role: Any, *, cublas_workspace_config: str | None = None) -> WorkerClient:
-        return self.inner.start(role, cublas_workspace_config=cublas_workspace_config)
+    configured: Config
+    platform_: StandInPlatform = dataclasses.field(default_factory=StandInPlatform)
+    out: list[str] = dataclasses.field(default_factory=list)
+    err: list[str] = dataclasses.field(default_factory=list)
+    _store: NarrationStore | None = None
+
+    def config(self) -> Config:
+        return self.configured
+
+    def platform(self) -> StandInPlatform:
+        return self.platform_
+
+    def store_exists(self) -> bool:
+        return (self.configured.server.store_root / DB_NAME).is_file()
+
+    def store(self) -> NarrationStore:
+        if self._store is None:
+            self._store = NarrationStore.from_config(self.configured, self.platform())
+        return self._store
+
+    def say(self, text: str = "") -> None:
+        self.out.append(text)
+
+    def warn(self, text: str) -> None:
+        self.err.append(text)
+
+    def close(self) -> None:
+        if self._store is not None:
+            self._store.close()
+            self._store = None
+
+    @property
+    def stdout(self) -> str:
+        return "\n".join(self.out)
+
+    @property
+    def stderr(self) -> str:
+        return "\n".join(self.err)
 
 
 class _Probe:
@@ -55,133 +82,117 @@ class _Probe:
         return VramReading(name="Test GPU", total_mb=24_000, free_mb=self.free_mb)
 
 
-def _env(*, held: bool = True, probe: VramProbe | None = None) -> Environment:
+def _env(*, probe: VramProbe | None = None) -> Environment:
     return Environment(
-        platform=lambda: _Platform(held),
-        starter=_Fake,
+        starter=CountingStarter,
         probe=lambda config: probe if probe is not None else NoProbe(),
-        packages=WORKER_PACKAGES,
+        packages=FAKE_WORKER_PACKAGES,
     )
 
 
-def _run(env: Environment, *argv: str) -> int:
+def _run(config: Config, *argv: str, env: Environment | None = None, held: bool = True) -> tuple[int, _Admin]:
+    """Parse ``argv`` as ``narration-admin`` would, and run its handler as the dispatcher does."""
     parser = argparse.ArgumentParser(prog="narration-admin")
-    register(parser.add_subparsers(dest="group", required=True), env)
+    register(parser.add_subparsers(dest="group", required=True), env if env is not None else _env())
     args = parser.parse_args(list(argv))
-    return args.handler(args)
+    admin = _Admin(config)
+    try:
+        with contextlib.ExitStack() as stack:
+            if not held:  # a daemon holds the store's singleton meanwhile
+                stack.enter_context(admin.platform_.hold(config.server.store_root))
+            return args.handler(admin, args), admin
+    finally:
+        admin.close()
 
 
 @pytest.fixture
-def config_file(tmp_path: Path) -> Iterator[Path]:
-    install = make_install(tmp_path, versions={"narration-worker": importlib.metadata.version("narration-worker")})
-    path = tmp_path / "narration.toml"
-    path.write_text(
-        "\n".join(
-            [
-                "[server]",
-                f"store_root = {json.dumps(str(install.store_root))}",
-                f"models_root = {json.dumps(str(install.models_root))}",
-                "[gpu]",
-                'device = "cpu"',
-                "[workers.qwen3]",
-                f"project = {json.dumps(str(install.project))}",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    yield path
+def install(tmp_path: Path) -> Install:
+    return fake_install(tmp_path)
 
 
-def test_engine_pin_prints_what_it_pinned_s10_1(config_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert _run(_env(), "engine", "pin", "--config", str(config_file)) == EXIT_OK
-    out = capsys.readouterr().out
-    assert "qwen3-design-1.7b.p1  new  sha256:" in out and "qwen3-base-1.7b.p1  new  sha256:" in out
-    assert "tier bit_exact" in out and "canary threshold" in out
-
-    assert _run(_env(), "engine", "pin", "--config", str(config_file), "--json") == EXIT_OK
-    data = json.loads(capsys.readouterr().out)
-    assert [e["action"] for e in data["engines"]] == ["keep", "keep"]
+@pytest.fixture
+def config(install: Install) -> Config:
+    return dataclasses.replace(install.config, gpu=GpuConfig(device="cpu"))
 
 
-def test_engine_show_lists_the_profiles_in_use_s10_1(config_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert _run(_env(), "engine", "show", "--config", str(config_file)) == EXIT_OK
-    assert "engine pin" in capsys.readouterr().out  # nothing pinned yet: it says what to run
-    _run(_env(), "engine", "pin", "--config", str(config_file))
-    capsys.readouterr()
-    assert _run(_env(), "engine", "show", "--config", str(config_file), "--json") == EXIT_OK
-    rows = {r["engine_profile_id"]: r for r in json.loads(capsys.readouterr().out)["profiles"]}
+def test_every_command_sets_a_handler_the_dispatcher_can_run_wp37(config: Config) -> None:
+    parser = argparse.ArgumentParser(prog="narration-admin")
+    register(parser.add_subparsers(dest="group", required=True))  # as the dispatcher calls it
+    for argv in (["engine", "pin"], ["engine", "repin"], ["engine", "bridge", "a", "b"], ["engine", "show"]):
+        handler: Any = parser.parse_args(argv).handler
+        assert callable(handler) and handler.__code__.co_argcount == 2  # handler(admin, args)
+
+
+def test_engine_pin_prints_what_it_pinned_s10_1(config: Config) -> None:
+    code, admin = _run(config, "engine", "pin")
+    assert code == EXIT_OK, admin.stderr
+    assert "qwen3-design-1.7b.p1  new  sha256:" in admin.stdout and "qwen3-base-1.7b.p1  new  sha256:" in admin.stdout
+    assert "tier bit_exact" in admin.stdout and "canary threshold" in admin.stdout
+
+    code, admin = _run(config, "engine", "pin", "--json")
+    assert code == EXIT_OK
+    assert [e["action"] for e in json.loads(admin.stdout)["engines"]] == ["keep", "keep"]
+
+
+def test_engine_show_lists_the_profiles_in_use_s10_1(config: Config) -> None:
+    code, admin = _run(config, "engine", "show")
+    assert code == EXIT_OK and "engine pin" in admin.stdout  # nothing pinned yet: it says what to run
+    assert not (config.server.store_root / DB_NAME).exists()  # and showing created no store
+
+    _run(config, "engine", "pin")
+    code, admin = _run(config, "engine", "show", "--json")
+    assert code == EXIT_OK
+    rows = {r["engine_profile_id"]: r for r in json.loads(admin.stdout)["profiles"]}
     assert rows["qwen3-base-1.7b.p1"]["in_use_for"] == "base"
     assert rows["qwen3-design-1.7b.p1"]["in_use_for"] == "design"
     assert rows["qwen3-base-1.7b.p1"]["canary"]["threshold"] is not None
 
 
-def test_the_config_can_come_from_the_environment(
-    config_file: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv(CONFIG_ENV, str(config_file))
-    assert _run(_env(), "engine", "show") == EXIT_OK
+def test_pin_refuses_while_a_daemon_holds_the_store_s4(config: Config) -> None:
+    code, admin = _run(config, "engine", "pin", held=False)
+    assert code == EXIT_FAILED
+    assert "daemon is running" in admin.stderr and "next: Stop it (narration-admin daemon stop" in admin.stderr
 
 
-def test_no_config_is_a_usage_error_that_says_how_to_give_one(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv(CONFIG_ENV, raising=False)
-    assert _run(_env(), "engine", "pin") == EXIT_USAGE
-    assert "--config" in capsys.readouterr().err
-
-
-def test_a_bad_config_is_a_usage_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    path = tmp_path / "narration.toml"
-    path.write_text("[server]\n", encoding="utf-8")
-    assert _run(_env(), "engine", "pin", "--config", str(path)) == EXIT_USAGE
-    assert "store_root" in capsys.readouterr().err
-
-
-def test_pin_refuses_while_a_daemon_holds_the_store_s4(config_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert _run(_env(held=False), "engine", "pin", "--config", str(config_file)) == EXIT_FAILED
-    err = capsys.readouterr().err
-    assert "daemon is running" in err and "next: Stop it (narration-admin daemon stop" in err
-
-
-def test_pin_refuses_without_the_vram_a_qwen_load_needs_s4(
-    config_file: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert _run(_env(probe=_Probe(free_mb=2000)), "engine", "pin", "--config", str(config_file)) == EXIT_FAILED
-    err = capsys.readouterr().err
-    assert "2000 MB free" in err and "next:" in err
+def test_pin_refuses_without_the_vram_a_qwen_load_needs_s4(config: Config) -> None:
+    code, admin = _run(config, "engine", "pin", env=_env(probe=_Probe(free_mb=2000)))
+    assert code == EXIT_FAILED
+    assert "2000 MB free" in admin.stderr and "next:" in admin.stderr
 
 
 def test_a_changed_installation_is_refused_and_repin_makes_the_new_profile_s10_1(
-    config_file: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    config: Config, install: Install
 ) -> None:
-    _run(_env(), "engine", "pin", "--config", str(config_file))
-    capsys.readouterr()
-    (QWEN_BASE.snapshot_dir(tmp_path / "models") / "model.safetensors").write_bytes(b"new weights")
+    _run(config, "engine", "pin")
+    (QWEN_BASE.snapshot_dir(install.models_root) / "model.safetensors").write_bytes(b"new weights")
 
-    assert _run(_env(), "engine", "pin", "--config", str(config_file)) == EXIT_FAILED
-    err = capsys.readouterr().err
-    assert "differs from the pinned engine profile qwen3-base-1.7b.p1 in: weights" in err
-    assert "next: To make a new profile the one in use, run narration-admin engine repin" in err
+    code, admin = _run(config, "engine", "pin")
+    assert code == EXIT_FAILED
+    assert "differs from the pinned engine profile qwen3-base-1.7b.p1 in: weights" in admin.stderr
+    assert "next: To make a new profile the one in use, run narration-admin engine repin" in admin.stderr
 
-    assert _run(_env(), "engine", "repin", "--config", str(config_file)) == EXIT_OK
-    out = capsys.readouterr().out
+    code, admin = _run(config, "engine", "repin")
+    assert code == EXIT_OK
+    out = admin.stdout
     assert "qwen3-base-1.7b.p2  new" in out and "changed: weights" in out and "measured again" in out
 
-    assert (
-        _run(_env(), "engine", "bridge", "qwen3-base-1.7b.p1", "qwen3-base-1.7b.p2", "--config", str(config_file)) == 0
-    )
-    out = capsys.readouterr().out
-    assert "qwen3-base-1.7b.p1 -> qwen3-base-1.7b.p2" in out and "cannot render here: weights" in out
+    code, admin = _run(config, "engine", "bridge", "qwen3-base-1.7b.p1", "qwen3-base-1.7b.p2")
+    assert code == EXIT_OK
+    assert "qwen3-base-1.7b.p1 -> qwen3-base-1.7b.p2" in admin.stdout
+    assert "cannot render here: weights" in admin.stdout
 
 
-def test_a_worker_that_is_not_installed_says_to_run_doctor(
-    config_file: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_bridge_of_an_unknown_profile_says_how_to_list_them_s10_1(config: Config) -> None:
+    _run(config, "engine", "pin")
+    code, admin = _run(config, "engine", "bridge", "qwen3-base-1.7b.p1", "qwen3-base-1.7b.p9")
+    assert code == EXIT_FAILED and "engine show" in admin.stderr
+
+
+def test_a_worker_that_is_not_installed_says_to_run_doctor(config: Config) -> None:
     env = Environment(
-        platform=lambda: _Platform(True),
         starter=SubprocessStarter,  # the real qwen3 and QA workers, whose venvs this installation lacks
         probe=lambda config: NoProbe(),
-        packages=WORKER_PACKAGES,
+        packages=FAKE_WORKER_PACKAGES,
     )
-    assert _run(env, "engine", "pin", "--config", str(config_file)) == EXIT_FAILED
-    assert "narration-admin doctor" in capsys.readouterr().err
+    code, admin = _run(config, "engine", "pin", env=env)
+    assert code == EXIT_FAILED and "narration-admin doctor" in admin.stderr
