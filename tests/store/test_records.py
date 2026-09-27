@@ -317,7 +317,7 @@ def test_commands_reach_the_daemon_through_the_store_s4(store: NarrationStore) -
 def test_commands_since_lists_pending_and_done_commands_in_posting_order_s4_1(
     store: NarrationStore, clock: FakeClock
 ) -> None:
-    # Contracts 1.6.3 (WP30): a daemon lists the stops posted after its launch, answered or not.
+    # Contracts 1.6.4 (WP30): a daemon lists the stops posted after its launch, answered or not.
     first = store.post_command("stop")
     clock.advance(0.5)
     second = store.post_command("release_gpu")

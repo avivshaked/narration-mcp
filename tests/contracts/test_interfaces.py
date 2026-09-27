@@ -85,7 +85,7 @@ def test_an_align_transcript_names_its_cue_count_and_term_words_s11_2() -> None:
 
 
 def test_the_store_lists_the_commands_posted_since_a_time_s4_1() -> None:
-    # Contracts 1.6.3 (WP30): commands_since lists pending and done commands, so a daemon honours a stop
+    # Contracts 1.6.4 (WP30): commands_since lists pending and done commands, so a daemon honours a stop
     # posted after its launch that another daemon has already answered.
     since = inspect.signature(interfaces.Store.commands_since)
     assert list(since.parameters) == ["self", "requested_at"]

@@ -408,7 +408,7 @@ class Store(Protocol):
         ``requested_at`` is a store time (``2026-09-26T21:50:44.123Z``): fixed-width UTC to the millisecond,
         so text order is time order, and anything else raises ``ValueError``. The store never prunes
         commands, so one answered long ago is still listed. A daemon reads it on start for the stops posted
-        after its launch that another daemon has already answered (section 4.1; contracts 1.6.3, WP30).
+        after its launch that another daemon has already answered (section 4.1; contracts 1.6.4, WP30).
         """
         ...
 
