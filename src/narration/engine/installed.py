@@ -59,13 +59,12 @@ def engine(host: RunnerHost, *, probe: VramProbe | None = None) -> JobEngine:
 
 def more_handlers(host: RunnerHost, engine: JobEngine) -> Mapping[str, JobHandler[Any]]:
     """The handlers of the other job kinds, by kind, built on the daemon's job ``engine`` so that they share
-    its residency, throughput and canary.
-
-    **WP33 registers ``measure`` here**: ``{"measure": narration.measure.build_measure_handler(engine)}``;
-    WP34 and WP35 add their kinds after it. None is built yet, so a job of those kinds fails with
-    ``INTERNAL`` and ``details.kind``.
+    its residency, throughput and canary: ``measure`` (WP33's ``measure_voice``). WP34 and WP35 add their
+    kinds here; until then a job of those kinds fails with ``INTERNAL`` and ``details.kind``.
     """
-    return {}
+    from narration.measure import KIND, build_measure_handler  # here: narration.measure builds on narration.jobs
+
+    return {KIND: build_measure_handler(engine)}
 
 
 def registry(host: RunnerHost, *, probe: VramProbe | None = None) -> Registry:

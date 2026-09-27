@@ -43,7 +43,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   `uv.lock`, weight file or package version fails the job with `ENGINE_DRIFT` before anything renders.
   The daemon's job engine is now assembled with the cue aligner and the pinned QA models (Whisper
   large-v3, WavLM-base-plus-sv, the wav2vec2 aligner), so jobs no longer fail with
-  `BACKEND_NOT_INSTALLED` once the models are installed and the engine is pinned.
+  `BACKEND_NOT_INSTALLED` once the models are installed and the engine is pinned. The daemon runs
+  `measure_voice`'s jobs on the same engine, sharing its resident models and its canary gate.
 - `narration-admin engine pin | repin | bridge | show`. `pin` records the Base and VoiceDesign engine
   profiles and designs the service's canary on this machine from the text in `material/canary/`: no
   canary audio ships. It repeats the canary render in one worker and in a fresh one to decide the

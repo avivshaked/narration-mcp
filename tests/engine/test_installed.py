@@ -22,6 +22,8 @@ from narration.jobs.gpu import NoProbe, NvmlProbe
 from narration.jobs.handlers import Registry
 from narration.jobs.host import RunnerHost
 from narration.jobs.runner import installed_engine
+from narration.measure import KIND as MEASURE_KIND
+from narration.measure import MeasureHandler
 
 from .support import Install, make_install
 
@@ -49,7 +51,7 @@ def test_the_installed_engine_runs_generate_and_analyse_with_the_pinned_parts_s4
 
     assert isinstance(registry, Registry)
     engine = _engine(registry)
-    assert registry.handler("analyse") is engine and registry.handler("measure") is None
+    assert registry.handler("analyse") is engine
     assert registry.residency is engine.residency
     parts = engine.parts
     assert isinstance(parts.aligner, CtcAligner)
@@ -113,22 +115,13 @@ def test_a_pinned_aligner_the_ctc_method_cannot_run_is_backend_not_installed_s11
     assert caught.value.code == codes.BACKEND_NOT_INSTALLED
 
 
-def test_more_handlers_join_the_registry_sharing_the_engines_residency_s4(
-    install: Install, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Where WP33 registers ``measure``: its handler is built on the job engine and shares its residency."""
-    from narration.engine import installed
-
-    seen: list[JobEngine] = []
-    measure = object()
-
-    def more(host: RunnerHost, engine: JobEngine) -> dict[str, Any]:
-        seen.append(engine)
-        return {"measure": measure}
-
-    monkeypatch.setattr(installed, "more_handlers", more)
+def test_measure_joins_the_registry_on_the_job_engine_s4(install: Install) -> None:
+    """``measure_voice``'s handler (WP33) is built on the daemon's job engine: it shares the engine's model
+    residency, throughput and canary, so one group is resident across every kind."""
     registry = installed_engine(cast(RunnerHost, _Host(config=install.config)))
     engine = _engine(registry)
-    assert seen == [engine]
-    assert registry.handler("measure") is measure and registry.handler("analyse") is engine
+    measure = registry.handler(MEASURE_KIND)
+    assert isinstance(measure, MeasureHandler)
+    assert measure.engine is engine and measure.core is engine.core
     assert registry.residency is engine.residency and registry.throughput is engine.throughput
+    assert {"generate", "analyse", MEASURE_KIND} <= set(registry.handlers)
