@@ -157,6 +157,19 @@ are tracked here but no version is tagged; nothing described below is installabl
   seeded, reports how generation stopped (`new_tokens`, `hit_token_cap`), and is written as a float32 WAV
   that repeats byte for byte. A snapshot of another model is refused, and a broken one is reported as not
   installed.
+- The QA worker (`workers/qa`, role `qa`): loads Whisper-large-v3, WavLM-base-plus-sv and the wav2vec2
+  aligner offline from snapshot folders named by their revisions, and refuses a load whose snapshot is
+  missing, damaged, misnamed or of another model (`BACKEND_NOT_INSTALLED` or `INVALID_REQUEST`, with the
+  field). Its ops:
+  - `transcribe`: English (the language may be named, as in "English"; an unknown one is refused), word
+    times, sequential long-form, decoded with five beams and not conditioned on the previous window, as
+    the bake-off's evidence was (ADR 0004);
+  - `embed`: the L2-normalised speaker embedding, on the GPU the group was loaded on or on the CPU (the
+    canary's path). Audio longer than 30 s is embedded as equal windows of at most 30 s and their
+    embeddings averaged, which bounds its memory; audio of up to 30 s is embedded in one pass, as before;
+  - `f0` and `profile`: pitch by pYIN, and the voice measurements (speaking rate, pause ratio, loudness,
+    spectral centroid, HNR, CPPS) with a spectrogram and pitch picture, all without GPL code;
+  - `align`: the forced alignment on the CPU.
 
 ### Changed
 

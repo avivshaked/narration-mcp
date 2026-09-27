@@ -13,9 +13,10 @@ What it does, in one process, with the GPU lock held (AGENTS.md section 5):
    (``narration_worker_qa.asr.WhisperAsr``, ``narration_worker_qa.sv.WavLmSv``) on ``cuda:0``;
 3. transcribes (word times, long-form) and embeds a 40 s slice and the whole of one of the bakeoff's clone takes
    (d2, seed 1, about 119 s), recording the allocator's peaks; embeds both again on the CPU (the canary's path)
-   and compares the embeddings;
+   and compares the embeddings. ``embed`` is the worker's: audio over 30 s is embedded in equal windows (DC-15);
 4. measures the peaks' growth with length (10 to 119 s from the start of the take): transcription with and
-   without word times, and embedding, which it also compares with the mean of 30 s windows' embeddings;
+   without word times, and embedding, both as the worker embeds (DC-15's windows) and in one pass over the whole
+   clip (what the worker did before DC-15), with the cosine of the two;
 5. unloads, loads each model a second time (warm file cache), and re-hashes the weights against the manifest.
 
 Run from the checkout, in the QA worker's venv, with the GPU lock held::
@@ -46,8 +47,6 @@ TAKE = "outputs/qwen3-tts-1.7b-clone-d2-late-night_take1-seed1/r48_names_probe.w
 SLICE_S = 40.0
 LENGTHS_S = (10.0, 20.0, 30.0, 60.0, 90.0, 119.0)
 """The lengths the peaks are measured at, cut from the start of the take."""
-WINDOW_S = 30
-"""The window of the windowed embedding the one-pass embedding is compared with (a possible bound on VRAM)."""
 
 
 def main() -> int:
@@ -64,7 +63,7 @@ def main() -> int:
     from narration_worker.determinism import apply_determinism
     from narration_worker_qa.align import read_audio, to_mono_16k
     from narration_worker_qa.asr import WhisperAsr
-    from narration_worker_qa.sv import WavLmSv
+    from narration_worker_qa.sv import WavLmSv, windows
     from narration_worker_qa.worker import QA_DETERMINISM
 
     common.cap_torch_threads(torch)
@@ -179,19 +178,24 @@ def main() -> int:
                 }
             )
         torch.cuda.empty_cache()
-        one_pass, facts = measured(lambda c=clip: sv.embed(c, "cuda"))
-        windows = [clip[i : i + WINDOW_S * 16_000] for i in range(0, clip.shape[0], WINDOW_S * 16_000)]
-        windows = [w for w in windows if w.shape[0] >= sv.min_samples]
-        mean = np.mean([sv.embed(w, "cuda")["embedding"] for w in windows], axis=0)
-        mean /= np.linalg.norm(mean)
+        windowed, facts = measured(lambda c=clip: sv.embed(c, "cuda"))
+        torch.cuda.empty_cache()
+        # One pass over the whole clip, which the worker runs only for audio of up to 30 s (DC-15). No reference
+        # to the model outlives the call, so the memory after unload below is the worker's own.
+        one_pass, one_facts = measured(
+            lambda c=clip: sv._one_pass(*sv._model_for("cuda"), c)  # pyright: ignore[reportPrivateUsage]
+        )
         by_length["embed"].append(
             {
                 "seconds": seconds,
-                "peak_above_resident_mb": facts["peak_max_allocated_mb"] - resident,
-                "peak_reserved_mb": facts["peak_max_reserved_mb"],
-                "seconds_taken": facts["seconds"],
-                "windows_of_30s": len(windows),
-                "cosine_one_pass_to_window_mean": round(float(np.dot(one_pass["embedding"], mean)), 6),
+                "windows": len(windows(clip)),
+                "windowed_peak_above_resident_mb": facts["peak_max_allocated_mb"] - resident,
+                "windowed_peak_reserved_mb": facts["peak_max_reserved_mb"],
+                "windowed_seconds_taken": facts["seconds"],
+                "one_pass_peak_above_resident_mb": one_facts["peak_max_allocated_mb"] - resident,
+                "one_pass_peak_reserved_mb": one_facts["peak_max_reserved_mb"],
+                "one_pass_seconds_taken": one_facts["seconds"],
+                "cosine_windowed_to_one_pass": round(float(np.dot(windowed["embedding"], one_pass)), 6),
             }
         )
     results["by_length"] = by_length

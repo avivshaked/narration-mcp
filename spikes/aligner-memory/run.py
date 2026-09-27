@@ -13,6 +13,10 @@ For each length, a fresh process (the QA worker's venv, the worker's thread cap 
 3. aligns it with ``Wav2Vec2Aligner.align``, sampling the process's resident memory every 5 ms;
 4. reports the peak above the memory held after the model loaded, and the time.
 
+The ladder stops before a length whose peak, extrapolated as the square of the length from the last run (the
+worst case: self-attention over the whole clip), would exceed half the machine's available memory, so the spike
+never starves the machine.
+
 No audio file is read or written, and no GPU is used. Run from the checkout in the QA worker's venv::
 
     workers/qa/.venv/Scripts/python.exe spikes/aligner-memory/run.py [--lengths 30 60 120 240 480]
@@ -116,6 +120,15 @@ def main() -> int:
 
     runs: list[dict[str, Any]] = []
     for seconds in args.lengths:
+        if runs and "peak_above_loaded_mb_total" in runs[-1]:
+            last = runs[-1]
+            predicted = last["peak_above_loaded_mb_total"] * (seconds / last["seconds"]) ** 2
+            available = psutil.virtual_memory().available / 1024**2
+            if predicted > available / 2:
+                runs.append(
+                    {"seconds": seconds, "skipped": f"predicted peak {predicted:.0f} MB > half of {available:.0f} MB"}
+                )
+                break
         completed = subprocess.run(
             [sys.executable, __file__, "--one", str(seconds)], capture_output=True, text=True, check=False
         )
