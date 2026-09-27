@@ -20,6 +20,8 @@ import pytest
 
 from narration.backend.service import RUNNABLE_KINDS
 from narration.contracts import codes
+from narration.contracts.errors import NarrationError
+from narration.jobs.voice import require_synthetic
 from narration.mcp import build_front_end
 from tests.backend.support import FakeLauncher, make_backend, sha256_of, write_wav
 from tests.backend.test_first_narration import call_ok
@@ -129,19 +131,30 @@ def test_profile_voice_over_the_wire_s3_6(served: tuple[DesignWorld, Any, FakeLa
 def test_a_clip_the_service_did_not_design_is_still_refused_s17_4(
     served: tuple[DesignWorld, Any, FakeLauncher],
 ) -> None:
+    """Designing voices and profiling a stranger's clip never make that clip one the service may clone: only the
+    design job's own candidates reach the provenance list."""
     world, backend, _ = served
     stranger = world.root / "elsewhere" / "stranger.wav"
     sha = write_wav(stranger, freq=330.0)
     job = world.design(takes=1, description=WARM)
     world.run()
     assert world.job(job.job_id).status == "completed"
-    reply = anyio.run(lambda: _call(backend, {"voice": {"path": str(stranger), "sha256": sha, "transcript": "Hello."}}))
+    profiled = backend.profile_voice_sync({"audio": {"path": str(stranger), "sha256": sha}})
+    world.run()
+    assert world.job(profiled["job_id"]).status == "completed"
+    assert not world.store.is_provenance(sha)
+    lines = (world.store.root / "provenance.jsonl").read_text(encoding="utf-8").splitlines()
+    (candidate,) = world.store.get_design(str(job.request["design_id"]))
+    assert [json.loads(line)["clip_sha256"] for line in lines] == [candidate.clip.sha256]
+    voice = {"path": str(stranger), "sha256": sha, "transcript": "Hello."}
+    reply = anyio.run(lambda: _call(backend, {"voice": voice}))
     assert reply["code"] == codes.VOICE_NOT_SYNTHETIC and reply["field"] == "voice.sha256"
+    with pytest.raises(NarrationError) as caught:
+        require_synthetic(world.store, world.config.voices.allow_sha256, sha)  # the daemon's own check, too
+    assert caught.value.code == codes.VOICE_NOT_SYNTHETIC
 
 
 async def _call(backend: Any, args: dict[str, Any]) -> dict[str, Any]:
-    from narration.contracts.errors import NarrationError
-
     try:
         await backend.measure_voice(args)
     except NarrationError as exc:
