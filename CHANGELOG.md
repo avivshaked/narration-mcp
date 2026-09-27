@@ -165,6 +165,11 @@ are tracked here but no version is tagged; nothing described below is installabl
   serves, and waits until it serves; when the terminal cannot detach it, `start --foreground` runs it in
   the terminal. `stop` posts a stop only when a daemon runs, then waits for its answer. `status` shows what
   the daemon is doing, or `--json`.
+- `narration-admin doctor [--quick] [--json]`: checks the platform, the configuration, that the store
+  root is writable with enough free disk, that every pinned model is installed with the files its install
+  recorded (hashed again unless `--quick`), that each worker venv matches its `uv.lock`, the NVIDIA GPU
+  (a machine without one is told plainly that it cannot run jobs), and the engine pin. Each problem says
+  what to do next; the exit code is 1 when a check fails.
 
 ### Changed
 
