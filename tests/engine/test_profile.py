@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -259,6 +261,24 @@ def test_file_hashes_are_read_again_only_when_a_file_changes(tmp_path: Path, mon
     assert hashes.sha256(path) == first and len(opened) == 1
     path.write_bytes(b"b" * 1001)
     assert hashes.sha256(path) != first and len(opened) == 2
+
+
+def test_a_file_replaced_by_a_rename_with_the_old_size_and_time_is_read_again_s10_1(tmp_path: Path) -> None:
+    """One daemon's hashes: a new file moved over a weight file, with the same size and modification time,
+    is still read again (its file id and change time differ), so drift is found without a restart."""
+    path = tmp_path / "weights.bin"
+    path.write_bytes(b"a" * 1000)
+    hashes = FileHashes()
+    first = hashes.sha256(path)
+    stat = path.stat()
+    replacement = tmp_path / "weights.bin.new"
+    replacement.write_bytes(b"b" * 1000)
+    os.utime(replacement, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    os.replace(replacement, path)
+    after = path.stat()
+    assert (after.st_size, after.st_mtime_ns) == (stat.st_size, stat.st_mtime_ns)  # the old test would trust it
+    assert hashes.sha256(path) != first
+    assert hashes.sha256(path) == hashlib.sha256(b"b" * 1000).hexdigest()
 
 
 # ------------------------------------------------------------------ ids and the profile in use

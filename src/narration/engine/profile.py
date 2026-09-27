@@ -126,31 +126,37 @@ class EngineSetupError(NarrationError):
 
 
 class FileHashes:
-    """File sha256s, remembered by (size, modification time) so an unchanged file is not read again.
+    """File sha256s, remembered by the file's identity so an unchanged file is not read again.
 
     A snapshot is about 4 GB, and reading it takes seconds, so the daemon keeps one of these for its lifetime:
-    the first check after it starts reads every file, later ones only a file whose size or time changed (a
-    replaced or rewritten file). Hashing is exact, never sampled.
+    the first check after it starts reads every file, later ones only a file that changed. A file counts as
+    unchanged only while its size, modification time, file id (``st_ino``) and change time (``st_ctime_ns``:
+    the creation time on Windows) are all as they were, so a file replaced by a rename (a new file with the
+    old size and time, moved over the old one) is read again. Hashing is exact, never sampled.
     """
 
     def __init__(self) -> None:
-        self._known: dict[str, tuple[int, int, str]] = {}
+        self._known: dict[str, tuple[tuple[int, int, int, int], str]] = {}
+
+    @staticmethod
+    def identity(stat: os.stat_result) -> tuple[int, int, int, int]:
+        """What must be unchanged for a remembered hash to hold: size, mtime, file id and ctime."""
+        return (stat.st_size, stat.st_mtime_ns, stat.st_ino, stat.st_ctime_ns)
 
     def sha256(self, path: Path) -> str:
-        """The file's sha256 (64 hex), read again only if its size or modification time changed."""
-        stat = path.stat()
+        """The file's sha256 (64 hex), read again unless its ``identity`` is unchanged."""
+        before = self.identity(path.stat())
         key = os.path.normcase(os.path.abspath(path))
         known = self._known.get(key)
-        if known is not None and known[0] == stat.st_size and known[1] == stat.st_mtime_ns:
-            return known[2]
+        if known is not None and known[0] == before:
+            return known[1]
         digest = hashlib.sha256()
         with path.open("rb") as f:
             while chunk := f.read(_CHUNK):
                 digest.update(chunk)
         sha = digest.hexdigest()
-        after = path.stat()
-        if after.st_size == stat.st_size and after.st_mtime_ns == stat.st_mtime_ns:  # not changed while read
-            self._known[key] = (stat.st_size, stat.st_mtime_ns, sha)
+        if self.identity(path.stat()) == before:  # not changed while it was read
+            self._known[key] = (before, sha)
         return sha
 
 

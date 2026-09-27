@@ -40,7 +40,9 @@ are tracked here but no version is tagged; nothing described below is installabl
 - Engine profiles (`narration.engine`): each pins the Qwen model's revision, every snapshot file's sha256,
   the worker's `uv.lock` and package versions, the determinism switches and every audio-changing setting,
   and hashes them. After every Qwen load the daemon checks the worker against its profile: a changed
-  `uv.lock`, weight file or package version fails the job with `ENGINE_DRIFT` before anything renders.
+  `uv.lock`, weight file or package version fails the job with `ENGINE_DRIFT` before anything renders. A
+  weight file replaced by another with the same size and time (moved over it) is found too, without a
+  restart.
   The daemon's job engine is now assembled with the cue aligner and the pinned QA models (Whisper
   large-v3, WavLM-base-plus-sv, the wav2vec2 aligner), so jobs no longer fail with
   `BACKEND_NOT_INSTALLED` once the models are installed and the engine is pinned. The daemon runs
