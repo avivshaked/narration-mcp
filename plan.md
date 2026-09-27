@@ -394,7 +394,7 @@ error and on a planted `.wav`.
 | WP15 | Cue alignment | §11.2 | `narration.align` (pure) + the `align` op in `workers\qa` | WP01 | no (CPU model) |
 | WP16 | Worker protocol, common package, fake worker | App. A, §4 workers, §4.1 thread caps | `workers\common`, `narration.workers` (client), the `fake` role | WP01 | no |
 | WP17 | MCP front-end skeleton | §5, §7, §14 | `narration.mcp`, `tests\mcp` | WP01 | no |
-| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; H1: 8 of 10 approved; for `ladder-080` and `align-03` the lead recommends approving as written (the fault is the seed's; 2026-09-27), awaiting the owner; then the freeze adds the calibration's design text |
+| WP18 | The service's own material | §3.2, §11.2, §10.1 canary, §15, Phase 4 demo | `material\` | WP01 (for the text rules) | no (listening: H1) |
 | WP19 | Platform seam (Windows only) | §4, §4.1, §17.2, Q2 | `narration.platform`, `tests\platform` | WP01 | no |
 | WP20 | GPU lane: Qwen worker + Phase 0 GPU spikes | §10.1, App. A, §20 (d)(e)(f)(h)(i) | `workers\qwen3tts`, `spikes\` | WP16 (protocol) | **yes** |
 
@@ -519,15 +519,15 @@ because the bakeoff set no determinism switches. Spike (d) decides the tier and 
 
 | WP | Title | Design | Depends | GPU |
 |---|---|---|---|---|
-| WP22 | QA worker | 2 | WP16, WP15 | yes | `review` | `wp/22-qa-worker` | acceptance passes with DC-14 and DC-15 (60 s); QA group needs 11500 MB; independent review running |
+| WP22 | QA worker (real models) | §4 QA worker, §11.1 ASR/SV, §3.6 | WP16, WP15 | yes (bounded) |
 | WP30 | Daemon process management | §4, §4.1, spike (g) | WP12, WP16, WP19 | no |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
+| WP31 | Job engine: scheduler, rounds, retakes | §4 GPU scheduler, §8 | WP12, WP13, WP14, WP16 | no (fake worker) |
 | WP32 | Engine profiles, fingerprints, canary gate | §6 EngineProfile, §10.1 | WP20, WP22, WP12 | yes (bounded) |
 | WP33 | `measure_voice` | §3.2 | WP31, WP22, WP14, WP18 (H1) | yes (long) |
 | WP34 | `design_voice`, provenance, `profile_voice` | §3.1, §3.5, §3.6, §17.4 | WP31, WP20, WP22, WP10 | yes (bounded) |
 | WP35 | `audition_pronunciation` | §7.6 | WP31 | yes (bounded) |
 | WP36 | Front-end ↔ daemon wiring | §7.3–§7.7, §12, §17.3 | WP17, WP31, WP12, WP10, WP19 | no |
-| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `review` | `wp/37-admin` | dispatcher, daemon, doctor, gc, verify, install; `render` after WP36, `bench` after WP38; independent review running |
+| WP37 | Operator CLI `narration-admin` | §7.1, §10.1 pins, §15 gc/verify | WP12, WP30, WP32 | no |
 | WP38 | Alignment benchmark + `bench alignment` | §11.2, spike (a) | WP15, WP18, WP20 | yes (renders); **H2, H3** |
 | WP39 | Phase 0 (c): length ladder for d2 and d4 | §3.2, §20 (c) | WP33 (or a spike harness), H1 | yes (40–100 min) |
 
@@ -660,18 +660,18 @@ Updated by the lead on `main` only.
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
 | WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19, #24 | 2026-09-27; second follow-ups merged (PR #24): one Qwen settings parser, one WAV writer, contracts 1.6.3, design 5.10; Low follow-ups in HANDOFF.md |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
-| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; the service's own default design text (DC-13, design 5.8); fixtures settled with WP10; H1: 8 of 10 approved, `ladder-080` and `align-03` under investigation (an artefact at the start of the take) |
+| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; H1: 8 of 10 approved; for `ladder-080` and `align-03` the lead recommends approving as written (the fault is the seed's; 2026-09-27), awaiting the owner; then the freeze adds the calibration's design text |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
-| WP22 | QA worker | 2 | WP16, WP15 | yes | `active` | `wp/22-qa-worker` | acceptance matches the bake-off; DC-14 (decoding) and DC-15 (windowed embedding) approved; finishing to review |
+| WP22 | QA worker | 2 | WP16, WP15 | yes | `review` | `wp/22-qa-worker` | acceptance passes with DC-14 and DC-15 (60 s); QA group needs 11500 MB; independent review running |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `review` | `wp/31-jobs` | reviewer finishing its re-verification; then rebase on WP30, contracts 1.6.5 |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | stacked on `wp/31-jobs`; `installed_engine` first (M1), then `engine pin`, the canary (DC-3) |
-| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `active` | `wp/33-measure` | stacked on `wp/31-jobs`; built against the draft corpus until H1 closes |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | profiles, drift check and the real `installed_engine` built; rebasing onto `main`; `engine pin` on WP37's interface next; DC-16 contract awaits the owner's OK |
+| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `active` | `wp/33-measure` | the measure job works end to end on the fake workers; rebasing onto `main`; built against the draft corpus until H1 closes |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
-| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `active` | `wp/36-backend` | stacked on `wp/31-jobs`; M1's tools first |
-| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `todo` | – | |
+| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `active` | `wp/36-backend` | first narration works end to end on the fake workers over JSON-RPC; `narration-mcp` serves the real backend; rebasing onto `main` |
+| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `review` | `wp/37-admin` | dispatcher, daemon, doctor, gc, verify, install; `render` after WP36, `bench` after WP38; independent review running |
 | WP38 | Alignment benchmark (spike a) | 2 | WP15, WP18, WP20 | yes | `todo` | – | H2, H3 |
 | WP39 | Ladder d2/d4 (spike c) | 2 | WP33 | yes (long) | `todo` | – | needs H1 |
 | WP40 | Acceptance: Phases 1 + 3 | 3 | Wave 2 | yes | `todo` | – | |
