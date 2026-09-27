@@ -8,6 +8,14 @@
 * on any other OS, ``UnsupportedOsPlatform``, whose every call raises
   ``narration.contracts.errors.UnsupportedPlatform`` (v1 is Windows only, plan.md Q2).
 
+Both also implement ``ProcessPlatform``: how the daemon starts Python processes on this OS (which
+interpreter, which creation flags, which environment variables). Those three are pure descriptions, so the
+unsupported platform answers them with the neutral values (no change, no flags, nothing added) rather than
+refusing.
+
+``narration.platform.testing.StandInPlatform`` is a stand-in ``Platform`` for tests on any OS; only tests
+use it.
+
 This package is the only place allowed to import ``msvcrt``, ``ctypes.windll``/``WinDLL``, ``winreg``,
 ``fcntl`` or ``win32*`` (AGENTS.md section 6; ruff's TID251 enforces it elsewhere).
 """
@@ -16,7 +24,9 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Final
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Final, Protocol
 
 from narration.contracts.interfaces import Platform
 
@@ -27,12 +37,37 @@ SUPPORTED_PLATFORMS: Final[tuple[str, ...]] = ("win32",)
 """The values of ``sys.platform`` that have a real implementation."""
 
 
+class ProcessPlatform(Platform, Protocol):
+    """``Platform`` plus how the daemon starts Python processes on this OS (plan.md WP30).
+
+    On Windows: the detached daemon runs as ``pythonw.exe``, which has no console to show or close, and
+    workers as ``python.exe`` (they speak over their standard streams) created with ``CREATE_NO_WINDOW``,
+    plus ``BELOW_NORMAL_PRIORITY_CLASS`` when asked; every process the service starts gets
+    ``NoDefaultCurrentDirectoryInExePath=1``, so ``cmd.exe`` never runs a program from its working folder
+    (section 17).
+    """
+
+    def python_for(self, python: Path, *, console: bool) -> Path:
+        """The interpreter to run a Python program with, given ``python``: with ``console`` False, one with no
+        console of its own (the detached daemon); with ``console`` True, one that has standard streams (a
+        worker). Returns ``python`` itself when this OS makes no such distinction or the other one is missing."""
+        ...
+
+    def worker_creationflags(self, *, below_normal: bool) -> int:
+        """The ``subprocess`` creation flags of a worker process (0 where the OS has none)."""
+        ...
+
+    def hardening_env(self) -> Mapping[str, str]:
+        """Environment variables every process the service starts gets, on this OS (empty where none)."""
+        ...
+
+
 def is_supported() -> bool:
     """Whether this OS has a real ``Platform`` (``narration-admin doctor`` reports it)."""
     return sys.platform in SUPPORTED_PLATFORMS
 
 
-def get_platform() -> Platform:
+def get_platform() -> ProcessPlatform:
     """The ``Platform`` for this OS: ``WindowsPlatform`` on Windows, else ``UnsupportedOsPlatform``.
 
     It never raises; on an unsupported OS the returned object raises ``UnsupportedPlatform`` on each call.
@@ -63,4 +98,11 @@ def real_path(path: str | os.PathLike[str]) -> str:
     return os.path.normpath(winpaths.strip_verbatim(os.path.realpath(path)))
 
 
-__all__ = ["SUPPORTED_PLATFORMS", "UnsupportedOsPlatform", "get_platform", "is_supported", "real_path"]
+__all__ = [
+    "SUPPORTED_PLATFORMS",
+    "ProcessPlatform",
+    "UnsupportedOsPlatform",
+    "get_platform",
+    "is_supported",
+    "real_path",
+]

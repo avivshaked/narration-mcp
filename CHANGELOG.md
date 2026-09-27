@@ -168,3 +168,29 @@ are tracked here but no version is tagged; nothing described below is installabl
   emissions on the CPU and runs the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not
   held against the take. A missing, damaged or foreign aligner snapshot is reported as not installed
   (`BACKEND_NOT_INSTALLED`).
+  (below `unplaced_below`) or `alignment_error`. A cue next to one it cannot place never takes that cue's
+  speech: when no pause separates them, its edge keeps the aligner's time (`CUE_BOUNDARY_NO_PAUSE` with
+  `details.edge`). It cross-checks boundaries against Whisper's words (`CUE_ALIGNMENT_DISAGREE`,
+  `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC emissions on the CPU and runs
+  the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not held against the take. A
+  missing, damaged or foreign aligner snapshot is reported as not installed (`BACKEND_NOT_INSTALLED`).
+- `narration.platform.testing.StandInPlatform`: a `Platform` for tests that runs on any OS. It starts
+  no process, answers the path checks with the real platform's text rules, and reports a free-disk
+  figure the test sets.
+- `narration.daemon`: the background process that owns the GPU and the queue (design section 4), started
+  as `python -m narration.daemon --store <store_root> --config <path>`. One daemon runs per store; a
+  second one exits quietly. Started from an MCP session, it is detached from the session and keeps
+  running after the session ends; when the session's Job Object forbids that, it is not started, and the
+  caller gets `DAEMON_UNAVAILABLE`. It starts its model workers at below-normal priority, in a group
+  that Windows ends with the daemon, even when the daemon is killed, and starts a crashed worker again,
+  but never in a loop. It writes `run/daemon.json` on every change, unloads an idle model after
+  `idle_unload_s` and exits after `idle_exit_min` without work. It answers `release_gpu`, `stop`
+  (finish the segment in flight, then exit) and `stop_now` (queue the job again and exit, leaving no
+  partial file). A daemon honours every `stop` posted after it was launched: one it had not yet read
+  when it took over from a daemon that was exiting, and one that daemon had already answered. A stop
+  posted while no daemon ran is answered `stopped: false` by the next one, which keeps serving. A daemon that died leaves its jobs running;
+  the next daemon puts them back in the queue, and a `run/daemon.json` left unreadable by a crash is
+  taken as a daemon that died. A job queued just as the daemon turns to exit for want of work is still
+  run. The daemon and its workers start with `-P` and without `PYTHONPATH`, `PYTHONHOME` or
+  `PYTHONSTARTUP`, so nothing in their working folder or the caller's environment is imported in their
+  place; a daemon started by hand without `-P` logs a warning saying so.

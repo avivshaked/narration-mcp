@@ -84,6 +84,15 @@ def test_an_align_transcript_names_its_cue_count_and_term_words_s11_2() -> None:
     ]
 
 
+def test_the_store_lists_the_commands_posted_since_a_time_s4_1() -> None:
+    # Contracts 1.6.4 (WP30): commands_since lists pending and done commands, so a daemon honours a stop
+    # posted after its launch that another daemon has already answered.
+    since = inspect.signature(interfaces.Store.commands_since)
+    assert list(since.parameters) == ["self", "requested_at"]
+    doc = inspect.getdoc(interfaces.Store.commands_since) or ""
+    assert "pending or done" in doc and "never prunes" in doc and "text order is time order" in doc
+
+
 def test_the_aligner_core_takes_the_workers_error_and_gives_the_guards_facts_s11_2() -> None:
     # Contracts 1.6.2: resolve takes the ALIGNMENT_ERROR reply's details as a keyword, and guard_details
     # gives the facts behind a failed guard, so a caller whose own guard fails can pass them.

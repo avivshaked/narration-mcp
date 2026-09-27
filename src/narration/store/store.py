@@ -47,6 +47,7 @@ import json
 import logging
 import math
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -149,6 +150,9 @@ _GC_KINDS: Final = {
     "measurements": "measurement",
     "jobs": "job",
 }
+_STORE_TIME: Final = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z")
+r"""A time as the store writes it (``utc_iso``): fixed-width UTC to the millisecond, so text order is time
+order. ASCII digits only: ``\d`` would match other scripts' digits, which do not sort as times."""
 _DROP_ROWS: Final = {
     "render": ("renders", "render_id"),
     "take": ("takes", "take_id"),
@@ -1350,6 +1354,19 @@ class NarrationStore:
     def pending_commands(self) -> tuple[DaemonCommand, ...]:
         """Commands not yet completed, oldest first."""
         rows = self._conn().execute("SELECT * FROM commands WHERE done_at IS NULL ORDER BY seq").fetchall()
+        return tuple(_command(r) for r in rows)
+
+    def commands_since(self, requested_at: str) -> tuple[DaemonCommand, ...]:
+        """Every command posted at or after ``requested_at`` (a store time, as ``utc_iso`` writes it), pending
+        or done, in the order they were posted (``seq``). Store times are fixed-width, so the comparison is
+        on the text. Raises ``ValueError`` for anything that is not a store time. Commands are never pruned."""
+        if not isinstance(requested_at, str) or not _STORE_TIME.fullmatch(requested_at):
+            raise ValueError(f"not a store time (YYYY-MM-DDTHH:MM:SS.mmmZ): {requested_at!r}")
+        rows = (
+            self._conn()
+            .execute("SELECT * FROM commands WHERE requested_at >= ? ORDER BY seq", (requested_at,))
+            .fetchall()
+        )
         return tuple(_command(r) for r in rows)
 
     def complete_command(self, command_id: str, result: Mapping[str, Any] | None) -> DaemonCommand:

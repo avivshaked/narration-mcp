@@ -2,7 +2,7 @@
 
 *Plan revision 2, 2026-09-26. Status: **H0 answered and the plan pushed; WP00 next.** Nothing is built yet.*
 
-**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.10**. It is the
+**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.11**. It is the
 bake-off's design copied into this repository, and differs only in two example paths and a header note.
 This plan cites it as "§n". Changes to it are proposed and approved in §1.5, and approved changes enter
 it as revision 5.2. Where this plan and the design disagree, the design wins, and the plan gets fixed.

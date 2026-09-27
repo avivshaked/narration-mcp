@@ -26,6 +26,7 @@ from narration.store import (
     StoreIntegrityError,
 )
 from narration.store import files as store_files
+from narration.store.store import utc_iso
 
 from .conftest import FakeClock
 from .factories import (
@@ -311,6 +312,45 @@ def test_commands_reach_the_daemon_through_the_store_s4(store: NarrationStore) -
         store.complete_command("01JBYQ7Z3M8V4T2R9K6N5P0W1C", None)
     with pytest.raises(ValueError):
         store.post_command("reboot")  # type: ignore[arg-type]
+
+
+def test_commands_since_lists_pending_and_done_commands_in_posting_order_s4_1(
+    store: NarrationStore, clock: FakeClock
+) -> None:
+    # Contracts 1.6.4 (WP30): a daemon lists the stops posted after its launch, answered or not.
+    first = store.post_command("stop")
+    clock.advance(0.5)
+    second = store.post_command("release_gpu")
+    clock.advance(0.5)
+    third = store.post_command("stop_now")
+    done = store.complete_command(first.command_id, {"stopped": True, "requeued": []})
+    assert store.commands_since(first.requested_at) == (done, second, third), "done and pending, oldest first"
+    assert store.commands_since(second.requested_at) == (second, third), "one posted exactly then is included"
+    assert store.commands_since(utc_iso(clock.now + 0.002)) == (), "none since"
+
+
+def test_commands_since_orders_by_posting_not_by_time_s4_1(store: NarrationStore, clock: FakeClock) -> None:
+    start = clock.now
+    clock.advance(1.0)
+    later = store.post_command("stop")
+    clock.now = start  # a clock set back between two posts
+    earlier = store.post_command("stop")
+    assert store.commands_since(utc_iso(start)) == (later, earlier)
+
+
+@pytest.mark.parametrize(
+    "requested_at",
+    [
+        "2026-09-26T21:50:44Z",
+        "2026-09-26 21:50:44.123Z",
+        "2026-09-26T21:50:44.123+00:00",
+        "",
+        "2026-09-26T21:50:44.12" + chr(0x0663) + "Z",  # ARABIC-INDIC DIGIT THREE, which \d would take
+    ],
+)
+def test_commands_since_refuses_what_is_not_a_store_time_s4_1(store: NarrationStore, requested_at: str) -> None:
+    with pytest.raises(ValueError, match="not a store time"):
+        store.commands_since(requested_at)
 
 
 # ---------------------------------------------------------------- dropping rows whose files are gone

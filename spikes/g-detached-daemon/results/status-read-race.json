@@ -1,0 +1,33 @@
+{
+ "environment": {
+  "date": "2026-09-26",
+  "python": "3.12.10",
+  "windows": "10.0.26200"
+ },
+ "seconds_each": 8.0,
+ "realpath_of_a_file_renamed_away": {
+  "realpath_calls": 25071,
+  "results_outside_the_folder": 6716,
+  "of_which_long_path_prefixed": 6716,
+  "writer_renames": {
+   "ok": 14808,
+   "PermissionError": 2
+  }
+ },
+ "get_daemon_status_while_written": {
+  "reads": 10983,
+  "errors": {
+   "PermissionError": 417
+  },
+  "writer": {
+   "writes": 3918
+  }
+ },
+ "read_status_while_written": {
+  "reads": 5440,
+  "errors": {},
+  "writer": {
+   "writes": 5842
+  }
+ }
+}
