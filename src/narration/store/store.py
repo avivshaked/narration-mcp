@@ -164,8 +164,9 @@ _DROP_ROWS: Final = {
     "profile": ("profiles", "audio_sha256"),
 }
 """For ``_drop``: the table and id column of each kind whose row is dropped when its file is gone."""
-_ENGINE_UNHASHED: Final = frozenset({"hash", "snapshot_dir", "observed", "tier", "canary"})
-"""The ``EngineProfile`` fields its ``hash`` leaves out; every other field is pinned with the id."""
+_ENGINE_UNHASHED: Final = frozenset({"hash", "snapshot_dir", "observed", "tier", "canary", "vram_need_mb"})
+"""The ``EngineProfile`` fields its ``hash`` leaves out (``vram_need_mb`` since DC-16); every other field is
+pinned with the id."""
 DC6_HINT: Final = "Use a new key for a different request."
 _log = logging.getLogger(__name__)
 _DAY: Final = 86_400.0
@@ -978,7 +979,7 @@ class NarrationStore:
         """Write ``engines/<engine_profile_id>.json``. A pinned profile's hashed fields never change: the same
         id with another ``hash``, or with any other field the hash covers changed, is refused with
         ``StoreIntegrityError`` (a new pin is a new id). The fields the hash leaves out (``snapshot_dir``,
-        ``observed``, ``tier``, the canary) may be updated."""
+        ``observed``, ``tier``, the canary, ``vram_need_mb``) may be updated."""
         path = self._layout.engine_path(profile.engine_profile_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         stored = map_engine_profile(profile, self._to_rel)

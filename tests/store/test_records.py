@@ -182,7 +182,6 @@ def test_a_pinned_profile_never_changes_its_hash_s10_1(store: NarrationStore) ->
         {"model_revision": "1" * 40},
         {"packages": {"qwen-tts": "0.1.2"}},
         {"settings": {"non_streaming_mode": True}},
-        {"vram_need_mb": 8000},
     ],
 )
 def test_a_pinned_profile_never_changes_a_hashed_field_s10_1(store: NarrationStore, change: dict[str, Any]) -> None:
@@ -202,8 +201,18 @@ def test_the_fields_the_hash_leaves_out_may_change_after_the_pin_s10_1(store: Na
         observed={"gpu": "a GPU", "driver": "1.0"},
         tier="bit_exact",
         canary=canary_pin(clip),
+        vram_need_mb=8000,
     )
     assert store.put_engine_profile(later) == later
+
+
+def test_a_refined_vram_need_updates_the_pin_and_keeps_its_hash_dc_16(store: NarrationStore) -> None:
+    # vram_need_mb only tells the GPU scheduler how much free memory to wait for; it changes no audio, so a
+    # better estimate must not become a new pin (which would orphan every cached take and measurement).
+    pinned = store.put_engine_profile(engine_profile())
+    refined = store.put_engine_profile(dataclasses.replace(engine_profile(), vram_need_mb=pinned.vram_need_mb + 500))
+    assert refined.hash == pinned.hash and refined.engine_profile_id == pinned.engine_profile_id
+    assert store.get_engine_profile(pinned.engine_profile_id) == refined
 
 
 def test_the_canary_clip_is_kept_with_its_profile_dc_3(store: NarrationStore) -> None:

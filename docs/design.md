@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.13 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.14 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -81,6 +81,8 @@ applied here, each listed in the revision history below.*
 - *Revision 5.13 (the same day) applies DC-14 and DC-15 (section 11.1 steps 2 and 8) and the QA group's
   measured memory (section 4): Whisper decodes with five beams, not conditioned on the previous window;
   audio over 60 s is embedded in windows of at most 60 s; the QA group needs about 11.5 GB.*
+- *Revision 5.14 (the same day) applies DC-16 (section 6, EngineProfile): `vram_need_mb` is recorded in
+  the engine profile but not hashed; it changes no audio. The owner approved it.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -765,7 +767,7 @@ records a caller's script, choices or approvals.
 
 | Entity | Key fields |
 |---|---|
-| **EngineProfile** ⊘ | `engine_profile_id` (`qwen3-base-1.7b.p1`, `qwen3-design-1.7b.p1`), `hash`, `model_repo`, `model_revision` (40-hex), `snapshot_dir`, `weights` {file: sha256}, `worker_project`, `uv_lock_sha256`, package versions, dtype, `attn_implementation`, **determinism switches** (section 10.1), **audio-changing settings** (`non_streaming_mode`: False for Base, True for VoiceDesign; the effective sampling parameters incl. `max_new_tokens`, which is the ceiling, and the per-call cap rule `max_new_tokens_per_char` and `max_new_tokens_floor`, DC-4), capabilities, licence, `vram_need_mb`. Observed but not hashed: GPU, driver, CUDA, cuDNN. Also not hashed: `snapshot_dir` (a local path) and the **canary** {material, seed, raw hash, embedding, calibrated threshold}, which `engine pin` makes on the installing machine (section 10.1; revision 5.2, DC-3). |
+| **EngineProfile** ⊘ | `engine_profile_id` (`qwen3-base-1.7b.p1`, `qwen3-design-1.7b.p1`), `hash`, `model_repo`, `model_revision` (40-hex), `snapshot_dir`, `weights` {file: sha256}, `worker_project`, `uv_lock_sha256`, package versions, dtype, `attn_implementation`, **determinism switches** (section 10.1), **audio-changing settings** (`non_streaming_mode`: False for Base, True for VoiceDesign; the effective sampling parameters incl. `max_new_tokens`, which is the ceiling, and the per-call cap rule `max_new_tokens_per_char` and `max_new_tokens_floor`, DC-4), capabilities, licence. Observed but not hashed: GPU, driver, CUDA, cuDNN. Recorded but not hashed: `vram_need_mb` (what the GPU scheduler waits for; it changes no audio, so a refined estimate never invalidates a cached take or a measurement; DC-16). Also not hashed: `snapshot_dir` (a local path) and the **canary** {material, seed, raw hash, embedding, calibrated threshold}, which `engine pin` makes on the installing machine (section 10.1; revision 5.2, DC-3). |
 | **Candidate** | `design_id`, index, clip {path, sha256}, exact transcript, verbatim description, seed, engine profile, lint, profile. Kept for the retention period; the caller copies the clip it chooses. |
 | **Provenance entry** ⊘ | clip sha256, `design_id`, date. One per clip the service designed; never pruned (section 17). |
 | **Voice** *(not stored)* | What a request sends: clip path + sha256 + transcript. `voice_hash` is computed from them on every request (section 10.2). |
