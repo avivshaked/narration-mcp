@@ -670,7 +670,7 @@ Updated by the lead on `main` only.
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
-| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `review` | `wp/36-backend` | review fixes done, WP33 wired in, `narration-admin render` added; rebased onto `main`; its Fable reviewer re-verifying |
+| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `done` | PR #32 | 2026-09-27; Fable review and re-verification (merge with follow-ups; all fixed); `narration-admin render` included; follow-ups: `AnalysisPins` in `backend_for`, §7.3's all-cached submit |
 | WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `done` | PR #30 | 2026-09-27; daemon, doctor, gc, verify, install (review fixes incl. a path-traversal hole); `engine` from WP32, `render` after WP36, `bench` after WP38 |
 | WP38 | Alignment benchmark (spike a) | 2 | WP15, WP18, WP20 | yes | `todo` | – | H2, H3 |
 | WP39 | Ladder d2/d4 (spike c) | 2 | WP33 | yes (long) | `todo` | – | needs H1 |
@@ -1010,3 +1010,5 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     `similarity_pass` on candidates as `CANARY_MISMATCH` info. No design change (§10.1 as written).
   - **WP36's review fixes are done**, with WP33 wired in and `narration-admin render`; re-verification
     under way.
+  - **WP36 merged (PR #32):** the MCP tools over the daemon and the job engine, and `narration-admin
+    render`. The daemon runs no job until WP32's `installed_engine` merges; that is M1's last package.

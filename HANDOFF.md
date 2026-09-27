@@ -12,7 +12,7 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
   configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), WP22 the QA
-  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), contracts 1.1–1.6.5, the private-text guard. Design
+  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), WP36 the MCP tools and `narration-admin render` (PR #32), contracts 1.1–1.6.5, the private-text guard. Design
   revision 5.13.
 - **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
   its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
@@ -20,7 +20,6 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   | Package | Branch | Agent | State |
   |---|---|---|---|
   | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f (reviewer a4e02ce9beb000009, Fable) | fixing the review's findings 1, 2, 5, 6 and the test gap 4, `engine show` printing thresholds, `doctor` calling `aligner_method_id`; rebasing onto `main` and registering `measure`; then the reviewer re-verifies |
-  | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | review fixes, WP33 wiring and `narration-admin render` done; rebased on 8d5c778; reviewer re-verifying |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -72,13 +71,13 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps (the lead)
 
-1. WP30, WP31 and WP33 are merged; WP32 and WP36 are in review and rebase onto `main` before merging.
+1. WP30, WP31, WP33 and WP36 are merged. **WP32 is M1's last package**: it is fixing its review's findings and
+   rebasing onto `main` (f7f88ed); then the reviewer re-verifies, and it merges.
 2. **WP37 follow-ups:** `render` over WP36's backend once WP36 is on `main`; `doctor` checks the material
    manifests once WP33's corpus loader is; a single-item evict in the store for what `verify` finds damaged
    (the store's area); `reset_workers` stays a proposal.
 3. WP22 is merged (the main checkout's `workers/qa` venv is synced).
-4. **WP32, WP36:** reviews and merges, as each is ready. Whichever merges first, WP32 adds WP33's
-   `measure` handler to `more_handlers` (its test is in place).
+4. **WP32** registers WP33's `measure` handler in `more_handlers` (its test is in place).
 5. **Gate H1:** the result is in `OWNER-ACTIONS.md` §1 (the fault is the seed's; recommend approving 05
    and 08 as written). On the owner's approval, the lead freezes the manifests (status `frozen`) and adds
    the calibration's design text to `calibration/narration-en.v1/paragraphs.json` as a top-level
@@ -93,6 +92,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
    session. **The owner's `.mcp.json` on this machine** should start the server through the venv's
    interpreter (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not
    `uv run … narration-mcp`, whose venv launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
+   The smoke run's config is ready: the gitignored `.dev/m1-smoke/narration.toml` (store
+   `.dev/stores/m1-smoke`, ladder `[80, 150]`; it loads).
 
 ## Follow-ups to fold into the packages
 
