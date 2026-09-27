@@ -24,7 +24,15 @@ from narration.contracts.errors import NarrationError, WorkerFailure
 from narration.contracts.models import EngineProfile, EngineRef, ProvenanceEntry
 from narration.contracts.names import CanaryStatus, EngineKind
 from narration.contracts.worker import HelloReply
-from narration.engine.canary import CanaryGuard, calibration_seeds, find_canary
+from narration.engine.canary import (
+    THRESHOLD_FLOOR,
+    CanaryGuard,
+    calibrate,
+    calibration_seeds,
+    find_canary,
+    floored,
+    gate_facts,
+)
 from narration.engine.models import QWEN_BASE
 from narration.engine.pinning import pin
 from narration.engine.qa import qa_pins
@@ -185,6 +193,49 @@ def test_a_canary_below_its_threshold_is_engine_drift_s10_1(gate: Gate) -> None:
     assert details["engine_profile_id"] == pinned.engine_profile_id and details["tier"] == "bit_exact"
     assert "qa" not in gate.pool.loaded()
     assert gate.scratch_wavs() == []
+
+
+def test_a_calibration_below_the_floor_is_clamped_to_it_s10_1() -> None:
+    """A canary whose calibration renders share nothing with it cannot calibrate the gate to pass everything."""
+    threshold, sims = calibrate((1.0, 0.0), [(0.0, 1.0), (-1.0, 0.0)])
+    assert sims == (0.0, -1.0) and threshold == THRESHOLD_FLOOR and floored(threshold)
+    threshold, _ = calibrate((1.0, 0.0), [(1.0, 0.1)])
+    assert threshold > THRESHOLD_FLOOR and not floored(threshold)
+
+
+def test_engine_show_says_when_a_threshold_is_the_floor_s10_1(gate: Gate) -> None:
+    pinned = gate.profile("base")
+    assert pinned.canary is not None
+    assert gate_facts(pinned.canary)["threshold_floored"] is False
+    assert gate_facts(dataclasses.replace(pinned.canary, threshold=THRESHOLD_FLOOR))["threshold_floored"] is True
+
+
+@pytest.mark.parametrize(
+    ("embedding", "reason"),
+    [((), "pinned_embedding_empty"), ((0.0, 0.0, 0.0), "pinned_embedding_all_zero")],
+)
+def test_a_pinned_embedding_that_cannot_be_compared_is_drift_before_rendering_s10_1(
+    gate: Gate, embedding: tuple[float, ...], reason: str
+) -> None:
+    broken = _with_canary(gate.profile("base"), embedding=embedding)
+    with pytest.raises(NarrationError) as caught:
+        gate.check(broken)
+    assert _drift(caught)["canary"] == reason and "engine repin" in caught.value.hint
+    assert gate.ops("qwen") == ["load"]  # nothing rendered
+
+
+def test_a_pinned_embedding_of_another_length_is_drift_not_a_similarity_of_zero_s10_1(gate: Gate) -> None:
+    pinned = gate.profile("base")
+    assert pinned.canary is not None
+    shorter = _with_canary(
+        pinned, seed=calibration_seeds(pinned.canary.seed)[0], embedding=pinned.canary.embedding[:-1]
+    )
+    with pytest.raises(NarrationError) as caught:
+        gate.check(shorter)
+    details = _drift(caught)
+    assert details["canary"] == "embedding_length"
+    assert details["pinned_dim"] == details["dim"] - 1
+    assert "qa" not in gate.pool.loaded()
 
 
 # ======================================================================== drift before the gate renders

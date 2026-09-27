@@ -16,7 +16,7 @@ import pytest
 from narration.config import Config, EnginesConfig, QwenBaseConfig
 from narration.contracts import names
 from narration.contracts.models import CanaryMaterial
-from narration.engine.canary import CALIBRATION_SEEDS, CANARY_MARGIN, find_canary, material_id
+from narration.engine.canary import CALIBRATION_SEEDS, CANARY_MARGIN, THRESHOLD_FLOOR, find_canary, material_id
 from narration.engine.models import QWEN_BASE, QWEN_DESIGN
 from narration.engine.pinning import PinRefused, bridge, pin, plan
 from narration.platform.testing import StandInPlatform
@@ -103,10 +103,13 @@ def test_the_threshold_is_the_lowest_calibration_similarity_less_the_margin_dc3(
     reports = {r.kind: r for r in pinned.pin()}
     for report in reports.values():
         assert len(report.calibration) == CALIBRATION_SEEDS
-        assert report.threshold == pytest.approx(min(report.calibration) - CANARY_MARGIN)
+        assert report.threshold == pytest.approx(max(min(report.calibration) - CANARY_MARGIN, THRESHOLD_FLOOR))
     # The fake's takes of one voice are about 0.99 similar: Base's calibration reads the gate text in the
     # canary voice with other seeds.
     assert min(reports["base"].calibration) > 0.95
+    # The fake's VoiceDesign designs an unrelated voice for another seed: the floor holds its threshold up.
+    assert min(reports["design"].calibration) - CANARY_MARGIN < THRESHOLD_FLOOR
+    assert reports["design"].threshold == THRESHOLD_FLOOR
 
 
 def test_pinning_again_keeps_what_is_pinned_and_starts_no_worker_s10_1(pinned: Pinned) -> None:
@@ -226,3 +229,16 @@ def test_the_pin_starts_its_workers_as_the_daemon_does_s17(pinned: Pinned) -> No
     assert len(platform.added) == len(pinned.starter.started) == 3  # QA, then the first and the fresh Qwen
     assert platform.groups_opened == 1
     assert platform.lowered == platform.added  # [workers] priority is below_normal by default
+
+
+def test_a_canary_render_that_cannot_be_embedded_is_never_pinned_s10_1(
+    pinned: Pinned, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An all-zero embedding would calibrate every similarity to 0: the pin refuses rather than store it."""
+    from narration.engine import pinning
+
+    monkeypatch.setattr(pinning, "embed", lambda qa, wav: (0.0, 0.0, 0.0))
+    with pytest.raises(PinRefused) as caught:
+        pinned.pin()
+    assert "could not be embedded (all zero)" in caught.value.message and "doctor" in caught.value.hint
+    assert pinned.store.list_engine_profiles() == ()

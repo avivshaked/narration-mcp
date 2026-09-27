@@ -28,10 +28,15 @@ engine handles as it handles any render's (section 4 item 5, section 14).
 
 **The threshold** is calibrated at the pin (``calibrate``): the canary is rendered with ``CALIBRATION_SEEDS``
 more seeds, each is compared with the pinned render, and the threshold is the lowest of those similarities
-less ``CANARY_MARGIN``. A render whose numbers changed (a driver update) diverges like another seed would, so it
-passes; one that differs more than another seed does fails. For Base those seeds read the same text in the same
-voice; for VoiceDesign another seed designs another voice, so its threshold is lower and its gate weaker
-(BELIEVE; the gate is a drift alarm, not an identity proof, section 1).
+less ``CANARY_MARGIN``, and never below ``THRESHOLD_FLOOR``. A render whose numbers changed (a driver update)
+diverges like another seed would, so it passes; one that differs more than another seed does fails. For Base
+those seeds read the same text in the same voice; for VoiceDesign another seed designs another voice, so its
+threshold is lower and its gate weaker. KNOW (the first real pin, 2026-09-27): Base 0.973, VoiceDesign 0.331.
+The VoiceDesign gate is kept as a drift alarm in v1 (the lead's decision; section 1: not an identity proof).
+
+A pinned embedding that is empty, all zero or not finite, or whose length differs from the render's, is
+``ENGINE_DRIFT`` with the reason in ``details.canary``: the gate never passes or fails on a similarity that
+could not be computed.
 """
 
 from __future__ import annotations
@@ -71,6 +76,10 @@ spread of one text in one voice; more cost a few seconds each)."""
 CANARY_MARGIN: Final = 0.01
 """How far below the lowest calibration similarity the threshold sits (ASSUME; section 16's
 ``sim_warn_margin`` is the same size)."""
+THRESHOLD_FLOOR: Final = 0.10
+"""The lowest threshold a calibration may set (ASSUME). Without it a canary whose calibration renders share
+nothing with it would get a threshold at or below zero, and every render would pass the gate. On this
+project's first real pin (2026-09-27) VoiceDesign calibrated to 0.33 and Base to 0.97, both above it."""
 X_VECTOR_ONLY_MODE: Final = False
 """The canary is cloned in ICL mode, as every voice is (section 10.1)."""
 RENDER_TIMEOUT_S: Final = 600.0
@@ -297,11 +306,30 @@ def calibration_seeds(seed: int) -> tuple[int, ...]:
 
 def calibrate(pinned: Sequence[float], others: Sequence[Sequence[float]]) -> tuple[float, tuple[float, ...]]:
     """The threshold from the calibration renders' embeddings: the lowest similarity to the pinned render's,
-    less ``CANARY_MARGIN``; and each similarity (rounded to 6 places)."""
+    less ``CANARY_MARGIN``, and at least ``THRESHOLD_FLOOR``; and each similarity (rounded to 6 places).
+    Whether the floor applied is ``floored(threshold)``."""
     if not others:
         raise ValueError("calibrating the canary needs at least one more render")
     sims = tuple(round(cosine(pinned, o), 6) for o in others)
-    return round(min(sims) - CANARY_MARGIN, 6), sims
+    return max(round(min(sims) - CANARY_MARGIN, 6), THRESHOLD_FLOOR), sims
+
+
+def floored(threshold: float) -> bool:
+    """Whether a pinned threshold is the floor rather than a calibrated value. ``CanaryPin`` has no field
+    for it, so it is read from the threshold itself (a calibration landing exactly on the floor counts as
+    floored, which says the same thing: the gate is as weak as it may be)."""
+    return threshold <= THRESHOLD_FLOOR
+
+
+def embedding_problem(embedding: Sequence[float]) -> str | None:
+    """Why an embedding cannot be compared: ``empty``, ``not_finite`` or ``all_zero``; None when it can."""
+    if not embedding:
+        return "empty"
+    if not all(math.isfinite(v) for v in embedding):
+        return "not_finite"
+    if not any(v != 0.0 for v in embedding):
+        return "all_zero"
+    return None
 
 
 # ======================================================================== the gate
@@ -337,6 +365,16 @@ class CanaryGuard:
                 details={"engine_profile_id": profile.engine_profile_id, "canary": "material", "pinned": pin.material},
                 retryable=False,
             )
+        problem = embedding_problem(pin.embedding)
+        if problem is not None:
+            raise NarrationError(
+                codes.ENGINE_DRIFT,
+                f"the pinned canary embedding of engine profile {profile.engine_profile_id} cannot be compared "
+                f"({problem.replace('_', ' ')}), so the engine cannot be vouched for",
+                hint="Ask the operator to re-pin the engine (narration-admin engine repin); nothing was rendered.",
+                details={"engine_profile_id": profile.engine_profile_id, "canary": f"pinned_embedding_{problem}"},
+                retryable=False,
+            )
         out = host.store.scratch_path(SCRATCH, f"{profile.engine_profile_id}-{uuid.uuid4().hex}.wav")
         qwen = host.workers.client("qwen", cublas_workspace_config=profile.determinism.cublas_workspace_config)
         try:
@@ -347,7 +385,7 @@ class CanaryGuard:
             if sha == pin.raw_sha256:
                 log.info("canary of %s: the hash matches", profile.engine_profile_id)
                 return "hash_match"
-            similarity = self._similarity(host, out, pin)
+            similarity = self._similarity(host, out, pin, profile)
             facts = {
                 "engine_profile_id": profile.engine_profile_id,
                 "tier": profile.tier,
@@ -377,21 +415,40 @@ class CanaryGuard:
             self._material = find_canary(config)
         return self._material
 
-    def _similarity(self, host: RunnerHost, wav: Path, pin: CanaryPin) -> float:
-        """The render's similarity to the pinned embedding, with WavLM on the QA worker's CPU; the QA worker's
-        models are unloaded again afterwards, so the scheduler's view of the GPU is unchanged."""
+    def _similarity(self, host: RunnerHost, wav: Path, pin: CanaryPin, profile: EngineProfile) -> float:
+        """The render's similarity to the pinned embedding, with WavLM on the QA worker's CPU. The QA worker's
+        models are unloaded again afterwards, so the scheduler's view of the GPU is unchanged; if the unload
+        fails, the QA worker is stopped, so no worker is left holding a model the residency does not know."""
         pool = host.workers
         try:
             try:
                 pool.load("qa", sv_load_payload(self.sv), gpu=False, timeout_s=LOAD_TIMEOUT_S)
                 embedding = embed(pool.client("qa"), wav)
             except WorkerFailure as exc:
-                raise _unless_handled(exc, None, "measured") from exc
+                raise _unless_handled(exc, profile, "measured") from exc
         finally:
             try:
                 pool.unload("qa", timeout_s=UNLOAD_TIMEOUT_S)
             except (WorkerFailure, WorkerCrashed, WorkerTimeout) as exc:
-                log.warning("unloading the QA worker after the canary failed: %s", exc)
+                log.warning("unloading the QA worker after the canary failed (%s); stopping it", exc)
+                pool.stop("qa")
+        problem = embedding_problem(embedding)
+        if problem is None and len(embedding) != len(pin.embedding):
+            problem = "length"
+        if problem is not None:
+            raise NarrationError(
+                codes.ENGINE_DRIFT,
+                f"the canary render of engine profile {profile.engine_profile_id} cannot be compared with its "
+                f"pinned embedding ({problem.replace('_', ' ')}: {len(embedding)} values, pinned "
+                f"{len(pin.embedding)})",
+                details={
+                    "engine_profile_id": profile.engine_profile_id,
+                    "canary": f"embedding_{problem}",
+                    "dim": len(embedding),
+                    "pinned_dim": len(pin.embedding),
+                },
+                retryable=False,
+            )
         return cosine(embedding, pin.embedding)
 
 
@@ -445,6 +502,7 @@ def gate_facts(pin: CanaryPin) -> Mapping[str, Any]:
         "seed": pin.seed,
         "raw_sha256": pin.raw_sha256,
         "threshold": pin.threshold,
+        "threshold_floored": floored(pin.threshold),
         "embedding_dim": len(pin.embedding),
         "pinned_at": pin.pinned_at,
     }
@@ -454,14 +512,17 @@ __all__ = [
     "CALIBRATION_SEEDS",
     "CANARY_MARGIN",
     "CANARY_SET",
+    "THRESHOLD_FLOOR",
     "CanaryGuard",
     "calibrate",
     "calibration_seeds",
     "canary_voice_hash",
     "cosine",
     "embed",
+    "embedding_problem",
     "engine_kind",
     "find_canary",
+    "floored",
     "gate_facts",
     "load_canary",
     "material_id",

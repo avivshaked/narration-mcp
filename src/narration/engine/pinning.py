@@ -65,6 +65,7 @@ from .canary import (
     cosine,
     design,
     embed,
+    embedding_problem,
     engine_kind,
     find_canary,
     find_set,
@@ -431,6 +432,14 @@ def _store(
     pinned_at = utc_iso(clock())
     for m in made:
         embedding = embed(qa, m.first)
+        problem = embedding_problem(embedding)
+        if problem is not None:
+            raise PinRefused(
+                f"the {m.plan.kind} canary render could not be embedded ({problem.replace('_', ' ')}), so no "
+                "gate can be calibrated from it",
+                hint="Run narration-admin doctor to check the QA models, then pin again; nothing was pinned.",
+                details={"kind": m.plan.kind, "embedding": problem},
+            )
         threshold, sims = calibrate(embedding, [embed(qa, path) for path in m.calibration])
         tier: DeterminismTier = "bit_exact" if len(set(m.hashes)) == 1 else "similar"
         profile = m.plan.profile

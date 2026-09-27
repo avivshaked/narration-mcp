@@ -51,7 +51,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   profiles and designs the service's canary on this machine from the text in `material/canary/`: no
   canary audio ships. It repeats the canary render in one worker and in a fresh one to decide the
   determinism tier (`bit_exact` or `similar`), and calibrates the canary's similarity threshold with
-  three more seeds. `pin` keeps what is pinned and refuses an installation that has changed; `repin`
+  three more seeds, never below 0.10. A pinned canary embedding that cannot be compared (empty, all zero,
+  or of another length than the render's) fails the job with `ENGINE_DRIFT`, saying why. `pin` keeps what is pinned and refuses an installation that has changed; `repin`
   makes a new profile the one in use (new render keys; voices are measured again); `bridge` reports how
   similar the canary and the calibration corpus sound under two profiles. They run only while no
   daemon holds the store and the GPU has room for Qwen.
