@@ -58,9 +58,10 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **Which re-designed d2 take becomes the first measured voice** (seed 2006, 2003 or 2008; the clips are
-  in the gitignored `.dev/d2-redesign/out/`), and the ladder: the full one (about 28 min, the lead's
-  recommendation) or one stopped at 300 characters (about 13 min).
+- **Listen to the first voice** (the owner asked the lead to pick one and measure it, to save time): seed
+  2006 of d2 re-designed, the highest WavLM similarity to d2 (0.978). If the ear disagrees, seeds 2003 and
+  2008 are the next candidates (`.dev/d2-redesign/out/`). **A full ladder** needs a GPU hold over 30 min,
+  which `tools/gpu_lock.py` refuses without an override; the owner decides whether to add one.
 - **DC-14 and DC-15** (plan.md §1.5): lead gap-fills the owner may overrule.
 - **4a in the owner's list:** cross-job grouping (§4 item 3); the lead recommends leaving it out of v1.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
@@ -72,14 +73,12 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps (the lead)
 
-1. **Every M1 package is on `main`, and the smoke run passed** (plan.md §9, 2026-09-27 evening). The
-   owner's first real narration, once the owner picks the re-designed take:
-   - copy the clip into the gitignored `.dev/voices/` and add its sha256 to `[voices] allow_sha256` in the
-     gitignored `narration.toml`;
-   - `narration-admin engine pin` on the real store (`.dev/stores/service`; about 5.5 min);
-   - `measure_voice` on the chosen ladder, under the GPU lock;
-   - narrate from a Claude Code session, with the daemon started from a terminal first until
-     `wp/30-escape` merges.
+1. **The first real voice is measured and ready** (2026-09-27, 20:17): `.dev/voices/d2r-seed2006.wav` (its
+   sidecar holds the transcript, the corpus's design text), allowlisted in the gitignored `narration.toml`;
+   the real store `.dev/stores/service` is pinned (the same profile hashes as the smoke store) and holds its
+   measurement: reliable up to 301 spoken characters (the ladder stopped at 300, as `narration.toml` notes),
+   pace trend 147 wpm + 13.5 per 100 characters, pace tolerance 0.155, anchor p5 0.990; 12.75 min on the GPU.
+   The owner narrates from a Claude Code session (the setup is in the session's last report).
    **The owner's `.mcp.json`** should start the server through the venv's interpreter
    (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not
    `uv run … narration-mcp`, whose launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
