@@ -3,6 +3,39 @@
 *Updated 2026-09-27, evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
+## Paused by the owner (2026-09-27, about 22:10): resume here
+
+The owner needed the machine for another job, so every agent was told to commit its work in progress (`wip:`),
+push, set its status file to `blocked:paused-by-owner`, and stop. To resume:
+1. Check each worktree for uncommitted files (`git -C worktrees/<wt> status`).
+2. Resume each agent with SendMessage, using its id in the table below. Each one continues from its status
+   file.
+3. **Merge order:**
+   - the pace hotfix (`wp/47-pace-warn`; PR opened by its agent, or open one) first, after an adversarial
+     review and green CI;
+   - then PR #40 (verified: merge with follow-ups; its agent was on the last six small wording fixes);
+   - then PR #37;
+   - then PR #41 (its fixes in progress) and PR #39 (WP34; renumber its contracts to 1.6.8);
+   - then WP47 (contracts 1.6.9; merges main first).
+4. **After the hotfix merges, restart the daemon** (`narration-admin … daemon stop`, then the next job starts it)
+   so the running service picks up QA profile `default.v4`. No re-measure is needed: the measurement key does
+   not include the QA profile (KNOW, `keys/__init__.py` `measurement_key_object`).
+5. **After WP47 merges:** re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in
+   stages (remove `.dev/service-setup/STOP`).
+
+**The owner's first real narration session (21:46–22:10): 9 jobs ran** through the MCP from the owner's Claude
+Code session.
+- Every take that failed QA failed on `PACE_FAST` (24 takes; 7 of them also warned `SPK_SIM_LOW`), all with WER 0 and high speaker
+  similarity. The owner listened and confirmed they were not fast.
+- The cause (KNOW): the pace model is words per minute over a span that includes the pauses between sentences.
+  The wpm curve follows the corpus's word lengths, and a one-sentence segment has no pauses.
+- The owner decided:
+  - **PACE_FAST warns only** (the hotfix);
+  - **pace in characters per second with the pauses excluded** (WP47).
+- Failed takes are listed locally by `py -3.12 .dev/lead/failures_now.py` (into `.dev/scratch/failures.md`), a
+  stopgap for WP48.
+- Small gap: the daemon logs no line when a job ends (WP31's area).
+
 ## Where things stand
 
 - **The owner's priority (2026-09-27): first narration through the MCP as soon as possible**, because it
@@ -23,7 +56,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   | WP34 design and profile | `wp/34-design`, PR #39 | aee097b972cdb073f | review fixes done (contracts 1.6.7); CI green. **Merge after the owner's session**, after a full-suite run |
   | The caller's guidance in the tool texts | `wp/36-guidance`, PR #40 | aa82ffe101d84906f | read-only review running; texts only, so it may merge during the session |
   | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | fixing its review (lead's decisions: revive a queued job only after a crash, never after an operator's stop; one daemon spawn per start window; explicit shield and retryable sets); merge after the owner's session |
-  | WP47 pace in characters per second (D2) | `wp/47-pace-cps` | af6d02f523a3a52f0 | building; merges after the owner's session, then the voice is measured again (cached renders, QA only) |
+  | WP47 pace in characters per second (D2), with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | paused mid-build; merges after the hotfix, then the voice is measured again (cached renders, QA only) |
+  | The pace hotfix: PACE_FAST warns only (QA profile default.v4, contracts 1.6.7) | `wp/47-pace-warn` | a7b16acd7a70c2651 | paused mid-build; merges first |
 
   PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
   client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a
