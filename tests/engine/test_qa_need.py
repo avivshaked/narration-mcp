@@ -2,7 +2,8 @@
 WP22's spike h). These tests fail when the QA pins, the spike's record or the QA worker's load settings move
 away from ``QA_MEASURED``: then spike h must be run again and ``QA_VRAM_NEED_MB`` set from it.
 
-The worker's settings are read from its source with ``ast`` (its venv is not the server's), never imported.
+The worker's settings are read from its source with ``ast`` (its venv is not the server's), never imported. A
+missing file fails the test rather than skipping it, so a move cannot turn the check off unnoticed.
 """
 
 from __future__ import annotations
@@ -11,8 +12,6 @@ import ast
 import json
 from pathlib import Path
 from typing import Any
-
-import pytest
 
 from narration.engine.qa import QA_MEASURED, QA_VRAM_NEED_MB, aligner, qa_pins
 
@@ -34,8 +33,7 @@ def test_the_qa_pins_are_the_models_spike_h_measured_s4(tmp_path: Path) -> None:
 
 
 def test_the_measured_configuration_is_the_spikes_record_s4() -> None:
-    if not SPIKE_RESULTS.is_file():
-        pytest.skip("spike h's results (WP22) are not in this checkout")
+    assert SPIKE_RESULTS.is_file(), f"spike h's results are not at {SPIKE_RESULTS}: {AGAIN}"
     results = json.loads(SPIKE_RESULTS.read_text(encoding="utf-8"))
     models = results["models"]
     assert (models["asr"]["repo"], models["asr"]["revision"]) == (QA_MEASURED.asr_repo, QA_MEASURED.asr_revision)
@@ -44,8 +42,7 @@ def test_the_measured_configuration_is_the_spikes_record_s4() -> None:
 
 def _module(name: str) -> ast.Module:
     path = QA_WORKER / f"{name}.py"
-    if not path.is_file():
-        pytest.skip(f"the QA worker's {name}.py (WP22) is not in this checkout")
+    assert path.is_file(), f"the QA worker's {name}.py is not at {path}: update this test to where it went"
     return ast.parse(path.read_text(encoding="utf-8"))
 
 
