@@ -261,6 +261,9 @@ are tracked here but no version is tagged; nothing described below is installabl
 - The daemon opens its store with the configured aligner's method id, so every take's alignment reports the
   measured error of that aligner's published benchmark (design section 11.2); an aligner the service cannot
   run is logged at start, and each job then fails with `BACKEND_NOT_INSTALLED`.
+- `narration-admin doctor` also checks that the cue aligner can run `[alignment]` as configured, as the job
+  engine does: a pinned model that is not a CTC model, or a device other than the CPU, fails the models
+  check and says what to set, instead of surfacing only when a job fails.
 - The default design text (`[voice_design] design_text`, also the canary's design text in
   `material/canary/canary.v1`) is a new text written for the service: "Good bread asks for patience: the
   dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp,
