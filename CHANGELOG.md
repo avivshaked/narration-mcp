@@ -157,6 +157,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   seeded, reports how generation stopped (`new_tokens`, `hit_token_cap`), and is written as a float32 WAV
   that repeats byte for byte. A snapshot of another model is refused, and a broken one is reported as not
   installed.
+- `narration-admin`, the operator CLI: `narration-admin [--config <path>] <command>`, finding the
+  configuration by the same rule as `narration-mcp`. `--help` lists every command of design section 7.1;
+  a command whose module is not in this build says so (exit code 3) instead of failing, and the others
+  still run.
 
 ### Changed
 
