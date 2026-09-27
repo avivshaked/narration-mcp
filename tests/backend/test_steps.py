@@ -201,7 +201,7 @@ def test_an_audition_without_a_carrier_speaks_the_term_s7_6(steps: Service) -> N
 # ======================================================================== the build's kinds
 
 
-@pytest.mark.parametrize("tool", ["design_voice", "profile_voice", "audition_pronunciation"])
+@pytest.mark.parametrize("tool", ["audition_pronunciation"])
 def test_a_tool_whose_kind_the_daemon_does_not_run_says_so_at_once_s14(service: Service, tool: str) -> None:
     before = len(service.world.store.queued_jobs())
     with pytest.raises(NarrationError) as caught:

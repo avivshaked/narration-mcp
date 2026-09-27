@@ -16,8 +16,8 @@ It reads jobs, results and status back from the store. There are no sockets: the
   ``retry_after_s`` (DC-2). The service suggests; the caller decides.
 
 The tools of the DESIGN step (``design_voice``, ``profile_voice``) and ``audition_pronunciation`` check a
-request and queue its job only when the daemon runs that kind (``RUNNABLE_KINDS``). Until their handlers
-exist (WP34, WP35), they answer ``BACKEND_NOT_INSTALLED``.
+request and queue its job only when the daemon runs that kind (``RUNNABLE_KINDS``). ``audition_pronunciation``
+answers ``BACKEND_NOT_INSTALLED`` until its handler exists (WP35).
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import secrets
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Final, ParamSpec, TypeVar
+from typing import Any, Final, ParamSpec, TypeVar, cast
 
 import anyio
 import anyio.to_thread
@@ -92,10 +92,10 @@ REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
 MEASUREMENT_JSON: Final = "measurement.json"
 GENERATION_KINDS: Final = ("generate", "analyse")
-RUNNABLE_KINDS: Final[frozenset[JobKind]] = frozenset({"generate", "analyse", "measure"})
+RUNNABLE_KINDS: Final[frozenset[JobKind]] = frozenset({"generate", "analyse", "measure", "design", "profile"})
 """The job kinds this build's daemon runs. The front-end queues no other: a job of a kind with no handler
 would fail in the daemon, so its tool answers ``BACKEND_NOT_INSTALLED`` at once instead. ``design`` and
-``profile`` join with WP34's handlers, ``pronunciation`` with WP35's."""
+``profile`` are WP34's handlers (``narration.design``); ``pronunciation`` joins with WP35's."""
 KIND_OF_TOOL: Final[dict[str, JobKind]] = {
     "design_voice": "design",
     "profile_voice": "profile",
@@ -596,8 +596,9 @@ class NarrationBackend:
 
     def _step_results(self, job: JobRecord) -> dict[str, Any]:
         """The results of a DESIGN-step job or an audition, from what its handler (WP34, WP35) left:
-        ``design``, the candidates the store holds under the job's ``design_id``; ``profile``, the profile
-        its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
+        ``design``, the candidates the store holds under the job's ``design_id``, each with the flags its job
+        recorded (``narration.design``: ``CANARY_MISMATCH``, ``TOKEN_CAP_HIT``, ``WER_HIGH``); ``profile``, the
+        profile its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
         ``audition``. Nothing while the job has left none."""
         result = job.result or {}
         if job.kind == "design":
@@ -605,7 +606,13 @@ class NarrationBackend:
             if not design_id:
                 return {}
             candidates = self.store.get_design(design_id)
-            return {"design": {"design_id": design_id, "candidates": [to_json(c) for c in candidates]}}
+            flags = _candidate_flags(result)
+            return {
+                "design": {
+                    "design_id": design_id,
+                    "candidates": [{**to_json(c), "flags": flags.get(c.index, [])} for c in candidates],
+                }
+            }
         if job.kind == "profile":
             sha, version = result.get("audio_sha256"), result.get("profile_version")
             if isinstance(sha, str) and isinstance(version, str):
@@ -927,6 +934,19 @@ def backend_for(
     if launcher is None:
         launcher = DetachedLauncher(config.path, autostart=config.daemon.autostart)
     return NarrationBackend(config, store, platform, launcher=launcher)
+
+
+def _candidate_flags(result: Mapping[str, Any]) -> dict[int, list[Any]]:
+    """Each design candidate's flags as its job recorded them (``JobRecord.result.candidates[].flags``), by index."""
+    out: dict[int, list[Any]] = {}
+    entries = result.get("candidates")
+    for entry in cast(list[Any], entries) if isinstance(entries, list) else []:
+        if isinstance(entry, dict):
+            fields = cast(dict[str, Any], entry)
+            index, flags = fields.get("index"), fields.get("flags")
+            if isinstance(index, int) and isinstance(flags, list):
+                out[index] = cast(list[Any], flags)
+    return out
 
 
 async def _report(progress: ProgressCallback, job: JobRecord) -> None:

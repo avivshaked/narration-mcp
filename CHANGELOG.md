@@ -10,6 +10,16 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `design_voice` and `profile_voice` now run (`narration.design`). A design renders 1 to 4 candidates
+  with Qwen VoiceDesign, each from its own seed, which is derived from the description, the design text
+  and the candidate's number, so the same request designs the same voices. Each candidate's clip is
+  checked against its exact transcript by the speech recogniser (`WER_HIGH` if it does not say it),
+  profiled, and published with its seed, lint result and profile. Its sha256 goes on the provenance
+  list, so `measure_voice` and `submit_job` accept the clip with no `allow_sha256` edit. `get_results`
+  gives each candidate's flags: `TOKEN_CAP_HIT` and `WER_HIGH` (the job then ends `needs_attention`),
+  and `CANARY_MISMATCH` as information when the design engine passed its canary on similarity rather
+  than on the hash. `profile_voice` profiles any WAV you can read, by path and sha256, on the CPU (or on
+  the loaded QA worker as it is), and answers the same bytes from the cache.
 - `measure_voice`'s job (`narration.measure`): it checks the clip's transcript with the speech recogniser
   (`REF_TEXT_MISMATCH` if the clip does not say it), renders the calibration set and builds the voice's
   anchor and similarity baseline, then climbs the length ladder from the shortest rung, fits the pace
