@@ -598,3 +598,16 @@ def test_job_and_design_ids_are_ulids_s5() -> None:
     assert all(is_ulid(d) for d in design_ids)
     assert job_ids == sorted(job_ids) and len(set(job_ids)) == 50
     assert design_ids == sorted(design_ids) and len(set(design_ids)) == 50
+
+
+def test_the_qa_profile_moves_no_render_key_seed_or_measurement_dc19() -> None:
+    """DC-19 moved the QA profile to default.v4 (contracts 1.6.7). Only the analysis key names it: every voice
+    hash, render key, seed, delivery key and measurement key stays as it was, so a voice measured under
+    default.v3 stays measured and every cached render and take is reused; only QA runs again."""
+    for fn in (keys.voice_hash, keys.render_key, keys.seed, keys.delivery_key, keys.measurement_key):
+        assert not any("qa" in p for p in inspect.signature(fn).parameters), fn.__name__
+    assert keys.render_key(**render_kwargs()) == RENDER_KEY
+    assert keys.measurement_key(**measurement_kwargs()) == MEASUREMENT_KEY
+    assert {a: keys.seed(voice_hash=VOICE_HASH, engine_text=ENGINE_TEXT, attempt=a) for a in SEEDS} == SEEDS
+    old = keys.analysis_key(analysis_inputs(qa_profile="default.v3"))
+    assert keys.analysis_key(analysis_inputs(qa_profile=names.QA_PROFILE)) != old

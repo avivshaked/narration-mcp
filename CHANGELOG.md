@@ -278,6 +278,11 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- `PACE_FAST` only warns; it never fails a take and never triggers a retake (the QA profile is now
+  `default.v4`, DC-19). The words-per-minute pace model failed short paragraphs that listened fine, and
+  wasted their retakes. `PACE_SLOW` is unchanged (it only warns). The flag's `details.fast_fail_above` is
+  null. A voice measured before stays measured, and cached renders and takes are reused: only their QA
+  runs again, on the next request that asks for them.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set

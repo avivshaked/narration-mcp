@@ -501,6 +501,23 @@ def test_a_cue_with_no_alignable_words_is_flagged_but_never_retaken_dc12(world: 
     assert world.pool.calls[("qa", "align")] == 0  # no letter to place: the aligner is not asked
 
 
+def test_a_take_faster_than_its_pace_curve_warns_and_is_never_retaken_dc19(world: World) -> None:
+    """default.v4 (the owner's decision, 2026-09-27): PACE_FAST warns only. Under default.v3 a take this far
+    above the voice's curve failed and was retaken on every attempt."""
+    world.measure(intercept_wpm=20.0)  # the fake's takes read many times faster than this
+    job = world.submit(LAMPS, max_retakes=2)
+    world.run()
+    item = world.job(job.job_id).items[0]
+    assert [a.attempt for a in item.attempts] == [0] and item.retakes_used == 0
+    analysis = world.store.get_analysis_by_id(item.attempts[0].analysis_id or "")
+    assert analysis is not None
+    (fast,) = [f for f in analysis.qa.flags if f.code == codes.PACE_FAST]
+    assert (fast.severity, fast.retake_trigger) == ("warn", False)
+    assert fast.details is not None and fast.details["fast_fail_above"] is None
+    assert analysis.qa.metrics.spoken_wpm is not None and analysis.qa.metrics.spoken_wpm > 20.0 * (1 + 2 * 0.6)
+    assert analysis.qa.verdict == "warn" and item.state == "warned"
+
+
 def test_a_job_whose_takes_only_warn_is_all_passed_s8(world: World) -> None:
     job = world.submit(LAMPS, "1947 2031.")  # the second has no word to align: a warning, never retaken
     world.run()
