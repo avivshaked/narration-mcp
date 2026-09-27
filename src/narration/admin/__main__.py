@@ -13,7 +13,8 @@ in ``--help``, and running it says it is not available rather than failing. ``en
 and ``bench`` waits for WP38. A module that is there but fails to import says why, and the other groups
 still work.
 
-None of the commands approves anything; the service has no approvals (section 17.10).
+None of the commands approves anything; the service has no approvals (section 17.10). ``voices allow`` records
+the owner's own configuration of the machine (DC-17): which clips designed elsewhere are synthetic.
 """
 
 from __future__ import annotations
@@ -71,6 +72,11 @@ COMMAND_GROUPS: Final[tuple[CommandGroup, ...]] = (
     CommandGroup("daemon", "narration.admin.daemon", "start, stop or show the daemon (section 4.1)"),
     CommandGroup("doctor", "narration.admin.doctor", "check this machine and the configuration, and say what to fix"),
     CommandGroup("render", "narration.admin.render", "render one text in a voice, from the terminal"),
+    CommandGroup(
+        "voices",
+        "narration.admin.voices",
+        "allow a synthetic clip designed elsewhere, by its sha256, or list the allowed ones (section 17.4)",
+    ),
 )
 """The command groups, in the order ``--help`` lists them (section 7.1's order)."""
 
@@ -183,9 +189,11 @@ def main(
     platform: Callable[[], ProcessPlatform] = get_platform,
     groups: Sequence[CommandGroup] = COMMAND_GROUPS,
     environ: Mapping[str, str] | None = None,
+    inp: TextIO | None = None,
 ) -> int:
     """Run one operator command and return its exit code (``narration.admin.cli``). ``out``, ``err``,
-    ``platform``, ``groups`` and ``environ`` (for ``NARRATION_CONFIG``) are for tests."""
+    ``platform``, ``groups``, ``environ`` (for ``NARRATION_CONFIG``) and ``inp`` (the operator's answers) are
+    for tests."""
     parser = build_parser(groups)
     try:
         args = parser.parse_args(argv)
@@ -196,7 +204,7 @@ def main(
         parser.print_help(file=sys.stderr if err is None else err)
         return EXIT_USAGE
     _log_to_stderr(verbose=bool(args.verbose), err=err)
-    admin = Admin(config_path=args.config, out=out, err=err, platform=platform, environ=environ)
+    admin = Admin(config_path=args.config, out=out, err=err, inp=inp, platform=platform, environ=environ)
     try:
         return handler(admin, args)
     except AdminError as exc:
