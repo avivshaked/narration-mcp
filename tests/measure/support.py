@@ -27,6 +27,7 @@ from narration.contracts.names import CORPUS, Priority
 from narration.jobs.core import EngineParts
 from narration.jobs.engine import JobEngine
 from narration.jobs.runner import EngineRunner
+from narration.jobs.voice import PathCheck
 from narration.measure import build_measure_handler, measure_registry
 from narration.measure.corpus import CALIBRATION_KIND, DESIGN_TEXT, MANIFEST, PARAGRAPHS, default_material_root
 from narration.measure.handler import MeasureHandler
@@ -44,7 +45,6 @@ from tests.jobs.support import (
     Host,
     MonotonicClock,
     TestAligner,
-    check_readable_path,
     drive,
     engine_profile,
     qa_pins,
@@ -234,9 +234,11 @@ def make_world(
     corpus: Mapping[str, Any] | None = None,
     status: str = "draft",
     material: Path | None = None,
+    check_path: PathCheck | None = None,
 ) -> MeasureWorld:
     """A store with a pinned engine and a designed clip that is not measured yet, and the runner over the job
-    engine and the ``measure`` handler."""
+    engine and the ``measure`` handler. The engine is built as the daemon builds it: with no path check of its
+    own (``check_path`` None), so a caller's clip is read through the host platform's check."""
     store_root, models_root = root / "store", root / "models"
     (store_root / "scratch").mkdir(parents=True, exist_ok=True)
     base = Config.for_tests(store_root, models_root)
@@ -261,7 +263,7 @@ def make_world(
         scorer=Scorer(config.measurement),
         aligner=TestAligner(),
         qa_pins=qa_pins(models_root),
-        check_path=check_readable_path,
+        check_path=check_path,
         clock=clock,
         defer_s=0.05,
     )

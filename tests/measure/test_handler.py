@@ -19,10 +19,12 @@ import jsonschema
 import pytest
 
 from narration.contracts import codes
-from narration.contracts.models import MeasurementRecord
+from narration.contracts.errors import NarrationError
+from narration.contracts.models import MeasurementRecord, PaceTrend
 from narration.contracts.schemas import record_schema
 from narration.contracts.serial import from_json
-from narration.measure import current_measurement, lookup_measurement, voice_hash_of
+from narration.measure import current_measurement, ladder, lookup_measurement, voice_hash_of
+from narration.measure.handler import RETRY_AFTER_S
 from tests.jobs.support import ENGINE_ID, VOICE_TRANSCRIPT
 
 from .support import DESIGN_SEGMENT, SHORT_LADDER, MeasureWorld, make_world, measure_request, submit_measure
@@ -261,3 +263,67 @@ def test_a_rung_the_corpus_lacks_is_backend_not_installed_s16(tmp_path: Path) ->
         assert "275" in done.error.message
     finally:
         world.close()
+
+
+def test_a_callers_clip_is_read_through_the_daemons_platform_check_s17_3(world: MeasureWorld) -> None:
+    """The engine as the daemon builds it has no path check of its own: the measurement reads the clip through
+    the host platform's, as a generation does (``JobEngine.open``)."""
+    assert world.engine.parts.check_path is None
+    job = world.measure()
+    world.run()
+    assert world.job(job.job_id).status == "completed", world.job(job.job_id).error
+    assert world.host.platform.paths_checked == [str(world.clip)]
+
+
+def test_an_engine_built_with_its_own_path_check_uses_that_one_s17_3(tmp_path: Path) -> None:
+    asked: list[str] = []
+
+    def refuse(path: str) -> Path:
+        asked.append(path)
+        raise NarrationError(codes.PATH_NOT_ALLOWED, "refused by the engine's own check")
+
+    world = make_world(tmp_path, check_path=refuse)
+    try:
+        job = world.measure()
+        world.run()
+        done = world.job(job.job_id)
+        assert done.status == "failed" and done.error is not None
+        assert (done.error.code, done.error.field) == (codes.PATH_NOT_ALLOWED, "voice.path")
+        assert asked == [str(world.clip)] and world.host.platform.paths_checked == []
+        assert world.pool.texts() == []
+    finally:
+        world.close()
+
+
+def test_a_ladder_with_no_rung_in_the_trend_band_is_refused_s3_2(tmp_path: Path) -> None:
+    """With no rung at or under ``trend_band_max_chars`` there is no trend to judge a rung by: refused at once,
+    rather than a measurement whose every rung fails."""
+    world = make_world(tmp_path, ladder=(350, 400))
+    try:
+        job = world.measure()
+        world.run()
+        done = world.job(job.job_id)
+        assert done.status == "failed" and done.error is not None
+        assert done.error.code == codes.BACKEND_NOT_INSTALLED
+        assert "trend_band_max_chars" in done.error.message
+        assert world.pool.texts() == []
+    finally:
+        world.close()
+
+
+def test_a_trend_band_with_no_measured_pace_fails_retryably_and_publishes_nothing_s3_2(
+    world: MeasureWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_pace(rungs: object, band_max_chars: int) -> PaceTrend:
+        raise ValueError("no rung in the trend band has a measured pace")
+
+    monkeypatch.setattr(ladder, "fit_trend", no_pace)
+    job = world.measure()
+    world.run()
+    done = world.job(job.job_id)
+    assert done.status == "failed" and done.error is not None
+    assert done.error.code == codes.INTERNAL
+    assert done.error.retryable and done.error.retry_after_s == RETRY_AFTER_S
+    assert done.error.details is not None and done.error.details["band"] == ["ladder-080", "ladder-150"]
+    vh = voice_hash_of(clip_sha256=world.clip_sha256, transcript=VOICE_TRANSCRIPT, config=world.config)
+    assert lookup_measurement(world.store, voice_hash=vh, engine_profile_id=ENGINE_ID) is None

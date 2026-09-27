@@ -18,7 +18,8 @@ by the cache first and made at most once under a lease (sections 4 and 10.2).
    calibration takes are scored first, with no speaker or pace check; then the anchor and the similarity
    baseline are computed (``baseline``), and the band's takes are scored against them.
 3. **The trend and ``tol``** from the band, and each band rung judged (``ladder``). The band is rendered
-   together because the trend that judges its rungs needs all of them.
+   together because the trend that judges its rungs needs all of them. A ladder with no rung in the band is
+   refused when the job is planned (``BACKEND_NOT_INSTALLED``: there would be no trend to judge by).
 4. **The rungs above the band**, one at a time from the shortest (a Qwen load, then a QA load each), for as
    long as every rung so far passes. The first failing rung ends the ladder: the rungs above it are never
    rendered.
@@ -36,8 +37,12 @@ term-only hints, so ``wer_adj`` collapses them as section 11.1 intends (the engi
 **Retakes and failures.** A measurement take is data, never retaken (``max_retakes`` 0). A take-level
 execution problem the engine could not overcome (its own retries included: out of memory, a worker that
 crashed twice) fails the job, since a measurement short of a take would not be the measurement section 3.2
-defines: ``GPU_UNAVAILABLE`` for memory, otherwise ``INTERNAL``, both retryable. Everything made is kept in
-the cache, so the identical request resumes where it stopped.
+defines: ``GPU_UNAVAILABLE`` for memory, otherwise ``INTERNAL``, both retryable. A trend band with no
+measured pace in any rung fails it the same way (``INTERNAL``), rather than publish a trend that fails every
+rung. Everything made is kept in the cache, so the identical request resumes where it stopped.
+
+**The clip** is read as a generation's is (``JobEngine.open``, section 17.3): through the engine's own path
+check when it was built with one, else the daemon's platform check (``RunnerHost.platform``).
 
 **A current measurement** (its key is the one this job would make) completes the job at once.
 """
@@ -219,7 +224,7 @@ class MeasureHandler:
         settings = config.measurement
         corpus = self.corpus(settings.corpus)
         key = measurement_key_of(voice_hash=voice_hash, profile=profile, corpus=corpus, config=config)
-        paragraphs, rungs = _plan_paragraphs(corpus, settings.length_ladder_spoken_chars)
+        paragraphs, rungs = _plan_paragraphs(corpus, settings.length_ladder_spoken_chars, settings.trend_band_max_chars)
         request = GenerateRequest(
             voice=voice,
             hints=corpus.hints,
@@ -253,7 +258,10 @@ class MeasureHandler:
             store.touch("measurement", current.measurement_key)
             run.message = f"already measured under {profile.engine_profile_id}"
             return run
-        run.clip = stage_clip(store, voice, check_path=parts.check_path)
+        # Section 17.3: a caller's file is read only through the daemon's platform check (or the one built in),
+        # exactly as JobEngine.open reads a generation's clip.
+        check = parts.check_path if parts.check_path is not None else host.platform.check_readable_path
+        run.clip = stage_clip(store, voice, check_path=check)
         self.core.residency.need_mb["qwen"] = profile.vram_need_mb
         planned = parts.text.plan_request(request.segments, request.hints, strict_text=False)
         calibration_count = len(paragraphs) - len(rungs)
@@ -482,11 +490,17 @@ class MeasureHandler:
             band = [self._rung(run, r) for r in run.rungs if r.target <= settings.trend_band_max_chars]
             try:
                 run.trend = lad.fit_trend(band, settings.trend_band_max_chars)
-            except ValueError:
-                log.warning("job %s: no rung of the trend band has a measured pace", run.job_id)
-                run.trend = PaceTrend(
-                    intercept_wpm=0.0, per_100_chars=0.0, band_max_chars=settings.trend_band_max_chars
-                )
+            except ValueError as exc:
+                raise NarrationError(
+                    codes.INTERNAL,
+                    f"the measurement stopped: no rung of the trend band has a measured pace ({exc})",
+                    details={"band": [r.paragraph_id for r in band]},
+                    retryable=True,
+                    retry_after_s=RETRY_AFTER_S,
+                    hint="QA found no voiced span in any take of the trend band, so the pace trend cannot be "
+                    "fitted and nothing was published. Send the same request again; if it fails again, the "
+                    "daemon's log has the details.",
+                ) from exc
             run.tol = lad.pace_tol(band, settings.trend_band_max_chars, settings.pace_tol_min)
         assert run.tol is not None
         sim_warn = round(calibration.similarity.anchor_p5 - settings.sim_warn_margin, 6)
@@ -704,10 +718,11 @@ def _base_profile(host: RunnerHost) -> EngineProfile:
 
 
 def _plan_paragraphs(
-    corpus: MaterialSet, ladder: tuple[int, ...]
+    corpus: MaterialSet, ladder: tuple[int, ...], band_max_chars: int
 ) -> tuple[list[MaterialParagraph], list[tuple[int, MaterialParagraph]]]:
     """The measurement's paragraphs in order (the calibration set, then the ladder shortest first), and the
-    ladder's (target, paragraph) pairs. Each configured rung needs the corpus paragraph written for it."""
+    ladder's (target, paragraph) pairs. Each configured rung needs the corpus paragraph written for it, and at
+    least one rung must be in the trend band (at most ``band_max_chars``), or there is no trend to judge by."""
     by_target = {p.target_spoken_chars: p for p in corpus.ladder if p.target_spoken_chars is not None}
     rungs: list[tuple[int, MaterialParagraph]] = []
     for target in sorted(ladder):
@@ -721,6 +736,15 @@ def _plan_paragraphs(
                 retryable=False,
             )
         rungs.append((target, paragraph))
+    if not any(target <= band_max_chars for target, _ in rungs):
+        raise NarrationError(
+            codes.BACKEND_NOT_INSTALLED,
+            f"no rung of length_ladder_spoken_chars is at or under trend_band_max_chars ({band_max_chars}), so "
+            "the pace trend has nothing to be fitted to ([measurement])",
+            hint="Add a rung at or under trend_band_max_chars to length_ladder_spoken_chars (the default ladder "
+            "starts at 80), or raise trend_band_max_chars.",
+            retryable=False,
+        )
     if not corpus.paragraphs:
         raise NarrationError(
             codes.BACKEND_NOT_INSTALLED, f"the calibration corpus {corpus.set_id} has no calibration paragraph"
