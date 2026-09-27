@@ -281,12 +281,14 @@ def server_argv(spec: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
 
 # ---------------------------------------------------------------- the clients
 def daemon_checks(said: dict[str, Any], job_handle: int | None) -> dict[str, Any]:
-    """Whether the server, its launcher, the daemon's launcher and the daemon are in the client's job."""
+    """Whether the server, the daemon's launcher and the daemon are in the client's job (None each when the
+    client made no job: the question does not apply), and whether the daemon's launcher is in any job."""
     server_pid = said.get("server", {}).get("pid")
+    in_client_job = (lambda pid: None) if job_handle is None else (lambda pid: in_job(pid, job_handle))
     return {
-        "server_in_client_job": in_job(server_pid, job_handle),
-        "daemon_launcher_in_client_job": in_job(said.get("spawned_pid"), job_handle),
-        "daemon_in_client_job": in_job(said.get("daemon_pid"), job_handle),
+        "server_in_client_job": in_client_job(server_pid),
+        "daemon_launcher_in_client_job": in_client_job(said.get("spawned_pid")),
+        "daemon_in_client_job": in_client_job(said.get("daemon_pid")),
         "daemon_launcher_in_any_job": in_job(said.get("spawned_pid"), None),
     }
 
@@ -527,6 +529,10 @@ def run_scenario(client_kind: str, assign: str, server_python: str) -> dict[str,
         record["daemon_alive_after_client"] = bool(owned.daemon and owned.daemon.is_running())
         record["daemon_launcher_alive_after_client"] = bool(owned.launcher and owned.launcher.is_running())
         record["running_daemon_after"] = running_daemon(store) is not None
+        if record["daemon_launcher_alive_after_client"] and owned.launcher is not None:
+            # Measured from outside, for every client (the Node client cannot ask): the daemon's launcher, the
+            # process spawn_detached created, is in no job at all once the client is gone.
+            record["daemon_launcher_in_any_job_after_client"] = in_job(owned.launcher.pid, None)
         if record["daemon_alive_after_client"]:
             posted = store.post_command("stop")
             answer = store.wait_for_command(posted.command_id, timeout_s=30)
@@ -548,13 +554,15 @@ def summary(records: list[dict[str, Any]], nested: list[dict[str, Any]]) -> str:
         "## End to end",
         "",
         "| Client | Server assigned | Server runs as | Server in a job (innermost flags) | Start | "
-        "Daemon launcher in client's job | Daemon in client's job | Daemon alive after client | After |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "Daemon launcher in client's job | Daemon in client's job | Daemon launcher in any job, after | "
+        "Daemon alive after client | After |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in records:
         server = r.get("server") or {}
         said = r.get("client_said") or {}
         in_job_text = f"{server.get('in_any_job')} {server.get('innermost_flags', '')}".strip()
+        launcher_after = r.get("daemon_launcher_in_any_job_after_client", "")
         error = r.get("start_error")
         if error:
             start = f"`{error['code']}` ({error['details'].get('reason')})"
@@ -567,10 +575,13 @@ def summary(records: list[dict[str, Any]], nested: list[dict[str, Any]]) -> str:
             after = f"daemon.json says `{r.get('daemon_json_after')}`; running_daemon: {r.get('running_daemon_after')}"
         elif error:
             after = f"daemon.json: {r.get('daemon_json_after')}"
+        na = "n/a" if r["client"] in ("none", "node") else ""  # no client job, or a client that cannot ask
+        launcher_in = said.get("daemon_launcher_in_client_job")
+        daemon_in = said.get("daemon_in_client_job")
         lines.append(
             f"| `{r['client']}` | {r['assign']} | {r['server_python']} | {in_job_text} | {start} | "
-            f"{said.get('daemon_launcher_in_client_job', '')} | {said.get('daemon_in_client_job', '')} | "
-            f"{r.get('daemon_alive_after_client', '')} | {after} |"
+            f"{na if launcher_in is None else launcher_in} | {na if daemon_in is None else daemon_in} | "
+            f"{launcher_after} | {r.get('daemon_alive_after_client', '')} | {after} |"
         )
     lines += [
         "",
