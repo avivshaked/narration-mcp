@@ -1,5 +1,5 @@
 # WP36 The caller's guidance in the tool texts (readiness audit item 1.1)
-State: review        Updated: 2026-09-27T21:15+01:00
+State: review pending the full suite        Updated: 2026-09-27T21:30+01:00
 
 Branch `wp/36-guidance`, rebased onto `main` at 78b2fae. Text only, except for two hint selections in
 `mcp/validation.py`. The audit ids it answers: mcp-2, qa-4, cf-7, cf-2, mcp-1, rt-1, mcp-7, mcp-8, rt-6,
@@ -67,14 +67,18 @@ cf-10, mcp-10, mcp-11, triage-9 and cf-11.
 - CHANGELOG line under Unreleased / Changed.
 
 ## Tests
-- `uv run python -m pytest` (the full default suite, run once before the lead's CPU pause): 3737 passed,
-  15 skipped (platform and Developer Mode skips, and one "engine.admin is in this build"), 19 deselected.
-- After the last text edits, following the lead's instruction to run only single files until 21:20:
+- `uv run python -m pytest`, the full default suite: 3737 passed, 15 skipped (platform and Developer Mode
+  skips, and one "engine.admin is in this build"), 19 deselected. It ran once, before the text was trimmed
+  to the 2048-character limit and before the README, the hint wording and the `design_voice` wording
+  changed.
+- After those edits, only targeted tests ran, at the lead's request (the owner's GPU work):
   - `tests/mcp/test_descriptions.py` (new): 30 passed;
   - `tests/mcp/test_front_end.py`: 170 passed.
-- `ruff check`, `ruff format --check`: clean. `basedpyright` on the five changed Python files: 0 errors.
-  I did not run it over the whole tree after the last edit, because of the pause. Run the whole tree once
-  more after 21:20 before merging.
+- `uv run python -m basedpyright` over the whole tree, at 21:21 on the final code: 0 errors.
+- A second full `pytest` run started at 21:21. I stopped it (and its processes) when the lead asked for no
+  full suites while the owner narrates. **Pending: the full default suite on the final commit**, when the
+  lead says so.
+- `ruff check`, `ruff format --check`: clean.
 - `py -3.12 tools/check_private.py --commits main..HEAD --base main`: exit 0.
 - `py -3.12 tools/check_tracked.py`: exit 0.
 
@@ -123,4 +127,5 @@ cf-10, mcp-10, mcp-11, triage-9 and cf-11.
   parameter descriptions, so a conflict, if any, is textual.
 
 ## Next
-- None. Ready for review. Rerun the whole suite and `basedpyright` after the CPU pause, before merging.
+- Run the full default suite on the final commit when the lead says the CPU is free; then the state
+  becomes `review`.
