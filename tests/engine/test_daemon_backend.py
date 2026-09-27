@@ -219,3 +219,8 @@ def test_the_daemon_runs_measure_then_generate_on_the_installed_engine_s4(servic
     assert again["job_id"] != submitted["job_id"]
     assert again["plan"]["renders_needed"] == 0
     assert service.finished(again["job_id"])["status"] == "completed"
+
+    # ``backend_for`` plans with this installation's analysis pins, which name what the installed engine keys
+    # its analyses with: planned again, the segment is cached down to its analysis (section 10.2).
+    planned = service.backend.submit_job_sync({**request, "options": {"takes": 1, "dry_run": True}})["plan"]
+    assert (planned["segments_cached"], planned["analyses_needed"], planned["renders_needed"]) == (1, 0, 0)

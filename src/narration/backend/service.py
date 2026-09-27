@@ -978,14 +978,55 @@ def with_retry_after(exc: NarrationError) -> NarrationError:
     )
 
 
+class InstalledPins:
+    """The ``AnalysisPins`` of this installation, as the daemon's job engine keys its analyses
+    (``narration.jobs.stages.Stages.key_inputs`` over ``narration.engine.installed``): the QA group's models
+    (``narration.engine.qa.qa_pins``) and the configured aligner's method id (``aligner_method_id``), with the QA
+    profile and number reader of ``Scorer(config.measurement)``. The daemon runs with the front-end's own
+    configuration file, so both name the same pins; nothing here computes a key or changes one.
+
+    Called with no argument, as ``NarrationBackend``'s ``pins``. None while the QA models are not installed
+    (``BACKEND_NOT_INSTALLED``): a plan then counts every analysis as needed, and the next call looks again.
+    Once found, the pins are kept (the configuration is read once, at start).
+    """
+
+    def __init__(self, config: Config) -> None:
+        self._config = config
+        self._found: AnalysisPins | None = None
+
+    def __call__(self) -> AnalysisPins | None:
+        if self._found is not None:
+            return self._found
+        from narration.engine.qa import aligner_method_id, qa_pins  # numpy; only once a plan needs the pins
+
+        try:
+            qa = qa_pins(self._config)
+            method_id = aligner_method_id(self._config)
+        except NarrationError as exc:
+            if exc.code != codes.BACKEND_NOT_INSTALLED:
+                raise
+            log.debug("no analysis pins yet (%s); plans count every analysis as needed", exc.message)
+            return None
+        scorer = Scorer(self._config.measurement)
+        self._found = AnalysisPins(
+            asr_model=qa.asr.name,
+            sv_model=qa.sv.name,
+            aligner_method_id=method_id,
+            qa_profile=scorer.profile_version,
+            number_reader=scorer.number_reader,
+        )
+        return self._found
+
+
 def backend_for(
     config: Config, store: Store, platform: Platform, *, launcher: DaemonLauncher | None = None
 ) -> NarrationBackend:
     """The service's backend over its store, as ``narration-mcp`` and ``narration-admin render`` run it: the
-    daemon is started detached with this configuration file, when ``[daemon] autostart`` says so."""
+    daemon is started detached with this configuration file, when ``[daemon] autostart`` says so, and a plan
+    looks up the analysis layer with this installation's pins (``InstalledPins``)."""
     if launcher is None:
         launcher = DetachedLauncher(config.path, autostart=config.daemon.autostart)
-    return NarrationBackend(config, store, platform, launcher=launcher)
+    return NarrationBackend(config, store, platform, launcher=launcher, pins=InstalledPins(config))
 
 
 RESUMES: Final[dict[str, str]] = {
@@ -1057,4 +1098,4 @@ def _publish_text(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
-__all__ = ["POLL_S", "RELEASE_WAIT_S", "NarrationBackend", "backend_for"]
+__all__ = ["POLL_S", "RELEASE_WAIT_S", "InstalledPins", "NarrationBackend", "backend_for"]

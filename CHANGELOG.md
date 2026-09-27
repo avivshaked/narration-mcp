@@ -268,6 +268,11 @@ are tracked here but no version is tagged; nothing described below is installabl
   queue, reusing what it finished from the cache, and finishes a cancel. `get_job`'s `message` then says the
   daemon was stopped and what happens next. When no daemon can be started, `get_job` answers
   `DAEMON_UNAVAILABLE` (retryable) with the job and the hint to run `narration-admin daemon start`.
+- `submit_job`'s plan (and its `dry_run`) now counts cached analyses: `narration-mcp` and `narration-admin
+  render` look the analysis layer up with the installation's QA and aligner pins, as the daemon keys it. A
+  resubmission that is all cached reports `segments_cached` and no analyses to do, instead of 0 and every
+  analysis, and its `est_wall_s` no longer adds a QA model load. `get_server_status`'s `alignment` names the
+  configured aligner's method.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
