@@ -129,3 +129,24 @@ def test_a_pinned_aligner_the_ctc_method_cannot_run_is_backend_not_installed_s11
 def test_without_a_platform_on_the_host_this_oss_is_used(install: Install) -> None:
     registry = installed_engine(cast(RunnerHost, _Host(config=install.config)))
     assert _engine(registry).parts.check_path is not None
+
+
+def test_more_handlers_join_the_registry_sharing_the_engines_residency_s4(
+    install: Install, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Where WP33 registers ``measure``: its handler is built on the job engine and shares its residency."""
+    from narration.engine import installed
+
+    seen: list[JobEngine] = []
+    measure = object()
+
+    def more(host: RunnerHost, engine: JobEngine) -> dict[str, Any]:
+        seen.append(engine)
+        return {"measure": measure}
+
+    monkeypatch.setattr(installed, "more_handlers", more)
+    registry = installed_engine(cast(RunnerHost, _Host(config=install.config, platform=_Platform())))
+    engine = _engine(registry)
+    assert seen == [engine]
+    assert registry.handler("measure") is measure and registry.handler("analyse") is engine
+    assert registry.residency is engine.residency and registry.throughput is engine.throughput

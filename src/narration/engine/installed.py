@@ -64,20 +64,23 @@ def engine(host: RunnerHost, *, probe: VramProbe | None = None) -> JobEngine:
     return JobEngine(config, parts)
 
 
-def more_handlers(host: RunnerHost, base: Registry) -> Mapping[str, JobHandler[Any]]:
-    """The handlers of the other job kinds, sharing ``base``'s residency and throughput.
+def more_handlers(host: RunnerHost, engine: JobEngine) -> Mapping[str, JobHandler[Any]]:
+    """The handlers of the other job kinds, by kind, built on the daemon's job ``engine`` so that they share
+    its residency, throughput and canary.
 
-    **WP33 registers ``measure`` here** (``narration.measure``'s factory), and WP34/WP35 their kinds after it.
-    None is built yet, so a job of those kinds fails with ``INTERNAL`` and ``details.kind``.
+    **WP33 registers ``measure`` here**: ``{"measure": narration.measure.build_measure_handler(engine)}``;
+    WP34 and WP35 add their kinds after it. None is built yet, so a job of those kinds fails with
+    ``INTERNAL`` and ``details.kind``.
     """
     return {}
 
 
 def registry(host: RunnerHost, *, probe: VramProbe | None = None) -> Registry:
     """Every job kind this installation runs, by handler: ``generate`` and ``analyse`` on the job engine, and
-    whatever ``more_handlers`` adds."""
-    base = Registry.of(engine(host, probe=probe))
-    extra = more_handlers(host, base)
+    whatever ``more_handlers`` adds, all sharing the engine's residency and throughput."""
+    built = engine(host, probe=probe)
+    base = Registry.of(built)
+    extra = more_handlers(host, built)
     if not extra:
         return base
     return Registry(handlers={**base.handlers, **extra}, residency=base.residency, throughput=base.throughput)
