@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 from narration_qwen3tts.engine import MAX_PREPARED_VOICES, EngineError, QwenEngine, check_snapshot
-from narration_qwen3tts.settings import GENERATION_KEYS
+from narration_worker.qwen_settings import GENERATION_KEYS
 
 EOS = 2150
 SAMPLE_RATE = 24000

@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.9 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.10 (2026-09-26); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -68,6 +68,8 @@ applied here, each listed in the revision history below.*
   - A cue next to an unplaceable cue's speech snaps only to a pause within reach of its own words.
   - Confidence counts letters and apostrophes.
   - The method id also covers the reaches, the wildcard and the versions of the rules.*
+- *Revision 5.10 (the same day) names the four reasons a `CUE_UNALIGNED` can carry
+  (section 11.2 step 7), as contracts 1.6.3 define them.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -1639,6 +1641,12 @@ seconds):
    from the transcript. It gets `start_s` / `end_s` = null, `CUE_UNALIGNED` (warn, listen-first, retake
    trigger). **It is never interpolated.** A cue with no word the aligner can place at all has
    `details.reason` = `no_alignable_words`, and is not a retake trigger (DC-12, section 11.1).
+   - Every `CUE_UNALIGNED` carries one `details.reason`:
+     - `no_alignable_words`: the cue's text gives the aligner nothing to place;
+     - `low_confidence`: the aligner placed the cue below `unplaced_below`;
+     - `alignment_error`: the take could not be aligned at all (step 3), so every cue has it;
+     - `not_placed`: QA's fallback, for a cue it finds without times and without the aligner's flag.
+   - Only `no_alignable_words` is exempt from retakes.
 8. **Output**: `cues[]` with `words[]` in delivery-file seconds, and `alignment` {method
    `ctc-forced-align+silence-snap`, model, revision, cross-check, measured error, flags}.
    - The analysis key names the aligner by its **method id**, `ctc-snap/<model>@<revision>+p<12 hex>`.

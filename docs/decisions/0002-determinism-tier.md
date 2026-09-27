@@ -58,6 +58,8 @@ this machine", is unhashed, and is set after the pin.
      samples then have different bytes and different sha256s, which would defeat both the take id's
      stability and the canary gate's hash comparison.
    - Any other worker (and any file the service hashes) must avoid the same trap.
+   - Note (WP16's follow-ups, lead-authorised): the writer is now `narration_worker.wav`, shared by every
+     worker; it writes the same bytes as `narration_qwen3tts.wav` did, which is gone.
 
 ## Evidence
 

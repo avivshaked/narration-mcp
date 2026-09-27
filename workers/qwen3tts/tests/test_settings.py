@@ -1,4 +1,8 @@
-"""The audio-changing settings are checked and always passed explicitly (design section 10.1)."""
+"""What the qwen3 worker reads from a snapshot: its sampling defaults and its model kind (design section 10.1).
+
+The checks on a ``load``'s ``settings`` are shared with the fake worker and tested with them
+(``narration_worker.qwen_settings``, ``workers/common/tests/test_qwen_settings.py``).
+"""
 
 from __future__ import annotations
 
@@ -7,18 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from narration_qwen3tts.settings import (
-    GENERATION_KEYS,
-    LIBRARY_FALLBACKS,
-    SettingsError,
-    SnapshotUnreadable,
-    effective_generation,
-    generation_kwargs,
-    parse_generation,
-    parse_settings,
-    read_model_kind,
-)
-from narration_worker.handler import MIN_MAX_NEW_TOKENS
+from narration_qwen3tts.settings import LIBRARY_FALLBACKS, SnapshotUnreadable, effective_generation, read_model_kind
+from narration_worker.qwen_settings import GENERATION_KEYS, SettingsError
 
 PINNED: dict[str, Any] = {
     "do_sample": True,
@@ -35,85 +29,8 @@ PINNED: dict[str, Any] = {
 """The pinned snapshots' generation_config.json (plan.md section 1.3 item 1)."""
 
 
-@pytest.mark.parametrize("key", GENERATION_KEYS)
-def test_every_sampling_value_must_be_explicit_s10_1(key: str) -> None:
-    generation = {k: v for k, v in PINNED.items() if k != key}
-    with pytest.raises(SettingsError) as caught:
-        parse_generation(generation)
-    assert caught.value.field == f"settings.generation.{key}"
-
-
-def test_generation_keys_are_the_ten_qwen_tts_merges_s10_1() -> None:
+def test_the_library_fallbacks_cover_the_ten_values_qwen_tts_merges_s10_1() -> None:
     assert set(GENERATION_KEYS) == set(LIBRARY_FALLBACKS) == set(PINNED)
-    assert len(GENERATION_KEYS) == 10
-
-
-def test_an_unknown_sampling_value_is_refused_s10_1() -> None:
-    with pytest.raises(SettingsError) as caught:
-        parse_generation({**PINNED, "typical_p": 0.9})
-    assert caught.value.field == "settings.generation.typical_p"
-
-
-@pytest.mark.parametrize(
-    ("key", "value"),
-    [
-        ("do_sample", 1),
-        ("subtalker_dosample", "yes"),
-        ("top_k", 0),
-        ("top_k", 50.0),
-        ("top_k", True),
-        ("max_new_tokens", 0),
-        ("max_new_tokens", 1),
-        ("top_p", 0.0),
-        ("top_p", 1.5),
-        ("subtalker_top_p", float("nan")),
-        ("temperature", 0),
-        ("repetition_penalty", -1.0),
-        ("subtalker_temperature", "0.9"),
-        ("temperature", True),
-    ],
-)
-def test_a_sampling_value_of_the_wrong_type_or_range_is_refused_s10_1(key: str, value: object) -> None:
-    with pytest.raises(SettingsError) as caught:
-        parse_generation({**PINNED, key: value})
-    assert caught.value.field == f"settings.generation.{key}"
-
-
-def test_valid_generation_is_returned_in_qwen_tts_order_s10_1() -> None:
-    reordered = dict(reversed(list(PINNED.items())))
-    assert list(parse_generation(reordered)) == list(GENERATION_KEYS)
-    assert parse_generation(reordered) == PINNED
-
-
-def test_non_streaming_mode_must_be_explicit_s10_1() -> None:
-    with pytest.raises(SettingsError) as caught:
-        parse_settings({"generation": PINNED})
-    assert caught.value.field == "settings.non_streaming_mode"
-    with pytest.raises(SettingsError) as caught:
-        parse_settings({"non_streaming_mode": 0, "generation": PINNED})
-    assert caught.value.field == "settings.non_streaming_mode"
-
-
-def test_settings_need_generation_and_nothing_else_s10_1() -> None:
-    with pytest.raises(SettingsError) as caught:
-        parse_settings({"non_streaming_mode": False})
-    assert caught.value.field == "settings.generation"
-    with pytest.raises(SettingsError) as caught:
-        parse_settings({"non_streaming_mode": False, "generation": PINNED, "instruct": "calm"})
-    assert caught.value.field == "settings.instruct"
-
-
-@pytest.mark.parametrize("mode", [False, True])
-def test_settings_keep_both_streaming_modes_s10_1(mode: bool) -> None:
-    """Base uses false and VoiceDesign true; which one a profile pins is the server's decision."""
-    settings = parse_settings({"non_streaming_mode": mode, "generation": PINNED})
-    assert settings == {"non_streaming_mode": mode, "generation": PINNED}
-
-
-def test_generation_kwargs_pass_all_ten_values_s10_1() -> None:
-    kwargs = generation_kwargs(parse_generation(PINNED))
-    assert kwargs == PINNED
-    assert all(value is not None for value in kwargs.values())
 
 
 def _snapshot(tmp_path: Path, generation: object | None, config: object | None = None) -> Path:
@@ -174,12 +91,3 @@ def test_read_model_kind_reports_a_missing_or_broken_config_as_unreadable(tmp_pa
     (broken / "config.json").write_bytes(b"\xff\xfe\x00garbage")
     with pytest.raises(SnapshotUnreadable):
         read_model_kind(broken)
-
-
-def test_the_ceiling_is_at_least_qwen_tts_min_new_tokens_s10_1() -> None:
-    """qwen-tts passes min_new_tokens=2 to the talker, so a lower max_new_tokens is refused, not clamped."""
-    assert MIN_MAX_NEW_TOKENS == 2  # the protocol's floor for every cap (narration_worker.handler)
-    assert parse_generation({**PINNED, "max_new_tokens": 2}).get("max_new_tokens") == 2
-    with pytest.raises(SettingsError) as caught:
-        parse_generation({**PINNED, "max_new_tokens": 1})
-    assert caught.value.field == "settings.generation.max_new_tokens"

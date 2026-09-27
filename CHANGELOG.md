@@ -60,7 +60,13 @@ are tracked here but no version is tagged; nothing described below is installabl
   next (`narration-admin install`).
 - A `fake` worker role with deterministic synthetic audio and QA outputs, and faults it can plant on
   request of a test (`NARRATION_FAKE_SPEC`), so the service can be developed and tested without a model
-  or a GPU; and the worker contract tests every worker runs (`narration_worker.testing`).
+  or a GPU; and the worker contract tests every worker runs (`narration_worker.testing`). The fake checks
+  a Qwen `load`'s `device`, `dtype`, `attn_implementation`, `determinism` and `settings` with the Qwen
+  worker's own checks (`narration_worker.qwen_settings`), and its `model` reference by the same rules as
+  that worker, so it refuses them exactly as the real worker does, with the same code and field: all ten
+  sampling values and `non_streaming_mode` must be
+  given, the ceiling `settings.generation.max_new_tokens` among them. It does not read the snapshot's
+  files or look for torch and a GPU.
 - `narration.keys`: the cache keys of design section 10.2 (`voice_hash`, measurement, render, delivery and
   analysis keys) over RFC 8785 canonical JSON, the seed of section 10.3, the `rn_`/`tk_`/`an_` ids, and
   ULID job and design ids. Key values are pinned by golden tests: they name every take and never change.
@@ -154,9 +160,11 @@ are tracked here but no version is tagged; nothing described below is installabl
   cue's confidence (`CUE_LOW_CONFIDENCE`, below `[alignment] low_confidence_below`), and leaves a cue it
   cannot place without times (`CUE_UNALIGNED`, never interpolated), saying why in `details.reason`:
   `no_alignable_words` (the cue's text has no word to place; not a retake trigger), `low_confidence`
-  (below `unplaced_below`) or `alignment_error`. A cue next to one it cannot place never takes that cue's
-  speech: when no pause separates them, its edge keeps the aligner's time (`CUE_BOUNDARY_NO_PAUSE` with
-  `details.edge`). It cross-checks boundaries against Whisper's words (`CUE_ALIGNMENT_DISAGREE`,
-  `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC emissions on the CPU and runs
-  the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not held against the take. A
-  missing, damaged or foreign aligner snapshot is reported as not installed (`BACKEND_NOT_INSTALLED`).
+  (below `unplaced_below`) or `alignment_error`; QA adds `not_placed` for a cue it finds without times that
+  the aligner did not flag, so every `CUE_UNALIGNED` says why. A cue next to one it cannot place never
+  takes that cue's speech: when no pause separates them, its edge keeps the aligner's time
+  (`CUE_BOUNDARY_NO_PAUSE` with `details.edge`). It cross-checks boundaries against Whisper's words
+  (`CUE_ALIGNMENT_DISAGREE`, `max_disagreement_s`). The QA worker's `align` op computes the wav2vec2 CTC
+  emissions on the CPU and runs the forced alignment; a worker failure other than `ALIGNMENT_ERROR` is not
+  held against the take. A missing, damaged or foreign aligner snapshot is reported as not installed
+  (`BACKEND_NOT_INSTALLED`).

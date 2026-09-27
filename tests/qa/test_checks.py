@@ -245,6 +245,22 @@ def test_an_unplaced_cue_always_gets_cue_unaligned_s11_2() -> None:
     assert len(alignment_flags(alignment(seg, cues=cues, flags=[said]), seg)) == 1
 
 
+def test_qas_own_cue_unaligned_says_the_cue_was_not_placed_and_is_a_retake_trigger_s11_2_dc12() -> None:
+    # Every CUE_UNALIGNED carries a details.reason (DC-12). QA's fallback cannot know why the aligner left a cue
+    # without times, so it says only that: not_placed, which is still a retake trigger.
+    seg = segment("One cue.", "Two cue.")
+    cues = (
+        CueTiming(index=0, start_s=0.1, end_s=1.0, confidence=0.9),
+        CueTiming(index=1, start_s=None, end_s=None, confidence=None),
+    )
+    flags = alignment_flags(alignment(seg, cues=cues), seg)
+    assert [(f.code, f.cue, f.retake_trigger, f.details) for f in flags] == [
+        (codes.CUE_UNALIGNED, 1, True, {"reason": codes.CUE_NOT_PLACED})
+    ]
+    missing = alignment_flags(alignment(seg, cues=()), seg)
+    assert [f.details for f in missing] == [{"reason": codes.CUE_NOT_PLACED}] * 2
+
+
 def test_a_cue_with_no_alignable_words_is_not_a_retake_trigger_s11_1() -> None:
     # DC-12: the cue's text gives the aligner nothing to place, so every retake would fail the same way.
     seg = segment("One cue.", "Two cue.")
@@ -257,7 +273,7 @@ def test_a_cue_with_no_alignable_words_is_not_a_retake_trigger_s11_1() -> None:
     flags = alignment_flags(alignment(seg, cues=cues, flags=[nothing]), seg)
     assert [(f.code, f.cue, f.retake_trigger, f.details) for f in flags] == [(codes.CUE_UNALIGNED, 1, False, reason)]
     # Any other reason, or none, is still a trigger, whatever the aligner set.
-    other = dataclasses.replace(nothing, details={"reason": "low_confidence"}, retake_trigger=False)
+    other = dataclasses.replace(nothing, details={"reason": codes.CUE_UNPLACED_LOW_CONFIDENCE}, retake_trigger=False)
     assert alignment_flags(alignment(seg, cues=cues, flags=[other]), seg)[0].retake_trigger is True
 
 

@@ -24,6 +24,7 @@ from narration_worker.fake.handler import PROFILE_KEYS
 from narration_worker.fake.registry import RECORD_SCHEMA, Registry, fake_dir
 from narration_worker.fake.wav import read_wav
 from narration_worker.testing.client import WorkerProcess, check_reply
+from narration_worker.testing.contract import GENERATION
 
 TIMEOUT = 30.0
 CEILING = 8192
@@ -298,7 +299,7 @@ def test_the_loaded_ceiling_bounds_every_calls_cap_s10_1(store: Path) -> None:
             worker.request(
                 "load",
                 device="cpu",
-                settings={"non_streaming_mode": False, "generation": {"max_new_tokens": 30}},
+                settings={"non_streaming_mode": False, "generation": {**GENERATION, "max_new_tokens": 30}},
                 timeout_s=TIMEOUT,
             )
         )
@@ -345,7 +346,7 @@ def test_unknown_audio_is_not_transcribed_unless_the_spec_names_it_s11_1(store: 
     silence = store / "scratch" / "foreign.wav"
     from array import array
 
-    from narration_worker.fake.wav import write_float32_mono
+    from narration_worker.wav import write_float32_mono
 
     write_float32_mono(silence, array("f", [0.0] * 4800), 24_000)
     digest = hashlib.sha256(silence.read_bytes()).hexdigest()

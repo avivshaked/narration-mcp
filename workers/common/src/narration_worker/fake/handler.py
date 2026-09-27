@@ -4,14 +4,24 @@ It lets the daemon, the job engine and the front-end be built and tested with no
 keeps the contract the real workers keep (``handler.py``): model ops need ``load`` first, ``load`` checks
 the snapshot directories it is given, paths stay in the store.
 
+- ``load`` checks a Qwen load (one that names ``model``) with the ``qwen3`` worker's own checks
+  (``narration_worker.qwen_settings`` and the patterns in ``narration_worker.handler``), in its order, so
+  its request members ``model``, ``device``, ``dtype``, ``attn_implementation``, ``determinism`` and
+  ``settings`` are refused exactly as ``qwen3`` refuses them, with the same code and ``details.field``.
+  What the fake does not check is listed in ``op_load``: chiefly the snapshot's files, and whether torch and
+  a GPU are there. A QA load (``models``) and the bare ``{"device": …}`` of the fake's own tests are loads
+  the ``qwen3`` worker never sees; they are checked less, and their ceiling is 8192 unless they carry
+  ``settings``. The reply's ``vram_mb`` is null: the fake holds nothing on a GPU, and the protocol allows
+  null, which is what ``qwen3`` replies for a CPU load.
 - ``synthesize`` and ``design`` write a real float32 mono WAV at 24 kHz whose length follows the text
-  (``audio.py``) and record what they said (``registry.py``). They count tokens as the real worker does
+  (``audio.py``) with the workers' shared, byte-reproducible writer (``narration_worker.wav``), and record
+  what they said (``registry.py``). They count tokens as the real worker does
   (``protocol.AudioReply``): a take of F frames at 12.5 per second takes F + 1 talker steps, the last one
-  the end token. Under the call's ``max_new_tokens`` (2 to the loaded ceiling: ``load``'s
-  ``settings.generation.max_new_tokens``, 8192 when it gives none), a cap of F + 1 or more leaves the take
-  whole (``new_tokens`` F), and a cap C of F or less cuts it to C - 1 frames with ``hit_token_cap: true``.
-  The reply echoes the cap it applied as ``max_new_tokens``. A take that ends under its cap is the same
-  under any cap. A ``token_cap`` fault renders the call as if it had the fault's cap, reply included.
+  the end token. Under the call's ``max_new_tokens`` (2 to the loaded ceiling), a cap of F + 1 or more
+  leaves the take whole (``new_tokens`` F), and a cap C of F or less cuts it to C - 1 frames with
+  ``hit_token_cap: true``. The reply echoes the cap it applied as ``max_new_tokens``. A take that ends under
+  its cap is the same under any cap. A ``token_cap`` fault renders the call as if it had the fault's cap,
+  reply included.
 - ``transcribe`` hears the text back, with word times, from the take or from any post-processed copy of it.
 - ``embed`` gives a 512-dimension unit vector: the voice's direction plus a small per-take part, so takes of
   one voice (and the clip they clone) are about 0.99 similar and different voices are not.
@@ -42,6 +52,8 @@ from typing import Any, Final, cast
 from narration_worker.determinism import parse_determinism
 from narration_worker.errors import OpError
 from narration_worker.handler import (
+    DEVICE_PATTERN,
+    REVISION_PATTERN,
     Request,
     WorkerContext,
     WorkerHandler,
@@ -54,6 +66,8 @@ from narration_worker.handler import (
     require_str_list,
 )
 from narration_worker.protocol import Controls, WorkerErrorCode
+from narration_worker.qwen_settings import ATTN_IMPLEMENTATIONS, DTYPES, SettingsError, ceiling_of, parse_settings
+from narration_worker.wav import write_float32_mono
 
 from .audio import (
     SAMPLE_RATE,
@@ -72,7 +86,7 @@ from .audio import (
 )
 from .faults import CONTENT_KINDS, REQUEST_KINDS, Facts, Fault, FaultSpec, SpecError, SpecSource, Tally
 from .registry import RECORD_SCHEMA, Registry
-from .wav import Audio, WavError, read_wav, write_float32_mono
+from .wav import Audio, WavError, read_wav
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +98,9 @@ FAKE_ALIGNER_MODEL: Final = "narration-worker/fake-ctc"
 EMBEDDING_DIM: Final = 512
 """WavLM-base-plus-sv's x-vector size."""
 DEFAULT_MAX_NEW_TOKENS: Final = 8192
-"""The ceiling when ``load`` gives none: the pinned Qwen snapshots' value (plan.md 1.3 item 1)."""
+"""The ceiling of a load that is not a Qwen load and carries no ``settings`` (a QA load, or the bare
+``{"device": …}`` of the fake's own tests): the pinned Qwen snapshots' value (plan.md 1.3 item 1). A Qwen load
+must give its ceiling, as the ``qwen3`` worker requires."""
 ALIGN_FRAME_S: Final = 0.02
 """wav2vec2's frame: 320 samples at 16 kHz."""
 F0_HOP_S: Final = 0.01
@@ -206,36 +222,63 @@ class FakeHandler(WorkerHandler):
 
     # ------------------------------------------------------------------ load / unload
     def op_load(self, request: Request) -> dict[str, Any]:
-        refs: list[tuple[str, object]] = []
-        if "model" in request:
-            refs.append(("model", request["model"]))
-        if "models" in request:
-            models = request["models"]
-            if not isinstance(models, dict):
-                raise OpError("INVALID_REQUEST", "models must be an object", {"field": "models"})
-            refs.extend((f"models.{use}", ref) for use, ref in models.items())
+        """Check a ``load`` as the real workers check it, then "load" (nothing is read, and no VRAM is used).
+
+        In the ``qwen3`` worker's order (``narration_qwen3tts.worker``), each refusal with its code and
+        ``details.field``:
+
+        1. Each snapshot reference (a Qwen load's ``model``, a QA load's ``models`` by use) is an object with
+           ``repo``, ``revision`` and an absolute ``snapshot_dir`` (``INVALID_REQUEST``). Every snapshot folder
+           exists before anything else is checked (``BACKEND_NOT_INSTALLED``); then each revision is a 40-hex
+           SHA that names its folder (section 4).
+        2. ``device`` is ``cpu``, ``cuda`` or ``cuda:<n>``.
+        3. A Qwen load's ``dtype`` is one of ``qwen_settings.DTYPES``, its ``attn_implementation`` one of
+           ``qwen_settings.ATTN_IMPLEMENTATIONS``, and it carries ``determinism``, which is valid wherever it is
+           given (``determinism.parse_determinism``).
+        4. A Qwen load carries ``settings``, and any load's ``settings`` are checked with ``qwen3``'s parser,
+           ``qwen_settings.parse_settings``: exactly ``non_streaming_mode`` (a boolean) and a ``generation``
+           with all ten sampling values, each of the right type and range, never defaulted (section 10.1).
+           Its ``max_new_tokens`` is the ceiling of every call's cap (DC-4). A load without ``settings``
+           (a QA load, or a bare one) has the ceiling ``DEFAULT_MAX_NEW_TOKENS``.
+
+        So a Qwen load's ``model``, ``device``, ``dtype``, ``attn_implementation``, ``determinism`` and
+        ``settings`` are refused exactly as ``qwen3`` refuses them. Not checked here, as ``qwen3`` checks them:
+        the snapshot's files (``engine.check_snapshot``), and whether torch and a CUDA device are present. The
+        fake also checks a ``models`` member that a Qwen load carries, which ``qwen3`` ignores. A load without
+        ``model`` is accepted here, where ``qwen3`` refuses it. A refused load changes nothing; a load that
+        passes clears the prepared voices.
+        """
+        refs = _snapshot_refs(request)
         for name, ref in refs:
-            if not isinstance(ref, dict) or not all(
-                isinstance(ref.get(k), str) for k in ("repo", "revision", "snapshot_dir")
-            ):
-                raise OpError("INVALID_REQUEST", f"{name} must have repo, revision and snapshot_dir", {"field": name})
             if not Path(ref["snapshot_dir"]).is_dir():
                 raise OpError(
                     "BACKEND_NOT_INSTALLED",
-                    f"{name}: no snapshot of {ref['repo']} at {ref['snapshot_dir']}; install the models",
+                    f"no snapshot of {ref['repo']} at {ref['snapshot_dir']}; install the models (narration-admin "
+                    "install)",
                     {"field": name, "repo": ref["repo"], "snapshot_dir": ref["snapshot_dir"]},
                 )
-        require_str(request, "device")
+        for name, ref in refs:
+            _check_revision(name, ref)
+        device = require_str(request, "device")
+        if DEVICE_PATTERN.fullmatch(device) is None:
+            raise OpError("INVALID_REQUEST", "device must be cpu, cuda or cuda:<n>", {"field": "device"})
+        qwen = "model" in request
+        if qwen:
+            require_one_of(request, "dtype", DTYPES)
+            require_one_of(request, "attn_implementation", ATTN_IMPLEMENTATIONS)
+            if "determinism" not in request:
+                raise OpError(
+                    "INVALID_REQUEST",
+                    "a Qwen load needs the determinism switches (section 10.1)",
+                    {"field": "determinism"},
+                )
         if "determinism" in request:
             parse_determinism(request["determinism"])
-        cap = DEFAULT_MAX_NEW_TOKENS
-        if "settings" in request:
-            settings = request["settings"]
-            generation = settings.get("generation", {}) if isinstance(settings, dict) else None
-            if not isinstance(generation, dict):
-                raise OpError("INVALID_REQUEST", "settings.generation must be an object", {"field": "settings"})
-            if "max_new_tokens" in generation:
-                cap = require_int(generation, "max_new_tokens", minimum=1)
+        if qwen and "settings" not in request:
+            raise OpError(
+                "INVALID_REQUEST", "every audio-changing setting must be passed (section 10.1)", {"field": "settings"}
+            )
+        cap = _ceiling(request["settings"]) if "settings" in request else DEFAULT_MAX_NEW_TOKENS
         self.max_new_tokens = cap
         self.loaded = True
         self.voices.clear()
@@ -544,6 +587,57 @@ def _int(request: Request, name: str) -> int | None:
 def _sha256(path: Path) -> str:
     with path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def _snapshot_refs(request: Request) -> list[tuple[str, dict[str, str]]]:
+    """A load's snapshot references as (field, ref): ``model``, then ``models.<use>``. Each must be an object
+    with ``repo``, ``revision`` and an absolute ``snapshot_dir`` (``INVALID_REQUEST``, as ``qwen3`` checks
+    ``model``)."""
+    refs: list[tuple[str, object]] = []
+    if "model" in request:
+        refs.append(("model", request["model"]))
+    if "models" in request:
+        models = request["models"]
+        if not isinstance(models, dict):
+            raise OpError("INVALID_REQUEST", "models must be an object", {"field": "models"})
+        refs.extend((f"models.{use}", ref) for use, ref in cast(dict[str, object], models).items())
+    checked: list[tuple[str, dict[str, str]]] = []
+    for name, ref in refs:
+        if not isinstance(ref, dict) or not all(
+            isinstance(ref.get(k), str) for k in ("repo", "revision", "snapshot_dir")
+        ):
+            raise OpError("INVALID_REQUEST", f"{name} must have repo, revision and snapshot_dir", {"field": name})
+        ref = cast(dict[str, str], ref)
+        if not Path(ref["snapshot_dir"]).is_absolute():
+            field = f"{name}.snapshot_dir"
+            raise OpError("INVALID_REQUEST", f"{field} must be an absolute path", {"field": field})
+        checked.append((name, ref))
+    return checked
+
+
+def _check_revision(name: str, ref: Mapping[str, str]) -> None:
+    """A snapshot's revision is a 40-hex SHA and names its folder (design section 4), as ``qwen3`` checks."""
+    revision = ref["revision"]
+    if REVISION_PATTERN.fullmatch(revision) is None:
+        field = f"{name}.revision"
+        raise OpError("INVALID_REQUEST", f"{field} must be a 40-hex commit SHA", {"field": field})
+    folder = Path(ref["snapshot_dir"]).name
+    if folder != revision:
+        raise OpError(
+            "INVALID_REQUEST",
+            "the snapshot folder must be named by its revision (section 4)",
+            {"field": f"{name}.snapshot_dir", "revision": revision, "folder": folder},
+        )
+
+
+def _ceiling(settings: object) -> int:
+    """A load's ``settings``, checked as the ``qwen3`` worker checks them (``qwen_settings.parse_settings``),
+    and the ceiling they give; else ``INVALID_REQUEST`` naming the member ``parse_settings`` names."""
+    try:
+        checked = parse_settings(settings)
+    except SettingsError as exc:
+        raise OpError("INVALID_REQUEST", exc.message, {"field": exc.field}) from exc
+    return ceiling_of(checked["generation"])
 
 
 def _replace_word(entries: list[tuple[str, bool, bool]], params: Mapping[str, Any]) -> list[tuple[str, bool, bool]]:

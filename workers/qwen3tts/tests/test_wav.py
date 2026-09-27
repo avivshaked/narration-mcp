@@ -1,87 +1,55 @@
-"""The worker's WAV writer: byte-reproducible float32 mono files (design Appendix A, section 10.1)."""
+"""The worker writes its raw renders with the workers' shared writer (design Appendix A, section 10.1).
+
+The writer itself, byte-reproducible float32 mono with no ``PEAK`` chunk (ADR 0002, decision 5), is
+``narration_worker.wav`` and is tested there (``workers/common/tests/test_wav.py``). What is this worker's own
+is the conversion: whatever the engine returns is written as float32 samples.
+"""
 
 from __future__ import annotations
 
-import struct
-from array import array
 from pathlib import Path
+from typing import Any, cast
 
+import narration_qwen3tts.worker as worker_module
+import narration_worker.wav as shared
 import numpy as np
 import pytest
-from narration_qwen3tts.wav import float32_mono_wav_bytes, write_float32_mono
+from narration_qwen3tts.engine import Rendered
+
+
+def _rendered(audio: np.ndarray) -> Rendered:
+    return Rendered(
+        audio=audio, sample_rate=24000, new_tokens=3, hit_token_cap=False, talker_steps=4, gen_s=0.1, max_new_tokens=8
+    )
 
 
 def _signal(n: int = 4801) -> np.ndarray:
     return (0.5 * np.sin(np.arange(n, dtype=np.float64) * 0.01)).astype(np.float32)
 
 
-def _chunk_ids(data: bytes) -> list[bytes]:
-    ids, at = [], 12
-    while at < len(data):
-        size = struct.unpack_from("<I", data, at + 4)[0]
-        ids.append(data[at : at + 4])
-        at += 8 + size + (size & 1)
-    return ids
+def test_the_worker_writes_with_the_shared_writer_s10_1(tmp_path: Path) -> None:
+    """One writer for every worker, so every worker's identical audio is an identical file."""
+    assert vars(worker_module)["write_float32_mono"] is shared.write_float32_mono  # the name the worker imported
+    out = tmp_path / "raw.wav"
+    reply = worker_module._write(out, _rendered(_signal()))
+    assert out.read_bytes() == shared.float32_mono_wav_bytes(_signal(), 24000)
+    assert (reply["samples"], reply["sample_rate"]) == (4801, 24000)
 
 
-def test_the_same_samples_give_the_same_bytes_s10_1(tmp_path: Path) -> None:
-    """A render's sha256 is over the file, so a repeat of the same audio must repeat every byte (bit_exact)."""
-    first, second = tmp_path / "a.wav", tmp_path / "b.wav"
-    write_float32_mono(first, _signal(), 24000)
-    write_float32_mono(second, _signal(), 24000)
-    assert first.read_bytes() == second.read_bytes()
+def test_float64_audio_is_written_as_float32(tmp_path: Path) -> None:
+    out = tmp_path / "raw.wav"
+    worker_module._write(out, _rendered(_signal().astype(np.float64)))
+    assert out.read_bytes() == shared.float32_mono_wav_bytes(_signal(), 24000)
 
 
-def test_the_file_holds_only_fmt_fact_and_data_s10_1() -> None:
-    """No PEAK chunk: libsndfile's holds the time of writing, which made identical renders differ."""
-    data = float32_mono_wav_bytes(_signal(), 24000)
-    assert data[:4] == b"RIFF" and data[8:12] == b"WAVE"
-    assert struct.unpack_from("<I", data, 4)[0] == len(data) - 8
-    assert _chunk_ids(data) == [b"fmt ", b"fact", b"data"]
-
-
-def test_the_layout_matches_the_fake_worker_appA(tmp_path: Path) -> None:
-    """Every worker's audio replies are the same kind of file (the protocol's float32 mono WAV)."""
-    fake_wav = pytest.importorskip("narration_worker.fake.wav")
-    signal = _signal()
-    mine, theirs = tmp_path / "mine.wav", tmp_path / "theirs.wav"
-    write_float32_mono(mine, signal, 24000)
-    fake_wav.write_float32_mono(theirs, array("f", signal.tolist()), 24000)
-    assert mine.read_bytes() == theirs.read_bytes()
-
-
-def test_soundfile_reads_the_samples_back_exactly(tmp_path: Path) -> None:
-    sf = pytest.importorskip("soundfile")
-    path = tmp_path / "x.wav"
-    signal = _signal()
-    write_float32_mono(path, signal, 24000)
-    audio, rate = sf.read(str(path), dtype="float32")
-    assert rate == 24000
-    assert np.array_equal(audio, signal)
-
-
-def test_nan_and_infinity_are_written_as_they_are_s11_1() -> None:
-    """The raw file is never cleaned: SIGNAL_INVALID (DC-5) is the server's verdict on the raw take."""
-    signal = np.array([np.nan, np.inf, -np.inf, 0.5, -0.0], dtype=np.float32)
-    data = float32_mono_wav_bytes(signal, 24000)
-    stored = np.frombuffer(data[-signal.size * 4 :], dtype="<f4")
-    assert stored.tobytes() == signal.astype("<f4").tobytes()
-
-
-def test_float64_input_is_stored_as_float32() -> None:
-    signal = _signal()
-    assert float32_mono_wav_bytes(signal.astype(np.float64), 24000) == float32_mono_wav_bytes(signal, 24000)
-
-
-def test_the_write_leaves_no_temp_file(tmp_path: Path) -> None:
-    write_float32_mono(tmp_path / "x.wav", _signal(), 24000)
-    assert [p.name for p in tmp_path.iterdir()] == ["x.wav"]
-
-
-@pytest.mark.parametrize(
-    ("audio", "rate"),
-    [(np.zeros((2, 10), dtype=np.float32), 24000), (np.zeros(10, dtype=np.float32), 0)],
-)
-def test_bad_input_is_refused(audio: np.ndarray, rate: int) -> None:
+def test_a_numpy_integer_rate_is_a_rate_and_a_numpy_float_is_not() -> None:
+    """The library returns its rate as it likes; the writer takes any integer, never a float."""
+    assert shared.float32_mono_wav_bytes(_signal(), np.int64(24000)) == shared.float32_mono_wav_bytes(_signal(), 24000)
     with pytest.raises(ValueError):
-        float32_mono_wav_bytes(audio, rate)
+        shared.float32_mono_wav_bytes(_signal(), cast(Any, np.float64(24000.0)))
+
+
+def test_audio_that_is_not_mono_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        worker_module._write(tmp_path / "raw.wav", _rendered(np.zeros((2, 10), dtype=np.float32)))
+    assert not list(tmp_path.iterdir())

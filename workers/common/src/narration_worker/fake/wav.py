@@ -1,14 +1,13 @@
-"""WAV files with the standard library alone, for the fake worker.
+"""Reading WAV files with the standard library alone, for the fake worker.
 
-Writes float32 mono (``WAVE_FORMAT_IEEE_FLOAT`` with a ``fact`` chunk, as the protocol's audio replies
-promise). Reads PCM (16, 24 or 32 bit) and float (32 or 64 bit), plain or ``WAVE_FORMAT_EXTENSIBLE``, and
-returns the first channel as floats. That covers what the fake reads: its own renders and the delivery
-files post-processing makes from them (48 kHz PCM_24).
+Reads PCM (16, 24 or 32 bit) and float (32 or 64 bit), plain or ``WAVE_FORMAT_EXTENSIBLE``, and returns the
+first channel as floats. That covers what the fake reads: its own renders and the delivery files
+post-processing makes from them (48 kHz PCM_24). The fake writes its renders with the workers' shared writer,
+``narration_worker.wav``, as every worker does.
 """
 
 from __future__ import annotations
 
-import os
 import struct
 import sys
 from array import array
@@ -16,8 +15,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from narration_worker.wav import FORMAT_FLOAT
+
 FORMAT_PCM: Final = 1
-FORMAT_FLOAT: Final = 3
 FORMAT_EXTENSIBLE: Final = 0xFFFE
 
 
@@ -35,24 +35,6 @@ class Audio:
     @property
     def duration_s(self) -> float:
         return len(self.samples) / self.sample_rate
-
-
-def write_float32_mono(path: Path, samples: array[float], sample_rate: int) -> None:
-    """Write a float32 mono WAV to a temporary name beside ``path``, then rename it into place."""
-    if samples.typecode != "f":
-        raise ValueError("samples must be array('f')")
-    data = samples if sys.byteorder == "little" else _swapped(samples)
-    payload = data.tobytes()
-    fmt = struct.pack("<HHIIHHH", FORMAT_FLOAT, 1, sample_rate, sample_rate * 4, 4, 32, 0)
-    fact = struct.pack("<I", len(samples))
-    body = b"WAVE" + _chunk(b"fmt ", fmt) + _chunk(b"fact", fact) + _chunk(b"data", payload)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        with tmp.open("wb") as handle:
-            handle.write(b"RIFF" + struct.pack("<I", len(body)) + body)
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
 
 
 def read_wav(path: Path) -> Audio:
@@ -82,11 +64,6 @@ def read_wav(path: Path) -> Audio:
     audio_format, channels, sample_rate, bits = fmt
     samples = _decode(data, audio_format, bits, channels)
     return Audio(sample_rate=sample_rate, samples=samples)
-
-
-def _chunk(chunk_id: bytes, payload: bytes) -> bytes:
-    pad = b"\x00" if len(payload) & 1 else b""
-    return chunk_id + struct.pack("<I", len(payload)) + payload + pad
 
 
 def _parse_fmt(raw: bytes) -> tuple[int, int, int, int]:
@@ -130,9 +107,3 @@ def _decode(data: bytes, audio_format: int, bits: int, channels: int) -> array[f
         ints.byteswap()
     mono = ints[::channels]
     return array("d", (v * scale for v in mono))
-
-
-def _swapped(samples: array[float]) -> array[float]:
-    copy = array(samples.typecode, samples)
-    copy.byteswap()
-    return copy

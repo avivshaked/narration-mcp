@@ -9,9 +9,10 @@ Ops: ``hello`` (from ``WorkerHandler``), ``load``, ``prepare_voice``, ``synthesi
   ``BACKEND_NOT_INSTALLED``, checked first), be an absolute path, be named by its 40-hex revision (section 4)
   and hold Qwen3-TTS Base or VoiceDesign (``engine.check_snapshot``). Only a ``load`` that passes every check
   applies the determinism switches, before the model loads, so a refused ``load`` changes nothing. Every
-  audio-changing setting comes from ``settings`` (``settings.parse_settings``), none from the library's
-  defaults; ``settings.generation.max_new_tokens`` is the ceiling of the calls' own caps. Every ``load``
-  clears the prepared voices.
+  audio-changing setting comes from ``settings``, none from the library's defaults, and
+  ``settings.generation.max_new_tokens`` is the ceiling of the calls' own caps. The checks on ``dtype``,
+  ``attn_implementation`` and ``settings`` are ``narration_worker.qwen_settings``, which the fake worker
+  shares, so it refuses the same loads. Every ``load`` clears the prepared voices.
 - ``prepare_voice`` keeps at most ``engine.MAX_PREPARED_VOICES`` voices, evicting the least recently used,
   so ``VOICE_NOT_PREPARED`` from ``synthesize`` means "send ``prepare_voice`` again, then retry".
 - ``synthesize`` and ``design`` take a required ``max_new_tokens``, the call's own generation cap (design
@@ -21,8 +22,8 @@ Ops: ``hello`` (from ``WorkerHandler``), ``load``, ``prepare_voice``, ``synthesi
   numpy, torch and torch.cuda with the request's seed immediately before generating (section 10.3), and
   write the raw render as a float32 mono WAV to ``out_path`` through a temp name. The reply echoes the cap
   applied (``max_new_tokens``).
-  - The file is byte-reproducible: the same samples give the same bytes (``wav``), so a render's sha256
-    is a fact about its audio.
+  - The file is byte-reproducible: the same samples give the same bytes (``narration_worker.wav``, the
+    writer every worker shares), so a render's sha256 is a fact about its audio.
   - The file keeps the samples as generated, NaN and infinity included: ``SIGNAL_INVALID`` is the
     server's verdict on the raw take (section 11.1, DC-5).
   - The reply is ``protocol.AudioReply``: ``new_tokens`` (codec frames decoded: the talker's steps less
@@ -37,14 +38,16 @@ libraries (section 17.7), whatever its environment says.
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final, TypeVar
 
+import numpy as np
 from narration_worker.determinism import apply_determinism, parse_determinism, seed_everything
 from narration_worker.errors import OpError
 from narration_worker.handler import (
+    DEVICE_PATTERN,
+    REVISION_PATTERN,
     Request,
     WorkerContext,
     WorkerHandler,
@@ -55,14 +58,12 @@ from narration_worker.handler import (
     require_str,
 )
 from narration_worker.protocol import Controls, WorkerErrorCode
+from narration_worker.qwen_settings import ATTN_IMPLEMENTATIONS, DTYPES, SettingsError, parse_settings
+from narration_worker.wav import write_float32_mono
 
 from .engine import EngineError, QwenEngine, Rendered, check_snapshot
-from .settings import ATTN_IMPLEMENTATIONS, DTYPES, SettingsError, parse_settings
-from .wav import write_float32_mono
 
 OFFLINE_ENV: Final = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
-REVISION_PATTERN: Final = re.compile(r"[0-9a-f]{40}")
-DEVICE_PATTERN: Final = re.compile(r"cpu|cuda(:\d+)?")
 MAX_SEED: Final = 0xFFFFFFFF
 T = TypeVar("T")
 
@@ -267,12 +268,13 @@ def _call_cap(request: Request, engine: QwenEngine) -> int:
 
 
 def _write(out: Path, rendered: Rendered) -> dict[str, Any]:
-    """Write the raw render as a byte-reproducible float32 mono WAV (``wav``); the ``protocol.AudioReply``
-    members (the loop adds ``id`` and ``ok``)."""
-    write_float32_mono(out, rendered.audio, rendered.sample_rate)
+    """Write the raw render as float32 samples with the workers' byte-reproducible writer
+    (``narration_worker.wav``); the ``protocol.AudioReply`` members (the loop adds ``id`` and ``ok``)."""
+    audio = np.ascontiguousarray(rendered.audio, dtype="<f4")
+    write_float32_mono(out, audio, rendered.sample_rate)
     return {
         "sample_rate": rendered.sample_rate,
-        "samples": int(rendered.audio.size),
+        "samples": int(audio.size),
         "gen_s": round(rendered.gen_s, 3),
         "hit_token_cap": rendered.hit_token_cap,
         "new_tokens": rendered.new_tokens,
