@@ -90,17 +90,20 @@ SCRATCH: Final = "canary"
 REPIN_HINT: Final = "Ask the operator to re-pin the engine (narration-admin engine repin); nothing was rendered."
 """What to do about a drift that ``engine repin`` sees (the canary's text changed): it pins the engine anew."""
 FORCE_HINT: Final = (
-    "Ask the operator to re-pin the engine with narration-admin engine repin --force (new render keys; voices "
-    "are measured again): nothing in the installation or on this machine is seen to have changed, so a plain "
-    "repin keeps this profile. Nothing was rendered."
+    "Ask the operator to run narration-admin engine repin, which re-pins this engine if its installation or this "
+    "machine changed; if it keeps this profile (it says so), to run narration-admin engine repin --force (new "
+    "render keys; voices are measured again). Nothing was rendered."
 )
-"""What to do about a drift that ``engine repin`` cannot see (the gate render moved, or cannot be compared)."""
+"""What to do about a drift whose cause the gate cannot name (the gate render moved, or cannot be compared):
+``engine repin`` first, which re-pins the engine alone when it sees what changed (a driver update, say), and
+``engine repin --force`` only when it keeps the profile. The gate never compares the machine itself."""
 WORKER_HINT: Final = (
-    "Ask the operator to run narration-admin doctor; if the workers are sound, narration-admin engine repin "
-    "--force re-pins the engine (a plain repin keeps a profile whose installation and machine are unchanged). "
-    "Nothing was rendered."
+    "Ask the operator to run narration-admin doctor; if the workers are sound, to run narration-admin engine "
+    "repin, and if it keeps this profile (it says so), narration-admin engine repin --force (new render keys; "
+    "voices are measured again). Nothing was rendered."
 )
-"""What to do when a worker fails during the gate: check the installation first, then re-pin by force."""
+"""What to do when a worker fails during the gate: check the installation first, then re-pin as
+``FORCE_HINT`` says."""
 
 
 # ======================================================================== the canary's text (material/)

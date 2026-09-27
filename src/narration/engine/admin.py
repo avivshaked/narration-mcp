@@ -269,10 +269,18 @@ def _print_pin(admin: Admin, reports: Sequence[EngineReport], *, as_json: bool, 
     if any(r.action == "new" and r.changed for r in reports):
         admin.say("New render keys: voices must be measured again under the new profile (measure_voice).")
     if mode == "repin" and all(r.action == "keep" for r in reports):
-        admin.say(
-            "Nothing changed in the installation or on this machine, so both profiles are kept. "
-            f"`{PROGRAM} engine repin --force` re-pins both engines regardless (new render keys)."
-        )
+        refreshed = [f"{r.engine_profile_id} ({', '.join(r.updated)})" for r in reports if r.updated]
+        if refreshed:
+            admin.say(
+                "Both profiles are kept, with the same hashes; refreshed in place: " + "; ".join(refreshed) + ". "
+                "The canary gate should pass now; if it still fails, "
+                f"`{PROGRAM} engine repin --force` re-pins both engines (new render keys)."
+            )
+        else:
+            admin.say(
+                "Nothing changed in the installation or on this machine, so both profiles are kept. "
+                f"`{PROGRAM} engine repin --force` re-pins both engines regardless (new render keys)."
+            )
 
 
 def _print_bridge(admin: Admin, report: BridgeReport, *, as_json: bool) -> None:

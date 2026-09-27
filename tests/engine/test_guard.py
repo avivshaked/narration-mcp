@@ -134,7 +134,11 @@ def _drift(caught: pytest.ExceptionInfo[NarrationError]) -> dict[str, Any]:
     assert error.hint is not None and "narration-admin engine repin" in error.hint, error.hint
     canary = error.details.get("canary")
     if canary is not None and canary != "material":
-        assert "engine repin --force" in error.hint, (canary, error.hint)
+        # A plain repin first (it re-pins the engine alone when it sees the cause, a driver update say), and
+        # --force only if that keeps the profile: the gate itself never compares the machine.
+        assert "if it keeps this profile" in error.hint, (canary, error.hint)
+        assert error.hint.index("engine repin") < error.hint.index("engine repin --force"), error.hint
+        assert "seen to have changed" not in error.hint
     return dict(error.details)
 
 

@@ -48,26 +48,29 @@ are tracked here but no version is tagged; nothing described below is installabl
   `BACKEND_NOT_INSTALLED` once the models are installed and the engine is pinned. The daemon runs
   `measure_voice`'s jobs on the same engine, sharing its resident models and its canary gate.
 - `narration-admin engine pin | repin | bridge | show`. `pin` records the Base and VoiceDesign engine
-  profiles and designs the service's canary on this machine from the text in `material/canary/`: no
-  canary audio ships. It repeats the canary render in one worker and in a fresh one to decide the
-  determinism tier (`bit_exact` or `similar`), and calibrates the canary's similarity threshold with
-  three more seeds, never below 0.10. A pinned canary embedding that cannot be compared (empty, all zero,
-  or of another length than the render's) fails the job with `ENGINE_DRIFT`, saying why. `pin` keeps
-  what is pinned and refuses an installation that has changed. In a profile it keeps, it records the
-  snapshots' new folder after the models root moves, and a new estimate of the VRAM Qwen needs; neither
-  changes the profile's hash (DC-16). `repin` makes a new profile the one in use (new render keys; voices are
-  measured again) for each engine whose installation changed, or whose machine did (GPU, driver, CUDA or
-  cuDNN, as the worker reports them); `repin --force` does it for both engines whatever changed. A GPU or
-  driver the worker cannot read now (NVML failed) is not taken for a changed machine: `repin` refuses,
-  says to run `doctor`, and names `--force`. A `repin` that keeps both profiles says so and names
-  `--force`. A pin or repin is all or nothing: both canaries are rendered, embedded and calibrated before
-  anything is stored, so a failure on either engine leaves both as they were. Every `ENGINE_DRIFT` from
-  the canary gate names `engine repin`, and `engine repin --force` where a plain repin would keep the
-  profile (the canary moved, cannot be compared, or a worker failed during it). `show` prints each
-  profile's tier and canary threshold (and whether it is the floor); `pin` and `repin` print the
-  calibration similarities. `bridge` reports how similar the canary and the calibration corpus sound
-  under two profiles; a profile replaced after the models root moved is rendered from its new folder.
-  They run only while no daemon holds the store and the GPU has room for Qwen.
+  profiles and designs the service's canary on this machine from the text in `material/canary/`: no canary
+  audio ships. It repeats the canary render in one worker and in a fresh one to decide the determinism
+  tier (`bit_exact` or `similar`), and calibrates the canary's similarity threshold with three more seeds,
+  never below 0.10. A pinned canary embedding that cannot be compared (empty, all zero, or of another
+  length than the render's) fails the job with `ENGINE_DRIFT`, saying why. `pin` keeps what is pinned and
+  refuses an installation that has changed. In a profile it keeps, it records the snapshots' new folder
+  after the models root moves, and a new estimate of the VRAM Qwen needs; neither changes the profile's
+  hash (DC-16). `repin` makes a new profile the one in use (new render keys; voices are measured again)
+  for each engine whose installation changed, or whose machine did (GPU, driver, CUDA or cuDNN, as the
+  worker reports them); `repin --force` does it for both engines whatever changed. A GPU or driver the
+  worker cannot read now (NVML failed) is not taken for a changed machine: `repin` refuses, says to run
+  `doctor`, and names `--force`. A `repin` that keeps both profiles says which it refreshed in place
+  (after the models root moved), or that nothing changed, naming `--force`. A pin or repin is all or
+  nothing: both canaries are rendered, embedded and calibrated before anything is stored, so a failure on
+  either engine leaves both as they were. Every `ENGINE_DRIFT` from the canary gate names `engine repin`;
+  where the gate cannot name the cause (the canary moved, cannot be compared, or a worker failed during
+  it), it adds `engine repin --force` for when the repin keeps the profile. A worker venv that does not
+  match its lock is refused naming the command to run again. `show` prints each profile's tier and canary
+  threshold (and whether it is the floor); `pin` and `repin` print the calibration similarities. `bridge`
+  reports how similar the canary and the calibration corpus sound under two profiles; a profile replaced
+  after the models root moved is rendered from its new folder (a recorded folder that holds none of its
+  weight files counts as moved). They run only while no daemon holds the store and the GPU has room for
+  Qwen.
 - The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
   then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
   `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same

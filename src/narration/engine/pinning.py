@@ -371,11 +371,11 @@ def pin(
     try:
         with _worker(starter, "qa") as qa:
             qa.request("load", sv_load_payload(sv), timeout_s=LOAD_TIMEOUT_S)
-            made = _first_pass(starter, plans, todo, material, device, work)
-            _repeat(starter, made, material, device, work)
+            made = _first_pass(starter, plans, todo, material, device, work, mode)
+            _repeat(starter, made, material, device, work, mode)
             measured = _measure(qa, made)
         _update_in_place(store, plans.values())
-        reports = _store(store, measured, material, clock)
+        reports = _store(store, measured, material, clock, work)
         by_kind = {r.kind: r for r in reports}
         return tuple(by_kind.get(k) or _kept(plans[k]) for k in KINDS)
     finally:
@@ -415,14 +415,16 @@ def _worker(starter: Starter, role: WorkerRoleName, *, cublas: str | None = None
             log.warning("closing the %s worker failed: %s", role, exc)
 
 
-def _load(qwen: WorkerClient, profile: EngineProfile, device: str) -> None:
-    """Load a profile on the pin's Qwen worker, after checking the worker runs as the profile's lock says."""
+def _load(qwen: WorkerClient, profile: EngineProfile, device: str, mode: Mode) -> None:
+    """Load a profile on the pin's Qwen worker, after checking the worker runs as the profile's lock says. A
+    refusal names the command that ran (``mode``), to run again once the venv is synced."""
     drift = DriftCheck().fingerprint(profile, qwen.hello)
     if drift:
         raise PinRefused(
             "the qwen3 worker does not run as its lock says: "
             + ", ".join(f"{d.name} {d.found} (locked {d.pinned})" for d in drift),
-            hint="Sync the worker's venv to its lock (narration-admin install), then pin again.",
+            hint=f"Sync the worker's venv to its lock (narration-admin install), then run narration-admin engine "
+            f"{mode} again; nothing was pinned.",
             details={"drift": [d.as_dict() for d in drift]},
         )
     qwen.request("load", qwen_load_payload(profile, device), timeout_s=LOAD_TIMEOUT_S)
@@ -445,6 +447,7 @@ def _first_pass(
     material: CanaryMaterial,
     device: str,
     work: Path,
+    mode: Mode,
 ) -> list[_Made]:
     """Process A: each canary twice, and the calibration renders."""
     made: list[_Made] = []
@@ -452,7 +455,7 @@ def _first_pass(
         clip: AudioRef | None = None
         transcript = material.design_text
         for p in todo:
-            _load(qwen, p.profile, device)
+            _load(qwen, p.profile, device, mode)
             if p.kind == "design":
                 seed = material.design_seed
                 first = work / "design-first.wav"
@@ -485,11 +488,13 @@ def _first_pass(
     return made
 
 
-def _repeat(starter: Starter, made: Sequence[_Made], material: CanaryMaterial, device: str, work: Path) -> None:
+def _repeat(
+    starter: Starter, made: Sequence[_Made], material: CanaryMaterial, device: str, work: Path, mode: Mode
+) -> None:
     """Process B, a fresh worker: each canary once more."""
     with _worker(starter, "qwen3", cublas=_cublas([m.plan for m in made])) as qwen:
         for m in made:
-            _load(qwen, m.plan.profile, device)
+            _load(qwen, m.plan.profile, device, mode)
             out = work / f"{m.plan.kind}-fresh.wav"
             m.hashes.append(
                 render(qwen, m.plan.profile, material, seed=m.seed, out=out, clip=m.clip, transcript=m.transcript)
@@ -541,15 +546,16 @@ def _update_in_place(store: Store, plans: Iterable[Plan]) -> None:
 
 
 def _store(
-    store: Store, measured: Sequence[_Measured], material: CanaryMaterial, clock: Callable[[], float]
+    store: Store, measured: Sequence[_Measured], material: CanaryMaterial, clock: Callable[[], float], work: Path
 ) -> list[EngineReport]:
-    """Store each measured profile with its canary (the clip is copied for each profile), then make them the
-    profiles in use, both last, so the engines in use change together."""
+    """Store each measured profile with its canary, then make them the profiles in use, both last, so the
+    engines in use change together. Each profile's clip is a copy made in the run's ``work`` folder, which the
+    pin removes whatever happens, so a clip the store could not take is never left behind."""
     reports: list[EngineReport] = []
     pinned_at = utc_iso(clock())
     for x in measured:
         m, profile = x.made, x.made.plan.profile
-        copy = store.scratch_path(SCRATCH, f"{profile.engine_profile_id}-{uuid.uuid4().hex}.wav")
+        copy = work / f"{profile.engine_profile_id}-canary.wav"
         shutil.copyfile(m.clip.path, copy)
         clip = store.put_canary_clip(profile.engine_profile_id, copy)
         canary = pin_record(
@@ -723,11 +729,18 @@ def _located(config: Config, profile: EngineProfile) -> EngineProfile:
     """The profile with its snapshot folder where it is now. A profile's ``snapshot_dir`` is where its files
     were when it was pinned or last kept; after the models root moved, a profile no longer in use still names
     the old folder, so its revision's folder under ``[server] models_root`` is used when that exists (the
-    fingerprint check then judges its files). Nothing is stored."""
-    if Path(profile.snapshot_dir).is_dir():
+    fingerprint check then judges its files). A recorded folder that holds none of the profile's weight files
+    counts as gone. Nothing is stored."""
+    if _holds_weights(Path(profile.snapshot_dir), profile):
         return profile
     here = snapshot_dir(config.server.models_root, profile.model_repo, profile.model_revision)
-    return dataclasses.replace(profile, snapshot_dir=str(here)) if here.is_dir() else profile
+    return dataclasses.replace(profile, snapshot_dir=str(here)) if _holds_weights(here, profile) else profile
+
+
+def _holds_weights(folder: Path, profile: EngineProfile) -> bool:
+    """Whether ``folder`` holds any of the profile's weight files: a folder that is gone, an empty skeleton or
+    one with only an unfinished download does not."""
+    return folder.is_dir() and any((folder / rel).is_file() for rel in profile.weights)
 
 
 def _compare(
