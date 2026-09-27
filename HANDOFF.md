@@ -12,15 +12,15 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
   configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), WP22 the QA
-  worker (PR #29), contracts 1.1–1.6.5, the private-text guard. Design revision 5.13.
+  worker (PR #29), WP37 `narration-admin` (PR #30), contracts 1.1–1.6.5, the private-text guard. Design
+  revision 5.13.
 - **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
   its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP37 operator CLI | `wp/37-admin` | a1b119ea6c733e52b (reviewer a9dd8b1a7ed2648b1) | in review; `render` follows WP36 |
   | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f | building; the real `installed_engine` done; `engine` commands on WP37's interface next; DC-16 awaits the owner |
-  | WP33 `measure_voice` | `wp/33-measure` | a21fe923fab0198e7 (reviewer a9759b8d3287035d1, Fable) | in review |
+  | WP33 `measure_voice` | `wp/33-measure` | a21fe923fab0198e7 (reviewer a9759b8d3287035d1, Fable) | review: merge with follow-ups; fixing one High (path-check fallback) and one Low |
   | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | in review; created-`completed` at submit (§7.3) is a follow-up |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
