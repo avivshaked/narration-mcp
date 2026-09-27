@@ -62,9 +62,9 @@ from narration_worker.qwen_settings import CEILING_FIELD, GENERATION_KEYS
 from .client import WorkerProcess, check_reply
 
 CALL_CAP_OPS: tuple[str, ...] = ("synthesize", "design")
+"""The ops that take their own ``max_new_tokens`` (design section 10.1, DC-4)."""
 QA_MODEL_OPS: tuple[str, ...] = ("transcribe", "embed", "align")
 """The ops of a role whose ``load`` takes ``models`` by use (the QA models)."""
-"""The ops that take their own ``max_new_tokens`` (design section 10.1, DC-4)."""
 DEFAULT_CEILING = 8192
 """The loaded ceiling when a ``load`` request gives no ``settings.generation.max_new_tokens``: the pinned Qwen
 snapshots' value (a real Qwen worker's ``load`` always passes it)."""
