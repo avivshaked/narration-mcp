@@ -16,7 +16,7 @@ import soundfile
 
 from narration.config import VoicesConfig
 from narration.contracts import codes
-from narration.contracts.errors import NarrationError
+from narration.contracts.errors import NarrationError, UnsupportedPlatform
 from narration.jobs.voice import clip_path
 from narration.platform import get_platform
 from tests.jobs.support import ENGINE_HASH, KETTLE, LAMPS, ORCHARD
@@ -292,3 +292,11 @@ def test_plan_without_the_analysis_pins_counts_every_analysis_s10_2(service: Ser
 def test_the_clip_path_in_the_request_is_read_only_through_the_platform_s17_3(service: Service) -> None:
     service.backend.submit_job_sync(service.request(LAMPS))
     assert service.platform.read_paths == [str(service.world.clip)]
+
+
+def test_a_daemon_that_cannot_run_here_is_not_retryable_s4(service: Service) -> None:
+    service.launcher.error = UnsupportedPlatform("spawn_detached", "plan9")
+    error = refused(service, service.request(LAMPS))
+    assert (error.code, error.retryable, error.retry_after_s) == (codes.DAEMON_UNAVAILABLE, False, None)
+    assert error.hint == UnsupportedPlatform.HINT
+    assert error.details is not None and service.world.job(error.details["job_id"]).status == "queued"

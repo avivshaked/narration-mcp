@@ -62,6 +62,7 @@ from . import views
 from .assemble import assemble, consistency_of, measured_error
 from .clips import ClipRef, admit_clip, check_synthetic, refield
 from .launch import DaemonLauncher
+from .measures import Measurements, StoreMeasurements
 from .planning import AnalysisPins, plan_request
 from .requests import (
     check_controls,
@@ -103,6 +104,7 @@ class NarrationBackend:
     ``config``, ``store`` and ``platform`` are the service's; ``launcher`` starts the daemon and reads its
     status (``launch.DetachedLauncher``). ``pins`` gives the QA models' and the aligner's pins when the
     installation has them (``planning.AnalysisPins``): with them, a plan also looks the analysis layer up.
+    ``measurements`` answers whether a voice is measured (``measures.StoreMeasurements``: WP33's rules).
     ``clock`` is Unix seconds (the rate cap, job times); ``poll_s`` is the long-poll's interval.
     """
 
@@ -114,6 +116,7 @@ class NarrationBackend:
         *,
         launcher: DaemonLauncher,
         pins: Callable[[], AnalysisPins | None] | None = None,
+        measurements: Measurements | None = None,
         text: TextPlanner | None = None,
         scorer: Scorer | None = None,
         clock: Callable[[], float] = time.time,
@@ -124,6 +127,7 @@ class NarrationBackend:
         self.platform = platform
         self.launcher = launcher
         self._pins = pins if pins is not None else (lambda: None)
+        self.measurements: Measurements = measurements if measurements is not None else StoreMeasurements(store, config)
         self.text: TextPlanner = text if text is not None else TextPipeline(config.text)
         self.scorer = scorer if scorer is not None else Scorer(config.measurement)
         self.clock = clock
@@ -156,13 +160,7 @@ class NarrationBackend:
         return job
 
     def _voice_hash(self, voice: VoiceSpec) -> str:
-        return keys.voice_hash(
-            model=names.MODEL_QWEN_BASE,
-            clip_sha256=voice.sha256,
-            transcript=voice.transcript,
-            language=names.LANGUAGE,
-            x_vector_only_mode=self.config.engines.qwen3_base.x_vector_only_mode,
-        )
+        return self.measurements.voice_hash(voice)
 
     def _base_profile(self) -> EngineProfile:
         profile = self.store.current_engine_profile("base")
@@ -175,15 +173,8 @@ class NarrationBackend:
         return profile
 
     def _measurement(self, voice_hash: str, profile: EngineProfile) -> MeasurementRecord:
-        measurement = self.store.get_measurement(voice_hash, profile.engine_profile_id)
-        if measurement is None:
-            raise NarrationError(
-                codes.VOICE_NOT_MEASURED,
-                f"voice {voice_hash} has no measurement under engine profile {profile.engine_profile_id}",
-                field="voice",
-                details={"voice_hash": voice_hash, "engine_profile": profile.engine_profile_id},
-            )
-        return measurement
+        """The measurement the request is judged against; ``VOICE_NOT_MEASURED`` when there is none."""
+        return self.measurements.require(voice_hash, profile)
 
     def _check_disk(self) -> None:
         """``STORE_FULL`` (retryable) when the store's disk has less free space than ``min_free_disk_gb``."""
@@ -330,8 +321,8 @@ class NarrationBackend:
                 f"job {job.job_id} is queued, but no daemon could be started to run it: {exc.message}",
                 hint=exc.hint,
                 details={**(exc.details or {}), "job_id": job.job_id},
-                retryable=True,
-                retry_after_s=exc.retry_after_s,
+                retryable=exc.retryable,
+                retry_after_s=exc.retry_after_s if exc.retryable else None,
             ) from exc
 
     # ================================================================ text (sections 3.2, 7.2, 9.1)
@@ -574,7 +565,8 @@ class NarrationBackend:
         voice = voice_of(job.request)
         result = job.result or {}
         voice_hash = str(result.get("voice_hash") or self._voice_hash(voice))
-        profile_id = result.get("engine_profile_id")
+        engine = result.get("engine_profile")
+        profile_id = engine.get("id") if isinstance(engine, dict) else None  # pyright: ignore[reportUnknownMemberType]
         if not isinstance(profile_id, str):
             current = self.store.current_engine_profile("base")
             profile_id = current.engine_profile_id if current is not None else None
@@ -586,7 +578,7 @@ class NarrationBackend:
             out["engine_profile"] = to_json(measurement.engine_profile)
             out["measurement"] = self._measurement_summary(measurement)
             path = self.store.measurement_dir(voice_hash, profile_id) / MEASUREMENT_JSON
-            out["measurement_result"] = {"path": str(path), "measurement": to_json(measurement)}
+            out["measurement_result"] = {"path": str(result.get("path") or path), "measurement": to_json(measurement)}
         return out
 
     # ================================================================ cancel_job (sections 7.6, 8)
@@ -657,14 +649,10 @@ class NarrationBackend:
         admit_clip(self.store, self.platform, clip, max_seconds=self.config.limits.max_clip_seconds, keep=True)
         voice_hash = self._voice_hash(voice)
         stored = {"voice": dict(args["voice"])}
-        existing = self.store.get_measurement(voice_hash, profile.engine_profile_id)
+        existing = self.measurements.current(voice_hash, profile)
         if existing is not None:
             self.store.touch("measurement", existing.measurement_key)
-            handle = {
-                "voice_hash": voice_hash,
-                "engine_profile_id": profile.engine_profile_id,
-                "measurement_key": existing.measurement_key,
-            }
+            handle = measurement_handle(existing, self.store.measurement_dir(voice_hash, profile.engine_profile_id))
             record = self._new_record(
                 "measure",
                 stored,
@@ -823,6 +811,25 @@ class NarrationBackend:
         from .resources import read_resource
 
         return await self._thread(read_resource, self, uri)
+
+
+def measurement_handle(measurement: MeasurementRecord, folder: Path) -> dict[str, Any]:
+    """A ``measure`` job's ``JobRecord.result``, as the measure handler (WP33) writes it. For a measurement
+    answered at once, ``ladder_stopped_at`` names the first rung that did not pass, without the reasons: the
+    measurement does not keep them."""
+    stopped = next(
+        ({"paragraph_id": rung.paragraph_id, "chars": rung.chars} for rung in measurement.ladder if not rung.passes),
+        None,
+    )
+    return {
+        "voice_hash": measurement.voice_hash,
+        "engine_profile": {"id": measurement.engine_profile.id, "hash": measurement.engine_profile.hash},
+        "measurement_key": measurement.measurement_key,
+        "path": str(folder / MEASUREMENT_JSON),
+        "max_segment_chars": measurement.max_segment_chars,
+        "max_segment_seconds": measurement.max_segment_seconds,
+        "ladder_stopped_at": stopped,
+    }
 
 
 async def _report(progress: ProgressCallback, job: JobRecord) -> None:

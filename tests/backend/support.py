@@ -17,11 +17,13 @@ from typing import Any
 import numpy as np
 import soundfile
 
+from narration import keys
 from narration.backend import AnalysisPins, NarrationBackend
-from narration.contracts import codes
+from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Store
-from narration.contracts.models import DaemonStatus, GpuStatus
+from narration.contracts.models import DaemonStatus, EngineProfile, GpuStatus, MeasurementRecord
+from narration.jobs.plan import VoiceSpec
 from narration.qa import Scorer
 from tests.jobs.support import METHOD_ID, qa_pins
 from tests.store.standin import StandInPlatform
@@ -101,6 +103,32 @@ def daemon_status(*, state: str = "idle", holder: Any = None, job_id: str | None
     )
 
 
+class FakeMeasurements:
+    """The ``Measurements`` seam over the store alone: any stored measurement is current. The rule that decides
+    whether a stored measurement is current (its key) is WP33's and is tested there."""
+
+    def __init__(self, store: Store) -> None:
+        self.store = store
+
+    def voice_hash(self, voice: VoiceSpec) -> str:
+        return keys.voice_hash(
+            model=names.MODEL_QWEN_BASE,
+            clip_sha256=voice.sha256,
+            transcript=voice.transcript,
+            language=names.LANGUAGE,
+            x_vector_only_mode=False,
+        )
+
+    def require(self, voice_hash: str, profile: EngineProfile) -> MeasurementRecord:
+        found = self.current(voice_hash, profile)
+        if found is None:
+            raise NarrationError(codes.VOICE_NOT_MEASURED, "not measured", field="voice")
+        return found
+
+    def current(self, voice_hash: str, profile: EngineProfile) -> MeasurementRecord | None:
+        return self.store.get_measurement(voice_hash, profile.engine_profile_id)
+
+
 def pins_for(models_root: Path) -> AnalysisPins:
     """The analysis pins the job engine's test world scores with (the fake worker's models)."""
     pins = qa_pins(models_root)
@@ -121,7 +149,15 @@ def make_backend(
     platform = platform or TestPlatform()
     launcher = launcher or FakeLauncher(store=world.store)
     found = pins_for(world.config.server.models_root) if pins else None
-    backend = NarrationBackend(world.config, world.store, platform, launcher=launcher, pins=lambda: found, poll_s=0.02)
+    backend = NarrationBackend(
+        world.config,
+        world.store,
+        platform,
+        launcher=launcher,
+        pins=lambda: found,
+        measurements=FakeMeasurements(world.store),
+        poll_s=0.02,
+    )
     return backend, platform, launcher
 
 

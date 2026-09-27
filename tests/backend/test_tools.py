@@ -18,6 +18,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from narration.backend.assemble import restamp_exact, restamp_flag
+from narration.backend.measures import StoreMeasurements
 from narration.backend.service import NarrationBackend
 from narration.config import VoicesConfig
 from narration.contracts import codes
@@ -25,9 +26,10 @@ from narration.contracts.errors import NarrationError
 from narration.contracts.models import ExactResult, Flag, SegmentIn
 from narration.contracts.schemas import TOOLS_BY_NAME
 from narration.contracts.serial import from_json
+from narration.jobs.plan import VoiceSpec
 from narration.jobs.voice import clip_path
 from narration.text import TextPipeline
-from tests.jobs.support import ENGINE_HASH, ENGINE_ID, KETTLE, LAMPS, METHOD_ID, ORCHARD
+from tests.jobs.support import ENGINE_HASH, ENGINE_ID, KETTLE, LAMPS, METHOD_ID, ORCHARD, VOICE_TRANSCRIPT, voice_hash
 
 from .conftest import Service
 from .support import daemon_status, write_wav
@@ -274,6 +276,17 @@ def test_a_measured_voice_is_answered_at_once_s3_2(service: Service) -> None:
     results = valid("get_results", service.backend.get_results_sync({"job_id": out["job_id"]}))
     assert results["measurement_result"]["measurement"]["voice_hash"] == out["voice_hash"]
     assert results["measurement_result"]["path"].endswith("measurement.json")
+    handle = service.world.job(out["job_id"]).result
+    assert handle is not None
+    assert set(handle) == {
+        "voice_hash",
+        "engine_profile",
+        "measurement_key",
+        "path",
+        "max_segment_chars",
+        "max_segment_seconds",
+        "ladder_stopped_at",
+    }, "the handle a measure job leaves (WP33)"
     assert service.launcher.ensured == [], "nothing to run, so no daemon"
 
 
@@ -361,3 +374,17 @@ def test_resources_read_the_store_s7_7(service: Service) -> None:
     with pytest.raises(NarrationError) as caught:
         run(lambda: read("narration://jobs/job_01JBXQ7Z3M8V4T2R9K6N5P0W1D"))
     assert caught.value.code == codes.NOT_FOUND
+
+
+def test_the_default_measurements_hash_a_voice_as_the_job_engine_does_s10_2(service: Service) -> None:
+    measurements = StoreMeasurements(service.world.store, service.world.config)
+    voice = VoiceSpec(path=str(service.world.clip), sha256=service.world.clip_sha256, transcript=VOICE_TRANSCRIPT)
+    assert measurements.voice_hash(voice) == voice_hash(service.world.clip_sha256)
+    profile = service.world.store.current_engine_profile("base")
+    assert profile is not None
+    assert measurements.require(voice_hash(service.world.clip_sha256), profile).voice_hash == voice_hash(
+        service.world.clip_sha256
+    )
+    with pytest.raises(NarrationError) as caught:
+        measurements.require("vh_" + "0" * 16, profile)
+    assert (caught.value.code, caught.value.field) == (codes.VOICE_NOT_MEASURED, "voice")

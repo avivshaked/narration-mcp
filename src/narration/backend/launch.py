@@ -107,8 +107,8 @@ class DetachedLauncher:
         try:
             result = start.ensure_daemon(store, self._config_path, extra=self._extra)
         except NarrationError as exc:
-            if exc.code != codes.DAEMON_UNAVAILABLE:
-                raise
+            if exc.code != codes.DAEMON_UNAVAILABLE or not exc.retryable:
+                raise  # e.g. UnsupportedPlatform: no retry helps, and its hint says why
             raise unavailable(exc.message, details=exc.details) from exc
         except OSError as exc:
             log.exception("the daemon could not be started")
