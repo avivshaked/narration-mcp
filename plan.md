@@ -662,13 +662,13 @@ Updated by the lead on `main` only.
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
 | WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19, #24 | 2026-09-27; second follow-ups merged (PR #24): one Qwen settings parser, one WAV writer, contracts 1.6.3, design 5.10; Low follow-ups in HANDOFF.md |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
-| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-27: **gate H1 approved by the owner** (all 10 texts, `ladder-080` and `align-03` as written); the freeze (status `frozen`, the calibration's design text) is next, paused on a tool-permission question to the owner |
+| WP18 | Service material | 1 | WP01 | – | `done` | PRs #3, #21, #35 | 2026-09-27: gate H1 approved; the four spoken sets frozen as version 1, the corpus with its design text (PR #35); the fixture sets stay draft |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | review findings fixed, DC-16 and `measure` in, joined with WP36 (daemon behind the backend on `installed_engine`); re-verification (4 lenses × 2 skeptics): merge with follow-ups; fixing a half pin on a second-engine failure, drift hints naming `repin --force`, NVML-unobserved ≠ changed, `bridge` after a moved root |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `done` | PR #34 | 2026-09-27; review, re-verification workflow and a check of its fixes (all hold); DC-16 in; five Low follow-ups on `wp/32-followups` |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
@@ -1026,3 +1026,10 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   - **WP45 added at the owner's request:** `narration-admin voices allow <clip.wav>` adds a clip designed
     elsewhere to `[voices] allow_sha256` after the operator confirms it is synthetic (DC-17). It is
     operator-only and never an MCP tool, because the allowlist is the synthetic-voices gate (§17.4).
+  - **WP32 merged (PR #34)** after its review, a four-lens re-verification workflow and a workflow that
+    tried to break its four fixes (all held; five Lows go to `wp/32-followups`).
+  - **Gate H1's freeze merged (PR #35):** `narration-en.v1`, `alignment-en.v1`, `canary.v1` and
+    `demo-en.v1` are frozen as version 1; the corpus carries its design text (`cal-design`); the fixture
+    sets stay draft. Verified by a three-lens adversarial workflow (no finding survived).
+  - **Every M1 package is on `main`.** The M1 smoke run (scratch store, two-rung ladder, through
+    `narration-mcp` over stdio) started.

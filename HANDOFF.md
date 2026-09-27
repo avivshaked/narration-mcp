@@ -12,14 +12,14 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
   configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), WP22 the QA
-  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), WP36 the MCP tools and `narration-admin render` (PR #32), DC-16 (PR #33), contracts 1.1–1.6.6, the private-text guard. Design
+  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), WP36 the MCP tools and `narration-admin render` (PR #32), DC-16 (PR #33), WP32 engine profiles and the canary (PR #34), gate H1's freeze (PR #35), contracts 1.1–1.6.6, the private-text guard. Design
   revision 5.14.
 - **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
   its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f | review fixes, DC-16, `measure` and the WP36 join done; re-verification workflow (wf_19ebc1c9-089): merge with follow-ups; fixing its four upheld findings (half pin, drift hints, NVML-unobserved, bridge after a moved root); then merge and the M1 smoke run |
+  | WP32's five Low follow-ups | `wp/32-followups` | a203bffe41405429f | fixing (hints, a scratch copy, the kept-profile line, `_located`) |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -58,10 +58,7 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **Gate H1 is approved** (2026-09-27, all ten texts as written), and so is **DC-16** (merged, PR #33).
-  **The freeze is paused:** the auto-mode permission classifier refused a plain read of
-  `tests/material/test_material.py` in the lead's freeze worktree ("Modify Shared Resources"). The lead
-  did not route around it and asked the owner to allow it, or to say to go ahead.
+- **Gate H1 is approved and the material is frozen** (PR #35); **DC-16** is merged (PR #33).
 - **DC-14 and DC-15** (plan.md §1.5): lead gap-fills the owner may overrule.
 - **4a in the owner's list:** cross-job grouping (§4 item 3); the lead recommends leaving it out of v1.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
