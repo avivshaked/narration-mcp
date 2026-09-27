@@ -330,7 +330,8 @@ def build_runner(
 ) -> EngineRunner:
     """The runner the daemon uses: the service's text pipeline, post-processing and QA, configured by
     ``config``, with the aligner and QA pins the installation provides (WP15, WP22) and WP32's engine guard.
-    ``probe`` defaults to NVML on a ``cuda`` device and to no check otherwise."""
+    ``probe`` defaults to NVML on a ``cuda`` device and to no check otherwise; ``check_path`` to the daemon's
+    platform check (``host.platform.check_readable_path``, section 17.3)."""
     if probe is None:
         probe = NvmlProbe(config.gpu.device) if config.gpu.device.startswith("cuda") else NoProbe()
     parts = EngineParts(

@@ -9,12 +9,14 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from narration.config import VoicesConfig
 from narration.contracts import codes
+from narration.contracts.errors import NarrationError
 from narration.contracts.models import Progress, ProvenanceEntry
 from narration.jobs.admission import GPU_RECHECK_S, GPU_UNAVAILABLE_RETRY_S
 from narration.jobs.failures import OOM_WAIT_S
@@ -319,12 +321,27 @@ def test_a_clip_that_changed_since_submit_is_voice_file_mismatch_s17(world: Worl
     assert failed.error.code == codes.VOICE_FILE_MISMATCH
 
 
-def test_an_engine_without_the_path_check_reads_no_callers_clip_s17_3(world: World) -> None:
-    world.new_engine(check_path=None)
+def test_a_callers_clip_is_read_through_the_daemons_platform_check_s17_3(world: World) -> None:
+    assert world.engine.parts.check_path is None  # as the daemon builds it
+    job = world.submit(LAMPS)
+    world.run()
+    assert world.job(job.job_id).status == "completed"
+    assert world.host.platform.paths_checked == [str(world.clip)]
+
+
+def test_an_engine_built_with_its_own_path_check_uses_that_one_s17_3(world: World) -> None:
+    asked: list[str] = []
+
+    def refuse(path: str) -> Path:
+        asked.append(path)
+        raise NarrationError(codes.PATH_NOT_ALLOWED, "refused by the engine's own check", field="voice.path")
+
+    world.new_engine(check_path=refuse)
     job = world.submit(LAMPS)
     world.run()
     failed = world.job(job.job_id)
-    assert failed.status == "failed" and failed.error is not None and failed.error.code == codes.INTERNAL
+    assert failed.status == "failed" and failed.error is not None and failed.error.code == codes.PATH_NOT_ALLOWED
+    assert asked == [str(world.clip)] and world.host.platform.paths_checked == []
     assert world.pool.starts == 0  # no worker saw a clip
 
 
@@ -336,6 +353,8 @@ def test_a_clip_path_the_check_refuses_is_path_not_allowed_s17_3(world: World) -
     failed = world.job(job.job_id)
     assert failed.status == "failed" and failed.error is not None
     assert failed.error.code == codes.PATH_NOT_ALLOWED and failed.error.field == "voice.path"
+    assert failed.error.details is not None and failed.error.details["rule"]  # the platform's rule, kept
+    assert world.host.platform.paths_checked == ["voice/clip.wav"]
 
 
 def test_an_engine_other_than_the_one_expected_is_engine_changed_s10_1(world: World) -> None:

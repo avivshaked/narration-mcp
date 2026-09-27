@@ -83,7 +83,20 @@ def stage_clip(store: Store, voice: VoiceSpec, *, check_path: PathCheck | None) 
             retryable=False,
             hint="This is a bug in the service; nothing was read or rendered. Report it.",
         )
-    source = check_path(voice.path)
+    try:
+        source = check_path(voice.path)
+    except NarrationError as exc:
+        if exc.field is not None:
+            raise
+        raise NarrationError(  # the platform's refusal, naming the request's field it came from (section 14)
+            exc.code,
+            exc.message,
+            field="voice.path",
+            hint=exc.hint,
+            details=exc.details,
+            retryable=exc.retryable,
+            retry_after_s=exc.retry_after_s,
+        ) from exc
     tmp = target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp")
     try:
         digest = _copy(source, tmp, voice)

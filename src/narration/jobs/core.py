@@ -45,7 +45,8 @@ class Scorer(QaScorer, Protocol):
 class EngineParts:
     """What the engine is built from: the service's text pipeline, post-processing, QA scorer and aligner; the
     QA group's pins; the engine guard (WP32's canary gate); the VRAM probe; the path check for a caller's
-    clip; a monotonic clock; and how long to leave work another holder is producing (``defer_s``)."""
+    clip (None: the daemon's, ``host.platform.check_readable_path``, section 17.3); a monotonic clock; and
+    how long to leave work another holder is producing (``defer_s``)."""
 
     text: TextPlanner
     delivery: DeliveryProcessor

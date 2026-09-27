@@ -56,6 +56,7 @@ from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 from narration.jobs.gpu import VramReading
 from narration.jobs.host import DAEMON_HOLDER, GpuFacts, ResidencyError, StopMode, WorkerPool
 from narration.jobs.pins import ModelPin, QaPins
+from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
 from narration.text import words
@@ -274,13 +275,15 @@ class FakePool:
 
 @dataclass
 class Host:
-    """The ``RunnerHost`` the daemon would pass: the store, the config and the workers, a stop switch, and a
-    record of everything the runner told the daemon. ``sleep`` moves ``clock`` instead of waiting."""
+    """The ``RunnerHost`` the daemon would pass: the store, the config, the workers and the platform (WP30's
+    stand-in, which records the paths it checked), a stop switch, and a record of everything the runner told
+    the daemon. ``sleep`` moves ``clock`` instead of waiting."""
 
     store: NarrationStore
     config: Config
     workers: WorkerPool
     clock: MonotonicClock
+    platform: StandInPlatform = field(default_factory=StandInPlatform)
     holder: str = DAEMON_HOLDER
     stop_mode: StopMode | None = None
     started: list[str] = field(default_factory=list)
@@ -411,7 +414,7 @@ class TestAligner:
         if not any(ch.isalpha() for t in transcript.tokens for ch in t):
             reason = codes.CUE_NO_ALIGNABLE_WORDS
         elif reply is None:
-            reason = "alignment_error"
+            reason = codes.CUE_UNPLACED_ALIGNMENT_ERROR
             flags.append(Flag(code=codes.ALIGNMENT_ERROR, severity="fail", message="the aligner could not align"))
         else:
             reason = None

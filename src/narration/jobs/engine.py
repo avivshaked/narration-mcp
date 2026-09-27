@@ -157,7 +157,9 @@ class JobEngine:
                 field="voice",
             )
         store.touch("measurement", measurement.measurement_key)
-        clip = stage_clip(store, request.voice, check_path=parts.check_path)
+        # Section 17.3: a caller's file is read only through the daemon's platform check (or the one built in).
+        check = parts.check_path if parts.check_path is not None else host.platform.check_readable_path
+        clip = stage_clip(store, request.voice, check_path=check)
         planned = parts.text.plan_request(request.segments, request.hints, strict_text=False)
         bench = store.current_alignment_benchmark()
         measured = (
