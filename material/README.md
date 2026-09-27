@@ -87,7 +87,8 @@ platform, so a checkout on any machine hashes the same.
 
 A frozen set is never edited. Copy it to a new set id (`narration-en.v2`), change the copy, and point the
 service at it: the configuration names the corpus and the benchmark (`[measurement] corpus`,
-`[alignment] benchmark`), and the code names the canary and the demo. A draft set is edited in place:
+`[alignment] benchmark`), the engine's pinning code names the canary, and the Phase 4 acceptance test names the
+demo. A draft set is edited in place:
 
 1. Edit the JSON. Keep each cue in canonical form.
 2. If a cue with exact spans changed, recompute their `start` and `end` in code points (in Python,
