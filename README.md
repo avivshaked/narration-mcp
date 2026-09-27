@@ -102,12 +102,16 @@ folder of your clone.
    a new, unsigned launcher. Without `--config`, the server reads the file `NARRATION_CONFIG` names, else
    `<service_root>/narration.toml`. If it finds neither, it exits and says what to do.
 3. The first job starts the background daemon that does the work. If a call answers
-   `DAEMON_UNAVAILABLE` because the client's session cannot start it, start the daemon yourself in a
-   terminal first, and leave it running:
+   `DAEMON_UNAVAILABLE` because the client's session cannot start it, start the daemon yourself from a
+   terminal first:
 
    ```sh
    <venv_python> -m narration.admin --config <service_root>/narration.toml daemon start
    ```
+
+   It detaches and keeps running after the terminal closes. If Windows refuses to detach it from the
+   terminal, the command says so and offers `--foreground`, which runs the daemon in that terminal until
+   it exits; only then must the terminal stay open.
 
    The server clones only voices this service designed, or clips whose sha256 is in `[voices]
    allow_sha256`. The same command with `voices allow <clip.wav>` adds a clip designed elsewhere to that

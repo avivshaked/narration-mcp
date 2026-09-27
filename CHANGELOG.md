@@ -284,13 +284,15 @@ are tracked here but no version is tagged; nothing described below is installabl
   (`WER_HIGH`). They also say to keep a job to a scene (about 8 to 10 segments), to call `get_results` with
   `include_words: false` unless word times are needed, and to use each segment's `suggested_take_id`. They
   point to `narration://jobs/{job_id}/report` and name `submit_job`'s options (`dry_run`, `strict_text`,
-  `takes`, `max_retakes`, `priority`). The voice's transcript must be copied, never retyped. Every tool
-  parameter now has a description. The instructions and every tool description fit in 2048 characters,
-  where Claude Code cuts server instructions. `audition_pronunciation` is marked "not in this build yet"
-  wherever it is advertised; its prompts show how to hear a respelling with `submit_job` meanwhile.
-  `VOICE_NOT_SYNTHETIC`'s hint names `narration-admin voices allow`, and says to restart the daemon first,
-  then reconnect the client, after the allowlist changes. An upper-case `sha256` is told to lower-case it, and a top-level option such as
-  `takes` is pointed to `options.takes`. The README starts the server with the environment's Python
+  `takes`, `max_retakes`, `priority`). A suggestion of tier 4 is a failed take, to resolve or redo before
+  keeping it. The voice's transcript must be copied, never retyped. Every tool parameter now has a
+  description. The instructions and every tool description fit in 2048 characters, where Claude Code cuts
+  server instructions. `design_voice`, `profile_voice` and `audition_pronunciation` are marked "not in this
+  build yet" wherever they are advertised, until their handlers land; the prompts show how to hear a
+  respelling with `submit_job` meanwhile. `VOICE_NOT_SYNTHETIC`'s hint says that only a person allows a
+  clip, with `narration-admin voices allow`, and that the daemon is restarted first, then the client
+  reconnected. An upper-case `sha256` is told to lower-case it, and a top-level option such as `takes` is
+  pointed to `options.takes`. The README starts the server with the environment's Python
   (`-m narration.mcp`) and says to start the daemon from a terminal when the client cannot. Nothing that
   enters a cache key changed, so no voice needs measuring again.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
