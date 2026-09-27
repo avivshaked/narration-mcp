@@ -1,5 +1,5 @@
 """The job engine the daemon builds at its first job (``narration.jobs.runner.installed_engine``; plan.md WP31,
-WP32): the aligner, the QA pins, the engine guard and the path check, assembled from the config and the pins."""
+WP32): the aligner, the QA pins and the engine guard, assembled from the config and the pins."""
 
 from __future__ import annotations
 
@@ -28,19 +28,9 @@ from .support import Install, make_install
 
 @dataclass
 class _Host:
-    """What ``installed_engine`` reads of the daemon's host: its config and its platform."""
+    """What ``installed_engine`` reads of the daemon's host: its config."""
 
     config: Config
-    platform: Any = None
-
-
-class _Platform:
-    def __init__(self) -> None:
-        self.checked: list[str] = []
-
-    def check_readable_path(self, path: str) -> Path:
-        self.checked.append(path)
-        return Path(path)
 
 
 def _engine(registry: Registry) -> JobEngine:
@@ -55,8 +45,7 @@ def install(tmp_path: Path) -> Install:
 
 
 def test_the_installed_engine_runs_generate_and_analyse_with_the_pinned_parts_s4(install: Install) -> None:
-    platform = _Platform()
-    registry = installed_engine(cast(RunnerHost, _Host(config=install.config, platform=platform)))
+    registry = installed_engine(cast(RunnerHost, _Host(config=install.config)))
 
     assert isinstance(registry, Registry)
     engine = _engine(registry)
@@ -72,9 +61,7 @@ def test_the_installed_engine_runs_generate_and_analyse_with_the_pinned_parts_s4
     assert engine.residency.need_mb["qa"] == QA_VRAM_NEED_MB
     assert isinstance(parts.guard, CanaryGuard) and parts.guard.sv == parts.qa_pins.sv
     assert isinstance(parts.probe, NvmlProbe)  # [gpu] device is cuda:0 by default
-    assert parts.check_path is not None
-    parts.check_path(str(install.store_root / "clip.wav"))
-    assert platform.checked == [str(install.store_root / "clip.wav")]  # the daemon's platform checks a caller's path
+    assert parts.check_path is None  # a caller's clip is checked by the daemon's platform (host.platform)
 
 
 def test_the_analysis_licences_are_the_pinned_models_s18(install: Install) -> None:
@@ -86,7 +73,7 @@ def test_the_aligner_takes_its_thresholds_from_the_config_s11_2(install: Install
     config = dataclasses.replace(
         install.config, alignment=AlignmentConfig(unplaced_below=0.4, low_confidence_below=0.6)
     )
-    registry = installed_engine(cast(RunnerHost, _Host(config=config, platform=_Platform())))
+    registry = installed_engine(cast(RunnerHost, _Host(config=config)))
     aligner = _engine(registry).parts.aligner
     assert isinstance(aligner, CtcAligner)
     assert aligner.method_id == aligner_method_id(config)
@@ -95,7 +82,7 @@ def test_the_aligner_takes_its_thresholds_from_the_config_s11_2(install: Install
 
 def test_no_nvml_check_on_a_cpu_device_s4(install: Install) -> None:
     config = dataclasses.replace(install.config, gpu=GpuConfig(device="cpu"))
-    registry = installed_engine(cast(RunnerHost, _Host(config=config, platform=_Platform())))
+    registry = installed_engine(cast(RunnerHost, _Host(config=config)))
     assert isinstance(_engine(registry).parts.probe, NoProbe)
 
 
@@ -106,7 +93,7 @@ def test_a_qa_model_not_installed_is_backend_not_installed_s14(install: Install,
         path.unlink() if path.is_file() else path.rmdir()
     folder.rmdir()
     with pytest.raises(NarrationError) as caught:
-        installed_engine(cast(RunnerHost, _Host(config=install.config, platform=_Platform())))
+        installed_engine(cast(RunnerHost, _Host(config=install.config)))
     error = caught.value
     assert error.code == codes.BACKEND_NOT_INSTALLED and "narration-admin install" in error.hint
     assert error.details is not None and error.details["repo"] == model.repo
@@ -115,20 +102,15 @@ def test_a_qa_model_not_installed_is_backend_not_installed_s14(install: Install,
 def test_an_aligner_the_service_does_not_pin_is_backend_not_installed_s11_2(install: Install) -> None:
     config = dataclasses.replace(install.config, alignment=AlignmentConfig(model="someone/aligner"))
     with pytest.raises(NarrationError) as caught:
-        installed_engine(cast(RunnerHost, _Host(config=config, platform=_Platform())))
+        installed_engine(cast(RunnerHost, _Host(config=config)))
     assert caught.value.code == codes.BACKEND_NOT_INSTALLED and "[alignment] model" in caught.value.hint
 
 
 def test_a_pinned_aligner_the_ctc_method_cannot_run_is_backend_not_installed_s11_2(install: Install) -> None:
     config = dataclasses.replace(install.config, alignment=AlignmentConfig(model=names.MODEL_QWEN_BASE))
     with pytest.raises(NarrationError) as caught:
-        installed_engine(cast(RunnerHost, _Host(config=config, platform=_Platform())))
+        installed_engine(cast(RunnerHost, _Host(config=config)))
     assert caught.value.code == codes.BACKEND_NOT_INSTALLED
-
-
-def test_without_a_platform_on_the_host_this_oss_is_used(install: Install) -> None:
-    registry = installed_engine(cast(RunnerHost, _Host(config=install.config)))
-    assert _engine(registry).parts.check_path is not None
 
 
 def test_more_handlers_join_the_registry_sharing_the_engines_residency_s4(
@@ -145,7 +127,7 @@ def test_more_handlers_join_the_registry_sharing_the_engines_residency_s4(
         return {"measure": measure}
 
     monkeypatch.setattr(installed, "more_handlers", more)
-    registry = installed_engine(cast(RunnerHost, _Host(config=install.config, platform=_Platform())))
+    registry = installed_engine(cast(RunnerHost, _Host(config=install.config)))
     engine = _engine(registry)
     assert seen == [engine]
     assert registry.handler("measure") is measure and registry.handler("analyse") is engine

@@ -8,8 +8,10 @@ It assembles the job engine from the daemon's configuration and the service's pi
 - the cue aligner (WP15's ``CtcAligner``) at its pinned revision, with ``[alignment]``'s thresholds;
 - the QA group's pinned models (Whisper, WavLM-SV, the CTC aligner) and the VRAM it needs;
 - the engine guard: the worker fingerprint check and the canary gate (``canary.CanaryGuard``);
-- the free-VRAM probe (NVML on a ``cuda`` device) and the path check for a caller's clip (section 17.3,
-  the daemon's platform).
+- the free-VRAM probe (NVML on a ``cuda`` device).
+
+A caller's clip is checked by the daemon's platform (``host.platform.check_readable_path``, section 17.3): the
+parts leave ``check_path`` unset, which the job engine takes to mean that.
 
 A snapshot that is not installed raises ``BACKEND_NOT_INSTALLED``; the runner fails that job with it and builds
 again at the next, so an installation completed meanwhile is picked up. The engine profile itself is the
@@ -21,25 +23,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from narration.contracts.interfaces import Platform
 from narration.jobs.core import EngineParts
 from narration.jobs.engine import JobEngine
 from narration.jobs.gpu import NoProbe, NvmlProbe, VramProbe
 from narration.jobs.handlers import JobHandler, Registry
 from narration.jobs.host import RunnerHost
-from narration.platform import get_platform
 from narration.post import DeliveryPipeline
 from narration.qa import Scorer
 from narration.text import TextPipeline
 
 from .canary import CanaryGuard
 from .qa import aligner, qa_pins
-
-
-def host_platform(host: RunnerHost) -> Platform:
-    """The daemon's platform (``host.platform``), or this OS's when the host does not carry one."""
-    platform: Any = getattr(host, "platform", None)
-    return platform if platform is not None else get_platform()
 
 
 def probe_for(device: str) -> VramProbe:
@@ -59,7 +53,6 @@ def engine(host: RunnerHost, *, probe: VramProbe | None = None) -> JobEngine:
         qa_pins=pins,
         guard=CanaryGuard(sv=pins.sv),
         probe=probe if probe is not None else probe_for(config.gpu.device),
-        check_path=host_platform(host).check_readable_path,
     )
     return JobEngine(config, parts)
 
@@ -86,4 +79,4 @@ def registry(host: RunnerHost, *, probe: VramProbe | None = None) -> Registry:
     return Registry(handlers={**base.handlers, **extra}, residency=base.residency, throughput=base.throughput)
 
 
-__all__ = ["engine", "host_platform", "more_handlers", "probe_for", "registry"]
+__all__ = ["engine", "more_handlers", "probe_for", "registry"]
