@@ -10,6 +10,12 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `measure_voice`'s job (`narration.measure`): it checks the clip's transcript with the speech recogniser
+  (`REF_TEXT_MISMATCH` if the clip does not say it), renders the calibration set and builds the voice's
+  anchor and similarity baseline, then climbs the length ladder from the shortest rung, fits the pace
+  trend, and stops at the first rung the voice does not read reliably. It publishes `measurement.json`
+  with `max_segment_chars`, `max_segment_seconds`, the pace curve and the ladder table. Every take comes
+  from the cache when it can, so a measurement that stopped resumes where it was.
 - The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
   then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
   `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same

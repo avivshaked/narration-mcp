@@ -32,14 +32,18 @@ from narration.contracts.models import (
     AnalysisRecord,
     AnalysisText,
     AnalysisVersions,
+    Anchor,
     CanaryRecord,
     CueText,
     DeliveryAudio,
     Licence,
+    MeasurementRecord,
+    Pace,
     RawAudio,
     RenderEngine,
     RenderRecord,
     RenderVoice,
+    SimilarityBaseline,
     TakeRecord,
 )
 from narration.contracts.names import GpuHolder
@@ -64,6 +68,18 @@ PREPARE_TIMEOUT_S: Final = 300.0
 QA_TIMEOUT_S: Final = 900.0
 FRAMES_PER_SECOND: Final = 12.5
 """Qwen3-TTS-12Hz's codec: a call capped at N tokens makes at most N / 12.5 s of audio."""
+
+
+@dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
+class ScoringFacts:
+    """What one segment's takes are judged against (``QaInputs``): the voice's finished measurement, or, for work
+    without one, whatever exists of it (an anchor and a similarity baseline, a pace curve). Missing facts are
+    not checked (``narration.qa.scorer.voice_facts``)."""
+
+    measurement: MeasurementRecord | None = None
+    anchor: Anchor | None = None
+    similarity: SimilarityBaseline | None = None
+    pace: Pace | None = None
 
 
 class Stages:
@@ -118,6 +134,26 @@ class Stages:
         else:
             host.store.touch("take", attempt.take.take_id)
 
+    def measurement_key(self, run: JobRun, seg: SegmentWork) -> str | None:
+        """The measurement key a segment's analyses name (``AnalysisKeyInputs.measurement_key``, section 10.2).
+
+        ``generate`` and ``analyse``: the key of the voice's finished measurement. A kind that scores takes
+        without one overrides this, with ``scoring_facts``: ``measure_voice`` names the key of the measurement
+        it is building for its ladder takes, and None for its calibration takes, which no speaker or pace
+        check judges (the contract's rule).
+        """
+        if run.measurement is None:
+            raise RuntimeError(f"job {run.job_id} scores takes but has no measurement to judge them against")
+        return run.measurement.measurement_key
+
+    def scoring_facts(self, run: JobRun, seg: SegmentWork) -> ScoringFacts:
+        """What a segment's takes are judged against (``QaInputs``): for ``generate`` and ``analyse``, the voice's
+        finished measurement, which supplies the anchor, the similarity baseline and the pace curve. A kind that
+        scores takes without one overrides this (see ``measurement_key``)."""
+        if run.measurement is None:
+            raise RuntimeError(f"job {run.job_id} scores takes but has no measurement to judge them against")
+        return ScoringFacts(measurement=run.measurement)
+
     def key_inputs(self, run: JobRun, seg: SegmentWork, take: TakeRecord) -> AnalysisKeyInputs:
         """The analysis key's inputs (section 10.2): the take, the request's inputs for it, the service's pins."""
         parts, text = self.core.parts, seg.text
@@ -133,7 +169,7 @@ class Stages:
             asr_model=parts.qa_pins.asr.name,
             sv_model=parts.qa_pins.sv.name,
             aligner_method_id=parts.aligner.method_id,
-            measurement_key=run.measurement.measurement_key,
+            measurement_key=self.measurement_key(run, seg),
         )
 
     # ------------------------------------------------------------------ making a model group ready
@@ -482,6 +518,7 @@ class Stages:
         alignment = aligner.resolve(transcript, reply, samples, int(rate), asr_words, run.measured_error, error=error)
         signal = parts.delivery.signal_stats(Path(render.raw.path), Path(wav))
         embedding = tuple(float(v) for v in embedded["embedding"])
+        facts = self.scoring_facts(run, seg)
         qa = parts.scorer.score(
             QaInputs(
                 segment=seg.text,
@@ -493,7 +530,10 @@ class Stages:
                 alignment=alignment,
                 signal=signal,
                 hit_token_cap=render.hit_token_cap,
-                measurement=run.measurement,
+                measurement=facts.measurement,
+                anchor=facts.anchor,
+                similarity=facts.similarity,
+                pace=facts.pace,
             )
         )
         pins = parts.qa_pins
@@ -512,7 +552,7 @@ class Stages:
                 sv=pins.sv.name,
                 aligner_method=aligner.method_id,
                 number_reader=parts.scorer.number_reader,
-                measurement=run.measurement.measurement_key,
+                measurement=self.measurement_key(run, seg),
             ),
             alignment=alignment,
             qa=qa,
@@ -548,5 +588,6 @@ __all__ = [
     "QA_TIMEOUT_S",
     "RENDER_LEASE_S",
     "SCORE_LEASE_S",
+    "ScoringFacts",
     "Stages",
 ]
