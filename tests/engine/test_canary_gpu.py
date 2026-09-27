@@ -7,7 +7,7 @@ calibrates each threshold with WavLM on the QA worker's CPU. Then it loads each 
 daemon's worker supervisor and runs the gate, which must pass on the hash in the ``bit_exact`` tier. Nothing
 it renders leaves the temporary folder.
 
-Run it (about 5 minutes on a 24 GB GPU; the Qwen models need about 6 GB and the QA models run on the CPU)::
+Run it (under 25 minutes on a 24 GB GPU; the Qwen models need about 6 GB and the QA models run on the CPU)::
 
     uv run python -m pytest -m "gpu and model" tests/engine/test_canary_gpu.py -s
 
@@ -46,15 +46,22 @@ from narration.platform import get_platform
 from narration.store import NarrationStore
 from narration.workers import venv_python
 
-pytestmark = [pytest.mark.gpu, pytest.mark.model, pytest.mark.slow]
-
 CHECKOUT = Path(__file__).resolve().parents[2]
 LOCK_TOOL = CHECKOUT / "tools" / "gpu_lock.py"
 LOCK_HOLDER_ENV = "NARRATION_GPU_LOCK_HOLDER"
 DEFAULT_HOLDER = "engine-gpu-tests"
 LOCK_MINUTES = 30
+WAIT_MINUTES = 10
+"""How long to wait for the lock when someone else holds it (``--wait-min``)."""
+RUN_TIMEOUT_S = 25 * 60
+"""Inside the lock's 30 minutes. The first run (2026-09-27) was still in the repeat test's fresh process when the
+suite's default 300 s ran out, so the run gets its own limit. A run stopped by a timeout cannot release the
+lock (pytest-timeout ends the process); the lock then lapses at its expected end, and the kill-on-close group
+has already stopped the workers."""
 NEED_MB = QWEN_VRAM_MB + 1000
 DEVICE = "cuda:0"
+
+pytestmark = [pytest.mark.gpu, pytest.mark.model, pytest.mark.slow, pytest.mark.timeout(RUN_TIMEOUT_S)]
 
 
 def _lock(*args: str) -> subprocess.CompletedProcess[str]:
@@ -75,9 +82,18 @@ def gpu_lock() -> Iterator[None]:
         if owner.get("holder") == holder:
             yield  # a wrapper holds it for us, and releases it itself
             return
-        pytest.skip(f"the GPU lock is held by someone else: {status.stdout.strip()}")
-    taken = _lock("acquire", "--holder", holder, "--minutes", str(LOCK_MINUTES), "--need-mb", str(NEED_MB))
-    if taken.returncode != 0:
+    taken = _lock(
+        "acquire",
+        "--holder",
+        holder,
+        "--minutes",
+        str(LOCK_MINUTES),
+        "--need-mb",
+        str(NEED_MB),
+        "--wait-min",
+        str(WAIT_MINUTES),
+    )
+    if taken.returncode != 0:  # held by someone else past the wait, or too little free VRAM
         pytest.skip(f"not starting a GPU run: {taken.stderr.strip() or taken.stdout.strip()}")
     try:
         yield
