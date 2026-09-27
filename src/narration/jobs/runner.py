@@ -13,13 +13,13 @@
 A claimed job goes to the handler of its kind (``handlers.Registry``: the job engine runs ``generate`` and
 ``analyse``; WP33 to WP35 add theirs). A kind with no handler fails with ``INTERNAL`` and ``details.kind``.
 
-**Scheduling across jobs** (section 4 item 3): priority, then first come, then affinity to the resident
-group. The first two are the claim order. Affinity is kept by the residency (``gpu.Residency``, shared by
-every handler): the resident group stays loaded across jobs, so a job whose first work needs it starts
-without a load. It never reorders the queue: first come is a strict order (the store's insertion
-sequence), so affinity ranked after it could decide nothing, and ranked before it would move jobs off the
-queue positions DC-2 reports. Every generation job uses the current Base engine profile, so jobs need no
-grouping by profile until design jobs run here too.
+**Scheduling across jobs** (section 4 item 3). Jobs are claimed by priority (``interactive`` before
+``batch``), then first come (the store's insertion order). Affinity means the resident model group is kept
+across a job boundary (``gpu.Residency``, shared by every handler), so a job whose first work needs that
+group starts without a load. Affinity never reorders the queue. The engine runs one job at a time: work
+from several jobs is not grouped within a round (the lead's decision, pending the owner). Every generation
+job uses the current Base engine profile, so jobs need no grouping by profile until design jobs run here
+too.
 
 A job given back (a stop, or giving way to an interactive job) and taken again is planned from the cache
 and resumes the round it was in; its record never shows less progress than before. A job cancelled as the
@@ -34,8 +34,10 @@ daemon asks it before an idle exit. ``default_runner`` is the zero-argument fact
 name; it builds the engine at the first job, from the daemon's config.
 
 ``shutdown`` gives back the job held (``return_job``: ``running`` goes back to ``queued``, ``cancelling``
-becomes ``cancelled``) and removes its scratch files. Leases are renewed while their work runs, released
-at the end of each piece of work, and lapse by their TTL if the process dies, so none is held between steps.
+becomes ``cancelled``), removes its scratch files, and closes the handlers (the engine stops the thread that
+renews its leases). Leases are renewed while their work runs (one thread per engine, ``leases.LeaseKeeper``),
+released at the end of each piece of work, and lapse by their TTL if the process dies, so none is held
+between steps.
 
 The drain estimate the daemon publishes (DC-2's ``admission.queue.est_drain_s``) is refreshed after each step.
 """
