@@ -214,3 +214,44 @@ def test_no_command_prints_the_help_s7_1(admin: AdminRun) -> None:
 def test_bad_arguments_are_a_usage_error_s7_1(admin: AdminRun, capsys: pytest.CaptureFixture[str]) -> None:
     assert admin("no-such-command").code == EXIT_USAGE
     assert "invalid choice" in capsys.readouterr().err
+
+
+HALF = """
+def register(subparsers):
+    subparsers.add_parser("half", help="adds its parser, then fails setting up its commands")
+    raise RuntimeError("a bug after add_parser")
+"""
+
+
+def test_a_register_that_fails_after_adding_its_parser_breaks_nothing_else_s7_1(admin: AdminRun, package: Path) -> None:
+    groups = [
+        CommandGroup("half", module(package, "half", HALF), "h"),
+        CommandGroup("hello", module(package, "good", GOOD), "say hello"),
+    ]
+    assert admin("hello", groups=groups).out == "hello world\n"
+    ran = admin("half", groups=groups)
+    assert ran.code == EXIT_FAILED and "could not be set up (RuntimeError: a bug after add_parser)" in ran.err
+    listed = build_parser(groups).format_help()
+    assert listed.count("half") == 1, listed
+
+
+def test_a_package_that_is_there_but_misses_a_dependency_is_broken_not_absent_s7_1(
+    admin: AdminRun, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    name = f"admin_broken_parent_{next(_packages)}"
+    folder = tmp_path / "importable2" / name
+    folder.mkdir(parents=True)
+    (folder / "__init__.py").write_text("import a_dependency_that_is_not_installed\n", encoding="utf-8")
+    (folder / "admin.py").write_text(GOOD, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(folder.parent))
+    ran = admin("hello", groups=[CommandGroup("hello", f"{name}.admin", "h")])
+    assert ran.code == EXIT_FAILED
+    assert "a module it needs is missing: a_dependency_that_is_not_installed" in ran.err
+
+
+def test_a_module_whose_own_import_misses_a_dependency_is_broken_not_absent_s7_1(
+    admin: AdminRun, package: Path
+) -> None:
+    source = "import another_dependency_that_is_not_installed\n" + GOOD
+    ran = admin("hello", groups=[CommandGroup("hello", module(package, "needy", source), "h")])
+    assert ran.code == EXIT_FAILED and "another_dependency_that_is_not_installed" in ran.err

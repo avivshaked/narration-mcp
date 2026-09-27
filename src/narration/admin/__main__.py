@@ -26,13 +26,23 @@ import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, TextIO, cast
+from typing import Any, Final, TextIO, cast
 
 import narration
 from narration.contracts.errors import NarrationError
 from narration.platform import ProcessPlatform, get_platform
 
-from .cli import EXIT_FAILED, EXIT_UNAVAILABLE, EXIT_USAGE, PROGRAM, Admin, AdminError, Handler, Subparsers
+from .cli import (
+    EXIT_FAILED,
+    EXIT_UNAVAILABLE,
+    EXIT_USAGE,
+    PROGRAM,
+    Admin,
+    AdminError,
+    Handler,
+    Subparsers,
+    names_the_module,
+)
 
 log = logging.getLogger("narration.admin")
 
@@ -67,39 +77,69 @@ COMMAND_GROUPS: Final[tuple[CommandGroup, ...]] = (
 Register = Callable[[Subparsers], None]
 
 
-def load_group(group: CommandGroup) -> tuple[Register | None, str]:
-    """The group's ``register`` function, or None and why it is not available."""
+@dataclass(frozen=True, slots=True)
+class Loaded:
+    """``load_group``'s answer: the group's ``register``, or why it is not available and the exit code its
+    stand-in returns (``EXIT_UNAVAILABLE`` when the module is not in this build, ``EXIT_FAILED`` when it is
+    there but broken)."""
+
+    register: Register | None
+    why: str = ""
+    exit_code: int = EXIT_FAILED
+
+
+def load_group(group: CommandGroup) -> Loaded:
+    """Import the group's module. A module (or a package it is in) that is not installed is "not in this
+    build"; one that is there but fails to import, for example on a missing dependency, is broken, and the
+    message names what is missing."""
+    absent = Loaded(None, f"it is not in this build ({group.module} is not installed)", EXIT_UNAVAILABLE)
     try:
         spec = importlib.util.find_spec(group.module)
-    except ModuleNotFoundError:
-        spec = None  # a parent package is not in this build
+    except ModuleNotFoundError as exc:  # importing a parent package failed on a missing module
+        if names_the_module(exc, group.module):
+            return absent
+        return Loaded(None, f"it could not be loaded (a module it needs is missing: {exc.name})")
     except Exception as exc:  # a parent package failed to import
-        return None, f"it could not be loaded ({type(exc).__name__}: {exc})"
+        return Loaded(None, f"it could not be loaded ({type(exc).__name__}: {exc})")
     if spec is None:
-        return None, f"it is not in this build ({group.module} is not installed)"
+        return absent
     try:
         module = importlib.import_module(group.module)
+    except ModuleNotFoundError as exc:
+        log.debug("could not import %s", group.module, exc_info=True)
+        if names_the_module(exc, group.module):
+            return absent
+        return Loaded(None, f"it could not be loaded (a module it needs is missing: {exc.name})")
     except Exception as exc:
         log.debug("could not import %s", group.module, exc_info=True)
-        return None, f"it could not be loaded ({type(exc).__name__}: {exc})"
+        return Loaded(None, f"it could not be loaded ({type(exc).__name__}: {exc})")
     register: object = getattr(module, "register", None)
     if not callable(register):
-        return None, f"{group.module} has no register(subparsers)"
-    return cast("Register", register), ""
+        return Loaded(None, f"{group.module} has no register(subparsers)")
+    return Loaded(cast("Register", register))
 
 
-def _unavailable(group: CommandGroup, why: str) -> Handler:
+def _unavailable(group: CommandGroup, why: str, exit_code: int) -> Handler:
     def handler(admin: Admin, args: argparse.Namespace) -> int:
         admin.warn(f"{PROGRAM} {group.name} is not available: {why}.")
-        return EXIT_UNAVAILABLE if "not in this build" in why else EXIT_FAILED
+        return exit_code
 
     return handler
 
 
-def _add_unavailable(subparsers: Subparsers, group: CommandGroup, why: str) -> None:
+def _add_unavailable(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # pyright: ignore[reportPrivateUsage]
+    group: CommandGroup,
+    why: str,
+    exit_code: int = EXIT_FAILED,
+) -> None:
+    """Add the group's stand-in, first dropping whatever parser a failed ``register`` left under its name."""
+    subparsers.choices.pop(group.name, None)
+    listed: list[Any] = getattr(subparsers, "_choices_actions", [])
+    listed[:] = [action for action in listed if getattr(action, "dest", None) != group.name]
     parser = subparsers.add_parser(group.name, help=f"{group.help} [not available: {why}]", add_help=False)
     parser.add_argument("rest", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
-    parser.set_defaults(handler=_unavailable(group, why))
+    parser.set_defaults(handler=_unavailable(group, why, exit_code))
 
 
 def build_parser(groups: Sequence[CommandGroup] = COMMAND_GROUPS) -> argparse.ArgumentParser:
@@ -119,9 +159,10 @@ def build_parser(groups: Sequence[CommandGroup] = COMMAND_GROUPS) -> argparse.Ar
     parser.add_argument("--version", action="version", version=f"%(prog)s {narration.__version__}")
     subparsers = parser.add_subparsers(title="commands", metavar="<command>")
     for group in groups:
-        register, why = load_group(group)
+        loaded = load_group(group)
+        register = loaded.register
         if register is None:
-            _add_unavailable(subparsers, group, why)
+            _add_unavailable(subparsers, group, loaded.why, loaded.exit_code)
             continue
         try:
             register(subparsers)

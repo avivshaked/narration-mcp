@@ -46,7 +46,7 @@ from narration.contracts.names import WorkerRole
 from narration.platform import ProcessPlatform, is_supported
 from narration.workers.launch import WORKER_PROJECT_DIRS, venv_python, worker_project
 
-from .cli import EXIT_FAILED, EXIT_OK, PROGRAM, Admin, AdminError, Subparsers
+from .cli import EXIT_FAILED, EXIT_OK, PROGRAM, Admin, AdminError, Subparsers, names_the_module
 from .models import check_files, pinned_revisions, read_manifest, snapshot_dir
 
 Level = Literal["ok", "info", "warn", "fail"]
@@ -79,7 +79,39 @@ class GpuFacts:
 
 
 class GpuUnavailable(Exception):
-    """NVML cannot read the configured GPU; the message says why."""
+    """NVML cannot read the configured GPU; the message says why. ``no_driver`` is True when there is no
+    NVIDIA driver at all (the machine has no usable NVIDIA GPU); ``next_step`` is what to do, when the cause
+    says it."""
+
+    def __init__(self, message: str, *, no_driver: bool = False, next_step: str | None = None) -> None:
+        super().__init__(message)
+        self.no_driver = no_driver
+        self.next_step = next_step
+
+
+NO_DRIVER_ERRORS: Final = ("NVMLError_LibraryNotFound", "NVMLError_DriverNotLoaded")
+"""NVML's errors that mean no NVIDIA driver is there to use."""
+RESTART_ERRORS: Final = ("NVMLError_LibRmVersionMismatch",)
+"""NVML's errors that a restart cures: the driver was updated and the loaded one no longer matches its library."""
+
+
+def _nvml_start_failure(exc: Exception) -> GpuUnavailable:
+    """What NVML's start failure means, in its own words and with what to do."""
+    kind = type(exc).__name__
+    if kind in NO_DRIVER_ERRORS:
+        return GpuUnavailable(f"NVML could not start ({exc}): no NVIDIA driver is loaded", no_driver=True)
+    if kind in RESTART_ERRORS:
+        return GpuUnavailable(
+            f"NVML could not start ({exc}): the NVIDIA driver in use does not match its library, as after a driver "
+            "update",
+            next_step="Restart the machine to load the updated driver, then run doctor again.",
+        )
+    return GpuUnavailable(
+        f"NVML could not start ({kind}: {exc})",
+        next_step=(
+            "Check the NVIDIA driver (nvidia-smi shows what it says), reinstall it if needed, then run doctor again."
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +132,7 @@ def read_gpu(index: int) -> GpuFacts:
     try:
         pynvml.nvmlInit()
     except pynvml.NVMLError as exc:
-        raise GpuUnavailable(f"NVML could not start ({exc}): no NVIDIA driver is loaded") from exc
+        raise _nvml_start_failure(exc) from exc
     try:
         count = int(pynvml.nvmlDeviceGetCount())
         if index >= count:
@@ -160,8 +192,10 @@ def engine_module_present() -> bool:
 
     try:
         return importlib.util.find_spec(ENGINE_MODULE) is not None
-    except ModuleNotFoundError:
-        return False
+    except ModuleNotFoundError as exc:
+        # Absent only when the engine package itself is missing; one that fails on a dependency is in this
+        # build (broken), and ``narration-admin engine`` says why.
+        return not names_the_module(exc, ENGINE_MODULE)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -352,12 +386,19 @@ def check_gpu(config: Config | None, read: Callable[[int], GpuFacts]) -> Finding
     try:
         facts = read(int(match.group(1)))
     except GpuUnavailable as exc:
+        if exc.no_driver:
+            return Finding(
+                "gpu",
+                "fail",
+                f"no NVIDIA GPU can be used here: {exc}. narration-mcp renders and checks audio on an NVIDIA GPU, "
+                "so this machine cannot run jobs; the operator commands that need no GPU still work",
+                "If this machine has an NVIDIA GPU, install or update its driver, then run doctor again.",
+            )
         return Finding(
             "gpu",
             "fail",
-            f"no NVIDIA GPU can be used here: {exc}. narration-mcp renders and checks audio on an NVIDIA GPU, so "
-            "this machine cannot run jobs; the operator commands that need no GPU still work",
-            "If this machine has an NVIDIA GPU, install or update its driver, then run doctor again.",
+            f"the NVIDIA GPU cannot be used now: {exc}. Jobs cannot run until it can",
+            exc.next_step or "Check the NVIDIA driver and the [gpu] device, then run doctor again.",
         )
     return Finding(
         "gpu",
@@ -377,7 +418,15 @@ def check_engine(admin: Admin, *, engine_module: bool) -> list[Finding]:
         store = admin.store()
         profiles = {kind: store.current_engine_profile(kind) for kind in ("base", "design")}
     except Exception as exc:
-        return [Finding("engine", "fail", f"the store cannot be read ({type(exc).__name__}: {exc})", None)]
+        return [
+            Finding(
+                "engine",
+                "fail",
+                f"the store cannot be read ({type(exc).__name__}: {exc})",
+                f"Run `{PROGRAM} verify`, which checks the store's database and files; if it reports damage, keep "
+                "its report and tell the maintainers.",
+            )
+        ]
     findings: list[Finding] = []
     for kind, profile in profiles.items():
         if profile is None:
@@ -422,7 +471,19 @@ def diagnose(admin: Admin, *, probes: Probes | None = None, hash_models: bool = 
         return findings
     findings.append(Finding("config", "ok", str(path)))
     findings += check_store(config, admin.platform())
-    findings += check_models(config, probes.pins(), hash_files=hash_models)
+    try:
+        pins = probes.pins()
+    except ImportError as exc:
+        findings.append(
+            Finding(
+                "models",
+                "fail",
+                f"the engine's model pins are in this build but cannot be loaded ({exc})",
+                "Sync the server's venv (uv sync --locked), then run doctor again.",
+            )
+        )
+    else:
+        findings += check_models(config, pins, hash_files=hash_models)
     findings += check_workers(config, probes.venv_synced)
     findings.append(check_gpu(config, probes.gpu))
     findings += check_engine(admin, engine_module=probes.engine_module())

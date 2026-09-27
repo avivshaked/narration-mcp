@@ -41,7 +41,7 @@ def gpu_ok(index: int) -> GpuFacts:
 
 
 def no_gpu(index: int) -> GpuFacts:
-    raise GpuUnavailable("NVML could not start (Driver Not Loaded): no NVIDIA driver is loaded")
+    raise GpuUnavailable("NVML could not start (Driver Not Loaded): no NVIDIA driver is loaded", no_driver=True)
 
 
 def probes(
