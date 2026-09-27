@@ -23,6 +23,34 @@ push, set its status file to `blocked:paused-by-owner`, and stop. To resume:
 5. **After WP47 merges:** re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in
    stages (remove `.dev/service-setup/STOP`).
 
+Where each one stopped (all pushed, with `blocked:paused-by-owner` in each status file):
+- **Pace hotfix, `wp/47-pace-warn` d419b5c** (one `wip:` commit):
+  - the code and the tests are done: targeted suites pass, and the store tests were fixed;
+  - the check that a measured voice stays measured is done (KNOW, with file:line in its status);
+  - left: ruff, basedpyright and check_tracked; a final commit message; open the PR.
+- **PR #40, `wp/36-guidance` d491eea:** all fixes done, including the last six-item round. Left: CI, then merge.
+- **WP47, `wp/47-pace-cps` bcdc7b2** (`wip:`, untested):
+  - the rate is characters per second of speaking time, excluding silences of 0.25 s or more, taken from the
+    signal stage's speech mask (ASSUME until it is measured on the re-measured voice);
+  - measurement schemas move to `/v2` with `PACE_METHOD` in the key;
+  - render keys are pinned by a new test, not yet run.
+  - **Review at resume:** it added contract fields beyond the lead's approval (listed in its status file).
+  - Left: merge main after the hotfix, then QA profile `default.v5` and contracts 1.6.9; tests, CHANGELOG and
+    DC-18.
+  - It tried to measure pause lengths on the bake-off's clone takes, and the permission classifier refused
+    that. Measure on the owner's own synthetic voice instead, after the merge.
+- **PR #41, `wp/36-liveness` eb84606** (`wip:`): L2–L6 and F1–F3, F5 done.
+  - **L1: the lead approves the agent's option (b′).** A queued job under a `stopped` status counts as an
+    operator's stop only if both hold:
+    - a `stop` or `stop_now` answered `stopped: true` is among the commands since that daemon started;
+    - the job was created before that stop was posted.
+
+    Otherwise a daemon is started (only the note when autostart is off). Why: `stopped` is also written after
+    a control-loop error, a supervisor failure, and a submit during an operator's stop, so option (b) would
+    strand queued jobs.
+  - Left: L1 (b′), the design-text proposals, merge main (conflicts expected in `descriptions.py` and
+    `daemon/start.py`), the full suite.
+
 **The owner's first real narration session (21:46–22:10): 9 jobs ran** through the MCP from the owner's Claude
 Code session.
 - Every take that failed QA failed on `PACE_FAST` (24 takes; 7 of them also warned `SPK_SIM_LOW`), all with WER 0 and high speaker
