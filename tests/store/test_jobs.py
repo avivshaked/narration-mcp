@@ -68,6 +68,26 @@ def test_a_finished_job_does_not_absorb_a_new_request_s7_3(store: NarrationStore
     assert created and second.job_id != first.job_id
 
 
+def _cancelling(store: NarrationStore, job_id: str) -> None:
+    assert store.claim_job(job_id, "a-daemon") is not None
+    assert store.update_job(job_id, expect_status="running", status="cancelling")
+
+
+def test_a_job_being_cancelled_does_not_absorb_the_same_request_s7_3(store: NarrationStore) -> None:
+    first, _ = store.create_job(job_record(new_id()))
+    _cancelling(store, first.job_id)
+    second, created = store.create_job(job_record(new_id()))
+    assert created and second.job_id != first.job_id
+    assert second.status == "queued"
+
+
+def test_a_job_being_cancelled_no_longer_holds_its_idempotency_key_dc6(store: NarrationStore) -> None:
+    first, _ = store.create_job(job_record(new_id(), idempotency_key="retry-1"))
+    _cancelling(store, first.job_id)
+    other, created = store.create_job(job_record(new_id(), request_sha256="d" * 64, idempotency_key="retry-1"))
+    assert created and other.job_id != first.job_id
+
+
 def test_the_same_request_under_another_tool_is_another_job(store: NarrationStore) -> None:
     store.create_job(job_record(new_id(), kind="generate"))
     _, created = store.create_job(job_record(new_id(), kind="analyse"))

@@ -16,6 +16,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   trend, and stops at the first rung the voice does not read reliably. It publishes `measurement.json`
   with `max_segment_chars`, `max_segment_seconds`, the pace curve and the ladder table. Every take comes
   from the cache when it can, so a measurement that stopped resumes where it was.
+- The same request sent again while its earlier job is being cancelled now makes a new job, instead of
+  returning the job that is ending. A job being cancelled also stops holding its `idempotency_key`.
 - `narration-mcp` now serves the real tools over the store and the daemon. It finds its configuration
   from `--config`, then `NARRATION_CONFIG`, then `narration.toml` in the service's folder. `submit_job`
   checks the request, plans it against the cache and queues it; a `dry_run` only plans. The same

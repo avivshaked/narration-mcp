@@ -138,6 +138,9 @@ _READ_ATTEMPTS: Final = 5
 
 _PRIORITY_RANK: Final = {"interactive": 0, "batch": 1}
 _ACTIVE: Final = ("queued", "running", "cancelling")
+_DEDUPES: Final = ("queued", "running")
+"""The jobs a new request is deduplicated against (``create_job``). A job being cancelled is ending and will
+make nothing more, so the same request again is a new job (section 7.3), and its ``idempotency_key`` is free."""
 _FIXED_JOB_FIELDS: Final = frozenset(
     {"schema", "job_id", "kind", "request", "request_sha256", "idempotency_key", "created_at"}
 )
@@ -1167,14 +1170,15 @@ class NarrationStore:
 
     # ================================================================ jobs and the queue (sections 6, 7.3, 8)
     def create_job(self, record: JobRecord) -> tuple[JobRecord, bool]:
-        """Insert a job, or return the active job (queued, running or cancelling) of the same kind with the
-        same ``request_sha256``. The bool says whether it is new. A request whose earlier job has finished
-        makes a new job.
+        """Insert a job, or return the queued or running job of the same kind with the same
+        ``request_sha256``. The bool says whether it is new. A request whose earlier job has finished, or is
+        being cancelled, makes a new job: a job being cancelled will make nothing more (section 7.3).
 
-        ``idempotency_key`` deduplicates retries, and a retry is the same request: an active job of the same
-        kind with the same key and the same request is returned. With the same key and a different request
-        it is refused, ``NarrationError(INVALID_ARGUMENT, field="idempotency_key")`` (plan.md DC-6): returning
-        the old job would tell the caller that its different request had been queued.
+        ``idempotency_key`` deduplicates retries, and a retry is the same request: a queued or running job of
+        the same kind with the same key and the same request is returned. With the same key and a different
+        request it is refused, ``NarrationError(INVALID_ARGUMENT, field="idempotency_key")`` (plan.md DC-6):
+        returning the old job would tell the caller that its different request had been queued. A job being
+        cancelled no longer holds its key.
         """
         self._layout.job_dir(record.job_id)  # checks the id
         record = self._validated_job(record)
@@ -1184,8 +1188,8 @@ class NarrationStore:
             if record.idempotency_key:
                 row = conn.execute(
                     "SELECT record, request_sha256 FROM jobs WHERE kind = ? AND idempotency_key = ?"
-                    " AND status IN (?, ?, ?) ORDER BY seq LIMIT 1",
-                    (record.kind, record.idempotency_key, *_ACTIVE),
+                    " AND status IN (?, ?) ORDER BY seq LIMIT 1",
+                    (record.kind, record.idempotency_key, *_DEDUPES),
                 ).fetchone()
                 if row is not None and row["request_sha256"] != record.request_sha256:
                     raise NarrationError(
@@ -1197,9 +1201,9 @@ class NarrationStore:
                     )
             if row is None:
                 row = conn.execute(
-                    "SELECT record FROM jobs WHERE kind = ? AND request_sha256 = ? AND status IN (?, ?, ?)"
+                    "SELECT record FROM jobs WHERE kind = ? AND request_sha256 = ? AND status IN (?, ?)"
                     " ORDER BY seq LIMIT 1",
-                    (record.kind, record.request_sha256, *_ACTIVE),
+                    (record.kind, record.request_sha256, *_DEDUPES),
                 ).fetchone()
             if row is not None:
                 return from_json(JobRecord, json.loads(row["record"])), False
