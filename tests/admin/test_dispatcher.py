@@ -214,4 +214,3 @@ def test_no_command_prints_the_help_s7_1(admin: AdminRun) -> None:
 def test_bad_arguments_are_a_usage_error_s7_1(admin: AdminRun, capsys: pytest.CaptureFixture[str]) -> None:
     assert admin("no-such-command").code == EXIT_USAGE
     assert "invalid choice" in capsys.readouterr().err
-

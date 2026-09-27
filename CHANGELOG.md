@@ -161,6 +161,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   configuration by the same rule as `narration-mcp`. `--help` lists every command of design section 7.1;
   a command whose module is not in this build says so (exit code 3) instead of failing, and the others
   still run.
+- `narration-admin daemon start | stop [--now] | status`. `start` starts the daemon detached unless one
+  serves, and waits until it serves; when the terminal cannot detach it, `start --foreground` runs it in
+  the terminal. `stop` posts a stop only when a daemon runs, then waits for its answer. `status` shows what
+  the daemon is doing, or `--json`.
 
 ### Changed
 
