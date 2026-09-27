@@ -360,7 +360,9 @@ def _anchor(gate: Gate, clip: Path) -> tuple[float, ...]:
     return tuple(float(v) for v in reply["embedding"])
 
 
-def _job_runner(gate: Gate, tmp_path: Path) -> tuple[EngineRunner, JobEngine, dict[str, Any]]:
+def _job_runner(
+    gate: Gate, tmp_path: Path, texts: tuple[str, ...] = (jobs.LAMPS,)
+) -> tuple[EngineRunner, JobEngine, dict[str, Any]]:
     """The job engine with the installed guard, and a measured test voice under the pinned Base profile."""
     config, store = gate.install.config, gate.store
     profile = gate.profile("base")
@@ -391,7 +393,7 @@ def _job_runner(gate: Gate, tmp_path: Path) -> tuple[EngineRunner, JobEngine, di
         defer_s=0.05,
     )
     engine = JobEngine(config, parts)
-    return EngineRunner(engine), engine, jobs.request(clip, clip_sha256, jobs.LAMPS)
+    return EngineRunner(engine), engine, jobs.request(clip, clip_sha256, *texts)
 
 
 def test_a_job_on_the_pinned_engine_records_the_canarys_hash_match_s10_1(gate: Gate, tmp_path: Path) -> None:
@@ -423,3 +425,40 @@ def test_a_job_on_a_drifted_engine_fails_before_it_renders_s10_1(gate: Gate, tmp
     assert failed.error is not None and failed.error.code == codes.ENGINE_DRIFT
     assert gate.pool.texts() == []  # neither the canary nor the job rendered
     assert "qwen" not in gate.pool.loaded()  # the refused load is unloaded
+
+
+@pytest.mark.parametrize("unload_fails", [False, True], ids=["unloaded", "unload_fails"])
+def test_a_job_after_a_similarity_pass_completes_with_every_take_flagged_s10_1(
+    gate: Gate, tmp_path: Path, unload_fails: bool
+) -> None:
+    """The canary's hash differs but its similarity passes: the job renders and completes, every take in the
+    bit_exact tier carries CANARY_MISMATCH (info), and the QA worker's CPU copy of WavLM is gone again before
+    the QA group loads once on the GPU, whether or not its unload succeeded (a failed unload stops the
+    worker, so the pool and the residency agree on what is loaded)."""
+    runner, engine, body = _job_runner(gate, tmp_path, (jobs.LAMPS, jobs.KETTLE))
+    pinned = gate.profile("base")
+    assert pinned.canary is not None and pinned.tier == "bit_exact"
+    # The canary is pinned with another seed than it now renders with: as if the numbers moved like a seed's.
+    gate.store.put_engine_profile(_with_canary(pinned, seed=calibration_seeds(pinned.canary.seed)[0]))
+    if unload_fails:
+        gate.faults({"kind": "error", "op": "unload", "code": "INTERNAL", "message": "stuck", "times": 1})
+    try:
+        job = jobs.submit(gate.store, body)
+        jobs.drive(runner, gate.host)
+        done = gate.store.get_job(job.job_id)
+        assert done is not None and done.status == "completed", done
+        attempts = [a for item in done.items for a in item.attempts]
+        assert len(attempts) >= 2
+        for attempt in attempts:
+            render = gate.store.get_render(attempt.render_key)
+            assert render is not None and render.canary.batch_status == "similarity_pass"
+            assert [f.severity for f in attempt.flags if f.code == codes.CANARY_MISMATCH] == ["info"]
+        qa_loads = gate.sent("qa", "load")
+        assert qa_loads[0] == {"device": "cpu", "models": {"sv": qa_pins(gate.install.config).sv.ref()}}
+        assert len(qa_loads) == 2 and set(qa_loads[1]["models"]) == {"asr", "sv", "aligner"}  # once on the GPU
+        residency = engine.residency._loaded  # pyright: ignore[reportPrivateUsage]
+        assert set(residency) == set(gate.pool.loaded())  # what the engine thinks is loaded, is
+        for group, (_, client) in residency.items():
+            assert gate.pool.client(group) is client
+    finally:
+        engine.close()
