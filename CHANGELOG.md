@@ -61,9 +61,10 @@ are tracked here but no version is tagged; nothing described below is installabl
 - A `fake` worker role with deterministic synthetic audio and QA outputs, and faults it can plant on
   request of a test (`NARRATION_FAKE_SPEC`), so the service can be developed and tested without a model
   or a GPU; and the worker contract tests every worker runs (`narration_worker.testing`). The fake checks
-  a Qwen `load`'s `model`, `device`, `dtype`, `attn_implementation`, `determinism` and `settings` with
-  the Qwen worker's own checks (`narration_worker.qwen_settings`), so it refuses them exactly as the real
-  worker does, with the same code and field: all ten sampling values and `non_streaming_mode` must be
+  a Qwen `load`'s `device`, `dtype`, `attn_implementation`, `determinism` and `settings` with the Qwen
+  worker's own checks (`narration_worker.qwen_settings`), and its `model` reference by the same rules as
+  that worker, so it refuses them exactly as the real worker does, with the same code and field: all ten
+  sampling values and `non_streaming_mode` must be
   given, the ceiling `settings.generation.max_new_tokens` among them. It does not read the snapshot's
   files or look for torch and a GPU.
 - `narration.keys`: the cache keys of design section 10.2 (`voice_hash`, measurement, render, delivery and
