@@ -1,5 +1,51 @@
 # WP36-liveness A dead daemon, a mistyped transcript, and cached analyses in the plan
-State: review        Updated: 2026-09-27T21:35 local
+State: blocked:paused-by-owner        Updated: 2026-09-27 (PR #41 review, round 2, paused mid-way)
+
+## PR #41 review, round 2 (paused by the owner; WIP commit, not ready for review)
+
+Done (targeted tests passed before the pause: tests/backend, tests/mcp, tests/daemon without test_process,
+test_owned and test_entry: 471 passed; tests/jobs, tests/engine/test_daemon_backend.py, tests/keys: 233 passed;
+tests/lint and test_package: 57 passed; ruff check, ruff format --check and basedpyright clean on the changed files):
+- L2: `start_detached` records `run/launch.json` (pid, launch time; temp name and rename). `_revive` asks for no
+  daemon while a launch is younger than `START_WINDOW_S` = 90 s (`takeover_wait_s` 60 s + 30 s interpreter start
+  and imports; BELIEVE, to be measured) and no status was written since. Tests: repeated polls, cancel then
+  get_job, a stuck start (one launch per window), a start that died (replaced at once).
+- L3: explicit `SHIELDED_TOOLS` (server.py) and `RETRYABLE_TOOLS` (descriptions.py, with get_job); get_job's
+  description gets the backoff rule plus one clause; readOnlyHint stays true.
+- L4: "asked for one"; the log line only with autostart on; the stale "(daemon state: ...)" is dropped when the
+  poll ended on a status change.
+- L5: a negative age within the grace counts as just written; the 30 s grace is labelled BELIEVE.
+- L6: the wait_s test counts polls instead of timing (a mutation check showed 10 polls against at most 1).
+- F1/F2: `details.transcript_mismatch.rewrites`, a hint phrased as steps, `transcript + "
+"` as a spelling;
+  tests for the double space, the leading space, the ellipsis and the measured trailing newline. CHANGELOG and
+  the measures.py docstring say which directions are caught.
+- F3: `AnalysisPins.aligner_revision` (no key input), filled by `InstalledPins`; `get_server_status` reports it
+  before the benchmark has run.
+- F5: one builder, `narration.jobs.plan.analysis_key_inputs`, used by `Stages.key_inputs` and
+  `planning.analysis_key_inputs`. Tests: a parity test over the real `Stages.key_inputs` (with hints and an exact
+  span), and one key pinned at the value the code computed before the refactor.
+
+Not done:
+- L1, NOT BUILT, as asked ("stop and tell me before building"). A `stopped` status is not only an operator's
+  decision, so option (b) would leave these queued jobs stuck:
+  - (a) the control loop raising: `log.exception(...)`, then EXIT_ERROR; `_run_held`'s finally still writes
+    `stopped` (daemon/service.py, `_run_held`);
+  - (b) the supervisor factory raising: that goes through the same finally;
+  - (c) a job submitted during an operator stop's in-flight segment: the daemon its submit launched gives up
+    after `takeover_wait_s` (60 s) while the old one finishes the segment; then the old one writes `stopped`.
+    The design intends that job to run: a stop posted before a daemon's launch is not honoured by it;
+  - (d) an idle exit that takes more than 60 s after `has_work` said no, while a job is submitted (unlikely);
+  - (e) the submit's ensure failed and the old daemon exits cleanly (the caller was told at submit).
+  - Proposed (b'): a queued job under `stopped` is an operator's stop only if `store.commands_since(status.started_at)`
+    has a `stop`/`stop_now` answered `stopped: true` AND the job was created before that stop was posted.
+    Otherwise start one (autostart off: the note only). Waiting on the lead's decision.
+- The design text proposals (§4/§4.1 for L1 and L2's launch marker; §3.2/§7.3/§14 for F4, that
+  VOICE_NOT_MEASURED's hint depends on a nearby spelling being measured) are still to be written into this file.
+- A follow-up to measure start-to-status time (for the 30 s grace and the 90 s window).
+- Merge main when the lead says (conflicts expected in descriptions.py from #40, and maybe daemon/start.py from #37),
+  then the full suite, and set State to review.
+
 
 Branch `wp/36-liveness`, rebased onto `main` 78b2fae (docs only since 10270ba). Fixes three readiness-audit findings in WP36's area (the
 front-end's backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13/mcp-12/triage-5.

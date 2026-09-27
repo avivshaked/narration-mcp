@@ -53,6 +53,7 @@ from .core import LOST_STATE, EngineCore, worker_code
 from .gpu import GroupNeed, Readiness
 from .host import GROUP_ROLES, ResidencyError, RunnerHost
 from .pins import call_cap, generation, qwen_load_payload
+from .plan import analysis_key_inputs
 from .state import Attempt, JobRun, Outcome, SegmentWork, label
 
 log = logging.getLogger(__name__)
@@ -155,14 +156,13 @@ class Stages:
         return ScoringFacts(measurement=run.measurement)
 
     def key_inputs(self, run: JobRun, seg: SegmentWork, take: TakeRecord) -> AnalysisKeyInputs:
-        """The analysis key's inputs (section 10.2): the take, the request's inputs for it, the service's pins."""
+        """The analysis key's inputs (section 10.2): the take, the request's inputs for it, the service's pins
+        (``narration.jobs.plan.analysis_key_inputs``, which a front-end plan builds them with too)."""
         parts, text = self.core.parts, seg.text
-        return AnalysisKeyInputs(
-            delivery_sha256=take.delivery.sha256,
-            spoken_text=text.spoken_text,
-            cue_spans=tuple(c.spoken_span for c in text.cues),
-            exact_spans=tuple((c.index, e.words[0], e.words[1]) for c in text.cues for e in c.exact),
-            hints_qa=tuple((h.term, h.asr_aliases, h.align_as) for h in seg.hints),
+        return analysis_key_inputs(
+            take=take,
+            text=text,
+            hints=seg.hints,
             qa_profile=parts.scorer.profile_version,
             text_checks_version=(text.text_checks or parts.text.checks_info).version,
             number_reader=parts.scorer.number_reader,
