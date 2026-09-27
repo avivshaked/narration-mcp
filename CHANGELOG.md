@@ -24,8 +24,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   request while its job is active returns that job. The server copies the voice clip into the store,
   then starts the daemon. A voice that has not been measured is refused with `VOICE_NOT_MEASURED`.
   `get_job` long-polls and reports progress. `get_results` returns the QA'd, cue-aligned takes and
-  writes `report.md` and `report.json` beside the job. `measure_voice`, `check_text`, `cancel_job`,
-  `get_server_status`, `release_gpu` and the `narration://` resources also work. Retryable errors
+  writes `report.md` and `report.json` beside the job. `measure_voice` answers a current measurement
+  at once, without a job, and otherwise queues one. `check_text`, `cancel_job`, `get_server_status`,
+  `release_gpu` and the `narration://` resources also work. Sending a default (`text_mode`, empty
+  `hints`, default options) and leaving it out make the same job. Retryable errors
   carry `retry_after_s`, and `[limits]` caps the submit rate and the queue. `design_voice`,
   `profile_voice` and `audition_pronunciation` still answer `BACKEND_NOT_INSTALLED`. README.md says
   how to add the server to Claude Code.

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -17,9 +18,9 @@ import soundfile
 from narration.config import VoicesConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
-from narration.jobs.voice import clip_path
+from narration.jobs.voice import MAX_CLIP_BYTES, clip_path
 from narration.platform import get_platform
-from tests.jobs.support import ENGINE_HASH, KETTLE, LAMPS, ORCHARD
+from tests.jobs.support import ENGINE_HASH, KETTLE, LAMPS, ORCHARD, measurement
 
 from .conftest import Service
 from .support import make_backend, sha256_of, write_wav
@@ -32,6 +33,12 @@ def limits(service: Service, **changes: Any) -> None:
 
 def allow(service: Service, *sha256: str) -> None:
     service.backend.config = dataclasses.replace(service.backend.config, voices=VoicesConfig(allow_sha256=sha256))
+
+
+def allow_measured(service: Service, sha256: str) -> None:
+    """Allow a clip and measure its voice, so a refusal can only come from the clip's own checks."""
+    allow(service, sha256)
+    service.world.store.put_measurement(measurement(sha256, service.world.anchor))
 
 
 def refused(service: Service, body: dict[str, Any]) -> NarrationError:
@@ -77,6 +84,15 @@ def test_the_same_request_after_a_cancel_is_a_new_job_s7_3(service: Service) -> 
     assert again["job_id"] != first["job_id"], "a job being cancelled will make nothing more"
     assert again["status"] == "queued"
     assert service.world.job(first["job_id"]).status == "cancelling"
+
+
+def test_a_default_sent_and_a_default_left_out_are_the_same_job_s7_3(service: Service) -> None:
+    plain = service.backend.submit_job_sync(service.request(LAMPS))
+    explicit = {**service.request(LAMPS), "text_mode": "spoken", "hints": []}
+    assert service.backend.submit_job_sync(explicit)["job_id"] == plain["job_id"]
+    options = {"takes": 1, "max_retakes": 2, "strict_text": False, "priority": "batch"}
+    assert service.backend.submit_job_sync(service.request(LAMPS, **{"options": options}))["job_id"] == plain["job_id"]
+    assert jobs_in(service) == 1
 
 
 def test_idempotency_key_on_a_different_request_is_refused_dc6(service: Service) -> None:
@@ -201,7 +217,7 @@ def test_a_network_path_is_refused_by_the_platform_s17_3(service: Service) -> No
 def test_a_clip_over_30_seconds_is_unsupported_audio_s17_3(service: Service) -> None:
     long = service.world.root / "elsewhere" / "long.wav"
     sha = write_wav(long, seconds=31.0)
-    allow(service, sha)
+    allow_measured(service, sha)
     error = refused(service, service.request(LAMPS, voice=service.voice(path=str(long), sha256=sha)))
     assert (error.code, error.field) == (codes.UNSUPPORTED_AUDIO, "voice.path")
     assert not clip_path(service.world.store, sha).exists()
@@ -212,7 +228,7 @@ def test_a_clip_that_is_not_a_wav_is_unsupported_audio_s17_3(service: Service) -
     flac.parent.mkdir(parents=True)
     soundfile.write(str(flac), np.zeros(24_000, dtype=np.float32), 24_000, format="FLAC")
     sha = sha256_of(flac)
-    allow(service, sha)
+    allow_measured(service, sha)
     error = refused(service, service.request(LAMPS, voice=service.voice(path=str(flac), sha256=sha)))
     assert (error.code, error.field) == (codes.UNSUPPORTED_AUDIO, "voice.path")
 
@@ -225,6 +241,7 @@ def test_an_unmeasured_voice_is_refused_and_told_to_measure_s3_2(service: Servic
     assert (error.code, error.field, error.retryable) == (codes.VOICE_NOT_MEASURED, "voice", False)
     assert "measure_voice" in error.hint
     assert jobs_in(service) == 0
+    assert not clip_path(service.world.store, sha).exists(), "refused before the clip is read or copied"
 
 
 # ======================================================================== the engine and the text
@@ -311,3 +328,33 @@ def test_a_daemon_that_cannot_run_here_is_not_retryable_s4(service: Service) -> 
     assert (error.code, error.retryable, error.retry_after_s) == (codes.DAEMON_UNAVAILABLE, False, None)
     assert error.hint == UnsupportedPlatform.HINT
     assert error.details is not None and service.world.job(error.details["job_id"]).status == "queued"
+
+
+def sparse_clip(service: Service, name: str, size: int) -> tuple[Path, str]:
+    """A file of ``size`` bytes that takes no disk (sparse), under a sha256 the service allows and has
+    measured, so only the size check can refuse it."""
+    huge = service.world.root / "elsewhere" / name
+    huge.parent.mkdir(parents=True, exist_ok=True)
+    with huge.open("wb") as handle:
+        handle.truncate(size)
+    sha = "1" * 64
+    allow_measured(service, sha)
+    return huge, sha
+
+
+@pytest.mark.parametrize("tool", ["submit_job", "measure_voice"])
+def test_a_clip_over_20_mb_is_refused_before_it_is_read_s17_3(service: Service, tool: str) -> None:
+    huge, sha = sparse_clip(service, "huge.wav", MAX_CLIP_BYTES + 1024 * 1024)
+    voice = service.voice(path=str(huge), sha256=sha)
+    if tool == "submit_job":
+        error = refused(service, service.request(LAMPS, voice=voice))
+    else:
+        with pytest.raises(NarrationError) as caught:
+            service.backend.measure_voice_sync({"voice": voice})
+        error = caught.value
+    assert (error.code, error.field) == (codes.UNSUPPORTED_AUDIO, "voice.path")
+    assert error.details is not None and error.details["max_bytes"] == MAX_CLIP_BYTES
+    target = clip_path(service.world.store, sha)
+    assert not target.exists()
+    leftovers = [p for p in target.parent.iterdir() if p.suffix == ".tmp"] if target.parent.is_dir() else []
+    assert leftovers == [], "nothing half copied is left"

@@ -51,7 +51,7 @@ from narration.contracts.models import (
     Progress,
     SegmentText,
 )
-from narration.contracts.names import TERMINAL_JOB_STATUSES, EngineKind, JobKind, JobStatus, Priority
+from narration.contracts.names import TERMINAL_JOB_STATUSES, EngineKind, JobKind, Priority
 from narration.contracts.serial import to_json
 from narration.jobs import admission
 from narration.jobs.plan import VoiceSpec, estimated_audio_s
@@ -254,12 +254,10 @@ class NarrationBackend:
         label: str | None,
         priority: Priority,
         idempotency_key: str | None,
-        status: JobStatus = "queued",
-        result: dict[str, Any] | None = None,
         segments_total: int = 0,
     ) -> JobRecord:
+        """A new queued job's record."""
         now = self._now_iso()
-        done = status in TERMINAL_JOB_STATUSES
         return JobRecord(
             job_id=self.keys.new_job_id(),
             kind=kind,
@@ -267,13 +265,13 @@ class NarrationBackend:
             request_sha256=sha,
             label=label,
             priority=priority,
-            status=status,
+            status="queued",
             phase=None,
             round=0,
             progress=Progress(
                 done_s=0.0,
                 total_s=0.0,
-                fraction=1.0 if done else 0.0,
+                fraction=0.0,
                 segments_done=0,
                 segments_total=segments_total,
             ),
@@ -282,8 +280,7 @@ class NarrationBackend:
             idempotency_key=idempotency_key,
             created_at=now,
             updated_at=now,
-            result=result,
-            message="answered from the cache" if done else "queued",
+            message="queued",
         )
 
     def _enqueue(
@@ -295,7 +292,6 @@ class NarrationBackend:
         priority: Priority,
         idempotency_key: str | None,
         segments_total: int = 0,
-        result: dict[str, Any] | None = None,
         identity: Mapping[str, Any] | None = None,
     ) -> JobRecord:
         """Queue a job, or return the queued or running job of the same request (section 7.3), which is not
@@ -316,7 +312,6 @@ class NarrationBackend:
                 priority=priority,
                 idempotency_key=idempotency_key,
                 segments_total=segments_total,
-                result=result,
             )
             try:
                 job, _ = self.store.create_job(record)
@@ -410,12 +405,12 @@ class NarrationBackend:
             )
         clip = ClipRef(path=request.voice.path, sha256=request.voice.sha256)
         check_synthetic(self.store, config.voices.allow_sha256, clip, field="voice")
+        voice_hash = self._voice_hash(request.voice)
+        measurement = self._measurement(voice_hash, profile)  # before the clip is read: nothing to copy if unmeasured
         dry_run = request.options.dry_run
         if not dry_run:
             self._check_disk()
         admit_clip(self.store, self.platform, clip, max_seconds=config.limits.max_clip_seconds, keep=not dry_run)
-        voice_hash = self._voice_hash(request.voice)
-        measurement = self._measurement(voice_hash, profile)
         plan = plan_request(
             self.store,
             segments=request.segments,
@@ -679,42 +674,32 @@ class NarrationBackend:
 
     # ================================================================ measure_voice (sections 3.2, 7.6)
     def measure_voice_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
-        """``measure_voice``: the cached measurement at once (with the id of a completed job), or a queued
-        ``measure`` job. The clip is checked and copied into the store first (section 17.3)."""
+        """``measure_voice`` (section 7.6): a current measurement at once, with no job (it is a read, so it
+        creates no job row and counts against no submit cap); else a queued ``measure`` job. Either way the
+        clip must be synthetic and its file must have the sha256 sent (sections 17.3, 17.4); it is copied
+        into the store only for a job, before any worker sees it."""
         voice = voice_of(args)
         clip = ClipRef(path=voice.path, sha256=voice.sha256)
         profile = self._base_profile()
         check_synthetic(self.store, self.config.voices.allow_sha256, clip, field="voice")
-        self._check_disk()
-        admit_clip(self.store, self.platform, clip, max_seconds=self.config.limits.max_clip_seconds, keep=True)
         voice_hash = self._voice_hash(voice)
-        stored = {"voice": dict(args["voice"])}
+        max_seconds = self.config.limits.max_clip_seconds
         existing = self.measurements.current(voice_hash, profile)
         if existing is not None:
+            admit_clip(self.store, self.platform, clip, max_seconds=max_seconds, keep=False)
             self.store.touch("measurement", existing.measurement_key)
-            handle = measurement_handle(existing, self.store.measurement_dir(voice_hash, profile.engine_profile_id))
-            record = self._new_record(
-                "measure",
-                stored,
-                request_sha256("measure", stored),
-                label=None,
-                priority="batch",
-                idempotency_key=None,
-                status="completed",
-                result=handle,
-            )
-            job, _ = self.store.create_job(record)
             return {
-                "job_id": job.job_id,
-                "status": job.status,
+                "status": "completed",
                 "poll_after_s": 0.0,
                 "voice_hash": voice_hash,
                 "measurement": to_json(existing),
             }
-        job = self._enqueue("measure", stored, label=None, priority="batch", idempotency_key=None)
-        queued = self.store.queued_jobs()
-        _, _, poll = views.job_timing(job, queued)
-        return {"job_id": job.job_id, "status": job.status, "poll_after_s": poll, "voice_hash": voice_hash}
+        self._check_disk()
+        admit_clip(self.store, self.platform, clip, max_seconds=max_seconds, keep=True)
+        job = self._enqueue(
+            "measure", {"voice": dict(args["voice"])}, label=None, priority="batch", idempotency_key=None
+        )
+        return {**self._submitted(job), "voice_hash": voice_hash}
 
     async def measure_voice(self, args: Mapping[str, Any]) -> dict[str, Any]:
         """``measure_voice`` (section 7.6)."""
@@ -932,25 +917,6 @@ def with_retry_after(exc: NarrationError) -> NarrationError:
         retryable=True,
         retry_after_s=RETRY_AFTER_S.get(exc.code, admission.RETRY_MIN_S),
     )
-
-
-def measurement_handle(measurement: MeasurementRecord, folder: Path) -> dict[str, Any]:
-    """A ``measure`` job's ``JobRecord.result``, as the measure handler (WP33) writes it. For a measurement
-    answered at once, ``ladder_stopped_at`` names the first rung that did not pass, without the reasons: the
-    measurement does not keep them."""
-    stopped = next(
-        ({"paragraph_id": rung.paragraph_id, "chars": rung.chars} for rung in measurement.ladder if not rung.passes),
-        None,
-    )
-    return {
-        "voice_hash": measurement.voice_hash,
-        "engine_profile": {"id": measurement.engine_profile.id, "hash": measurement.engine_profile.hash},
-        "measurement_key": measurement.measurement_key,
-        "path": str(folder / MEASUREMENT_JSON),
-        "max_segment_chars": measurement.max_segment_chars,
-        "max_segment_seconds": measurement.max_segment_seconds,
-        "ladder_stopped_at": stopped,
-    }
 
 
 async def _report(progress: ProgressCallback, job: JobRecord) -> None:

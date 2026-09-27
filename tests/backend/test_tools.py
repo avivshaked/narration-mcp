@@ -10,6 +10,7 @@ import dataclasses
 import json
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import anyio
@@ -29,7 +30,17 @@ from narration.contracts.serial import from_json
 from narration.jobs.plan import VoiceSpec
 from narration.jobs.voice import clip_path
 from narration.text import TextPipeline
-from tests.jobs.support import ENGINE_HASH, ENGINE_ID, KETTLE, LAMPS, METHOD_ID, ORCHARD, VOICE_TRANSCRIPT, voice_hash
+from tests.jobs.support import (
+    ENGINE_HASH,
+    ENGINE_ID,
+    KETTLE,
+    LAMPS,
+    METHOD_ID,
+    ORCHARD,
+    VOICE_TRANSCRIPT,
+    measurement,
+    voice_hash,
+)
 
 from .conftest import Service
 from .support import daemon_status, write_wav
@@ -269,25 +280,59 @@ def test_check_text_without_a_voice_has_no_length_check_r7(service: Service) -> 
 # ======================================================================== measure_voice (sections 3.2, 7.6)
 
 
-def test_a_measured_voice_is_answered_at_once_s3_2(service: Service) -> None:
+def test_a_measured_voice_is_answered_at_once_without_a_job_s7_6(service: Service) -> None:
     out = valid("measure_voice", service.backend.measure_voice_sync({"voice": service.voice()}))
     assert out["status"] == "completed"
+    assert "job_id" not in out, "a read makes no job"
     assert out["measurement"]["engine_profile"] == {"id": ENGINE_ID, "hash": ENGINE_HASH}
-    results = valid("get_results", service.backend.get_results_sync({"job_id": out["job_id"]}))
-    assert results["measurement_result"]["measurement"]["voice_hash"] == out["voice_hash"]
-    assert results["measurement_result"]["path"].endswith("measurement.json")
-    handle = service.world.job(out["job_id"]).result
-    assert handle is not None
-    assert set(handle) == {
-        "voice_hash",
-        "engine_profile",
-        "measurement_key",
-        "path",
-        "max_segment_chars",
-        "max_segment_seconds",
-        "ladder_stopped_at",
-    }, "the handle a measure job leaves (WP33)"
+    assert service.world.store.jobs_created_since("2000-01-01T00:00:00Z") == 0
     assert service.launcher.ensured == [], "nothing to run, so no daemon"
+    assert not clip_path(service.world.store, service.world.clip_sha256).exists(), "nothing to copy for a read"
+
+
+def test_answers_at_once_do_not_count_against_the_submit_rate_cap_dc2(service: Service) -> None:
+    config = service.backend.config
+    service.backend.config = dataclasses.replace(
+        config, limits=dataclasses.replace(config.limits, max_submits_per_min=1)
+    )
+    for _ in range(3):  # an agent may ask at every session start
+        assert service.backend.measure_voice_sync({"voice": service.voice()})["status"] == "completed"
+    assert service.backend.submit_job_sync(service.request(LAMPS))["status"] == "queued"
+
+
+def test_an_answer_at_once_still_checks_the_clip_s17_3(service: Service) -> None:
+    other = service.world.root / "elsewhere" / "changed.wav"
+    write_wav(other, freq=330.0)
+    with pytest.raises(NarrationError) as caught:
+        service.backend.measure_voice_sync({"voice": service.voice(path=str(other))})
+    assert (caught.value.code, caught.value.field) == (codes.VOICE_FILE_MISMATCH, "voice.sha256")
+
+
+def test_a_measure_jobs_results_give_the_measurement_and_its_file_s7_5(service: Service) -> None:
+    other = service.world.root / "elsewhere" / "new-voice.wav"
+    sha = write_wav(other, freq=260.0)
+    service.backend.config = dataclasses.replace(service.backend.config, voices=VoicesConfig(allow_sha256=(sha,)))
+    queued = service.backend.measure_voice_sync({"voice": service.voice(path=str(other), sha256=sha)})
+    record = service.world.store.put_measurement(measurement(sha, service.world.anchor))
+    folder = service.world.store.measurement_dir(record.voice_hash, record.engine_profile.id)
+    handle = {  # what WP33's measure job leaves in JobRecord.result
+        "voice_hash": record.voice_hash,
+        "engine_profile": {"id": record.engine_profile.id, "hash": record.engine_profile.hash},
+        "measurement_key": record.measurement_key,
+        "path": str(folder / "measurement.json"),
+        "max_segment_chars": record.max_segment_chars,
+        "max_segment_seconds": record.max_segment_seconds,
+        "ladder_stopped_at": None,
+    }
+    assert service.world.store.claim_job(queued["job_id"], "a-daemon") is not None
+    assert service.world.store.update_job(
+        queued["job_id"], expect_status="running", status="completed", outcome="all_passed", result=handle
+    )
+    results = valid("get_results", service.backend.get_results_sync({"job_id": queued["job_id"]}))
+    assert results["measurement_result"]["measurement"]["voice_hash"] == record.voice_hash
+    assert results["measurement_result"]["path"] == handle["path"]
+    assert Path(results["measurement_result"]["path"]).is_file()
+    assert results["measurement"]["max_segment_chars"] == record.max_segment_chars
 
 
 def test_a_new_voice_is_queued_for_measuring_s3_2(service: Service) -> None:

@@ -36,6 +36,9 @@ from narration.text import canonical_form, join
 
 REQUEST_SCHEMA: Final = "narration.request/v1"
 """The schema id of the object ``request_sha256`` hashes."""
+TEXT_MODE: Final = "spoken"
+"""``text_mode``'s default (v1's only mode), written into the stored request so that sending the default
+and leaving it out are the same request."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -81,9 +84,12 @@ def segments_of(args: Mapping[str, Any]) -> tuple[SegmentIn, ...]:
 
 
 def stored_request(args: Mapping[str, Any], defaults: DefaultsConfig) -> dict[str, Any]:
-    """The request a ``generate`` job keeps: the arguments, ``options`` with the service's defaults, no
-    ``dry_run``."""
+    """The request a ``generate`` job keeps: the arguments, with ``text_mode``, ``hints`` and ``options``
+    given their defaults (the service's, for ``options``) and no ``dry_run``. A default sent and a default
+    left out are then the same request (section 7.3)."""
     stored = copy.deepcopy(dict(args))
+    stored.setdefault("text_mode", TEXT_MODE)
+    stored["hints"] = stored.get("hints") or []
     given = dict(stored.get("options") or {})
     given.pop("dry_run", None)
     stored["options"] = {

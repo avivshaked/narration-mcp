@@ -85,13 +85,13 @@ def test_first_narration_over_the_wire_m1(service: Service, era: Era) -> None:
     front = build_front_end(service.backend, log_path=service.world.root / "narration-mcp.log")
 
     async def body(wire: Wire) -> None:
-        # 1. The voice's measurement: this test voice was measured before, so it comes back at once.
+        # 1. The voice's measurement: this test voice was measured before, so it comes back at once,
+        #    with no job to poll.
         measured = await call_ok(wire, "measure_voice", {"voice": service.voice()})
         assert measured["status"] == "completed"
+        assert "job_id" not in measured
         assert measured["measurement"]["max_segment_chars"] == 400
         voice_hash = measured["voice_hash"]
-        done = await call_ok(wire, "get_job", {"job_id": measured["job_id"]})
-        assert done["status"] == "completed"
 
         # 2. The narration job: queued, and a daemon asked for once the job was committed.
         submitted = await call_ok(wire, "submit_job", cue_request(service))
