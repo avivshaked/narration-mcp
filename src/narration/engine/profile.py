@@ -106,6 +106,8 @@ SAMPLING_KEYS: Final = (
 explicitly (section 10.1). The worker refuses a ``load`` without any of them."""
 GENERATION_CONFIG: Final = "generation_config.json"
 UV_LOCK: Final = "uv.lock"
+PARTIAL_SUFFIX: Final = ".partial"
+"""How ``narration-admin install`` names a file it has not finished downloading (``.<name>.partial``)."""
 PROFILE_ID: Final = re.compile(r"(?P<family>[a-z0-9][a-z0-9.-]*)\.p(?P<n>[1-9][0-9]*)")
 UNHASHED: Final = frozenset({"hash", "snapshot_dir", "observed", "tier", "canary"})
 """The ``EngineProfile`` fields its hash leaves out (the contract's docstring; the store keeps the same list)."""
@@ -154,20 +156,40 @@ class FileHashes:
 
 def snapshot_files(snapshot: Path) -> list[str]:
     """Every file of a snapshot the profile pins, as sorted ``/``-separated paths relative to it: every regular
-    file except hidden ones (a leading dot), which no install writes."""
+    file except hidden ones (a leading dot) and unfinished downloads (``partial_files``), which are never part
+    of a model."""
     out: list[str] = []
     for path in snapshot.rglob("*"):
         rel = path.relative_to(snapshot)
-        if any(part.startswith(".") for part in rel.parts) or not path.is_file():
+        if any(part.startswith(".") for part in rel.parts) or rel.name.endswith(PARTIAL_SUFFIX):
             continue
-        out.append(rel.as_posix())
+        if path.is_file():
+            out.append(rel.as_posix())
     return sorted(out)
 
 
+def partial_files(snapshot: Path) -> list[str]:
+    """The unfinished downloads in a snapshot: every file named ``*.partial``, hidden or not, as sorted
+    ``/``-separated paths relative to it. ``narration-admin install`` writes a file under such a name and
+    renames it once its hash is checked, so one left behind means an install was interrupted."""
+    if not snapshot.is_dir():
+        return []
+    return sorted(p.relative_to(snapshot).as_posix() for p in snapshot.rglob(f"*{PARTIAL_SUFFIX}") if p.is_file())
+
+
 def hash_snapshot(snapshot: Path, hashes: FileHashes | None = None) -> dict[str, str]:
-    """``weights``: every file of the snapshot (``snapshot_files``) and its sha256."""
+    """``weights``: every file of the snapshot (``snapshot_files``) and its sha256. A snapshot with an
+    unfinished download (``partial_files``) is refused, never pinned: the install that left it did not finish."""
     if not snapshot.is_dir():
         raise EngineSetupError(f"no model snapshot at {snapshot}", details={"snapshot_dir": str(snapshot)})
+    unfinished = partial_files(snapshot)
+    if unfinished:
+        raise EngineSetupError(
+            f"the model snapshot at {snapshot} holds an unfinished download ({', '.join(unfinished[:3])}"
+            f"{', ...' if len(unfinished) > 3 else ''}): an install was interrupted, so nothing was pinned",
+            hint="Run narration-admin install again (it finishes the download or removes it), then pin again.",
+            details={"snapshot_dir": str(snapshot), "partial": unfinished},
+        )
     hashes = hashes if hashes is not None else FileHashes()
     return {rel: hashes.sha256(snapshot / rel) for rel in snapshot_files(snapshot)}
 

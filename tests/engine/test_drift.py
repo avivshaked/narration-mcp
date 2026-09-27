@@ -142,3 +142,23 @@ def test_drift_lists_a_bounded_number_of_differences_with_their_count_s14(
     details = caught.value.details
     assert details is not None and details["count"] == MAX_LISTED + 5 and len(details["drift"]) == MAX_LISTED
     assert details["engine_profile_id"] == BASE_ID
+
+
+def test_an_unfinished_download_is_drift_that_says_to_install_again_wp37(
+    install: Install, profile: EngineProfile
+) -> None:
+    """An install interrupted after the pin leaves ``.<name>.partial``: never hashed as a file of the model,
+    and named as what it is."""
+    snapshot = install.snapshot(QWEN_BASE)
+    (snapshot / ".model.safetensors.partial").write_bytes(b"half a file")
+    (snapshot / "speech_tokenizer" / "model.safetensors.partial").write_bytes(b"half another")
+    found = DriftCheck().find(profile, _hello(profile), project=install.project)
+    assert [(d.what, d.name) for d in found] == [
+        ("download", ".model.safetensors.partial"),
+        ("download", "speech_tokenizer/model.safetensors.partial"),
+    ]
+    with pytest.raises(NarrationError) as caught:
+        DriftCheck().require_none(profile, _hello(profile), project=install.project)
+    error = caught.value
+    assert error.code == codes.ENGINE_DRIFT and "unfinished download" in error.message
+    assert "narration-admin install again" in error.hint

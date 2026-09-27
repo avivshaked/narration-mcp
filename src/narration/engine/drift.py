@@ -9,7 +9,9 @@ After every Qwen load, before the canary, the daemon compares what it can observ
   the venv is synced to it;
 - **the snapshot's files**, by sha256 (``weights``): a changed, missing or added file is drift. Files are
   read again only when their size or modification time changed (``profile.FileHashes``), so only the first
-  check in a daemon's life reads the whole snapshot.
+  check in a daemon's life reads the whole snapshot. An unfinished download (``*.partial``, which an
+  interrupted install leaves) is drift of its own kind (``download``), whose message says to run the install
+  again.
 
 Any difference fails the job with ``ENGINE_DRIFT`` (not retryable) before anything renders; ``details.drift``
 lists each difference (``what``, ``name``, ``pinned``, ``found``). The GPU, driver, CUDA and cuDNN are
@@ -28,9 +30,9 @@ from narration.contracts.errors import NarrationError
 from narration.contracts.models import EngineProfile
 from narration.contracts.worker import HelloReply
 
-from .profile import CUBLAS_ENV, UV_LOCK, FileHashes, snapshot_files
+from .profile import CUBLAS_ENV, UV_LOCK, FileHashes, partial_files, snapshot_files
 
-DriftKind = Literal["fingerprint", "package", "env", "uv_lock", "weights"]
+DriftKind = Literal["fingerprint", "package", "env", "uv_lock", "weights", "download"]
 MAX_LISTED: Final = 20
 """The most differences an ``ENGINE_DRIFT`` error lists (the count is always given)."""
 
@@ -82,10 +84,11 @@ class DriftCheck:
         return [Drift(what="uv_lock", name=UV_LOCK, pinned=profile.uv_lock_sha256, found=found)]
 
     def weights(self, profile: EngineProfile) -> list[Drift]:
-        """The snapshot's files against ``weights``: changed, missing and added files."""
+        """The snapshot's files against ``weights``: unfinished downloads first, then changed, missing and
+        added files."""
         snapshot = Path(profile.snapshot_dir)
         present = set(snapshot_files(snapshot)) if snapshot.is_dir() else set()
-        out: list[Drift] = []
+        out = [Drift(what="download", name=rel, pinned=None, found="unfinished") for rel in partial_files(snapshot)]
         for rel in sorted(present | set(profile.weights)):
             pinned = profile.weights.get(rel)
             found = self.hashes.sha256(snapshot / rel) if rel in present else None
@@ -105,12 +108,27 @@ class DriftCheck:
 
 
 def drift_error(profile: EngineProfile, found: list[Drift]) -> NarrationError:
-    """``ENGINE_DRIFT`` for these differences, naming the first few and how many there are."""
-    first = found[0]
-    what = f"{first.what} {first.name}" + (f" and {len(found) - 1} more" if len(found) > 1 else "")
+    """``ENGINE_DRIFT`` for these differences, naming the first few and how many there are. An unfinished
+    download is named as such, with the hint to finish the install."""
+    unfinished = [d.name for d in found if d.what == "download"]
+    hint: str | None = None
+    if unfinished:
+        message = (
+            f"the model snapshot of engine profile {profile.engine_profile_id} holds an unfinished download "
+            f"({', '.join(unfinished[:3])}{', ...' if len(unfinished) > 3 else ''}): an install was interrupted"
+        )
+        hint = (
+            "Ask the operator to run narration-admin install again, which finishes the download or removes it; "
+            "nothing was rendered."
+        )
+    else:
+        first = found[0]
+        what = f"{first.what} {first.name}" + (f" and {len(found) - 1} more" if len(found) > 1 else "")
+        message = f"the loaded engine is not engine profile {profile.engine_profile_id} as pinned: {what} differ(s)"
     return NarrationError(
         codes.ENGINE_DRIFT,
-        f"the loaded engine is not engine profile {profile.engine_profile_id} as pinned: {what} differ(s)",
+        message,
+        hint=hint,
         details={
             "engine_profile_id": profile.engine_profile_id,
             "count": len(found),

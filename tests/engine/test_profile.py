@@ -229,6 +229,19 @@ def test_hidden_files_in_a_snapshot_are_not_pinned_s6(install: Install) -> None:
     assert not any(name.startswith(".") for name in profile.weights)
 
 
+@pytest.mark.parametrize("name", [".model.safetensors.partial", "model-00002.safetensors.partial"])
+def test_a_snapshot_with_an_unfinished_download_is_never_pinned_wp37(install: Install, name: str) -> None:
+    """``narration-admin install`` downloads into ``.<name>.partial``; one left behind (hidden or not) means
+    the install was interrupted, so the pin refuses rather than hash half a model."""
+    (install.snapshot(QWEN_BASE) / "speech_tokenizer" / name).write_bytes(b"half a file")
+    with pytest.raises(NarrationError) as caught:
+        build_profile(install.config, "base", engine_profile_id=BASE_ID)
+    error = caught.value
+    assert error.code == codes.BACKEND_NOT_INSTALLED and "unfinished download" in error.message
+    assert error.details is not None and error.details["partial"] == [f"speech_tokenizer/{name}"]
+    assert "narration-admin install again" in error.hint
+
+
 def test_file_hashes_are_read_again_only_when_a_file_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "weights.bin"
     path.write_bytes(b"a" * 1000)
