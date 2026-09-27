@@ -21,7 +21,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from narration.backend.launch import DAEMON_RETRY_S, unavailable
-from narration.backend.service import NarrationBackend
+from narration.backend.service import DAEMON_START_GRACE_S, NarrationBackend
 from narration.config import DaemonConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
@@ -98,9 +98,13 @@ def test_get_job_reports_the_start_before_the_new_daemon_has_run_s7_4(service: S
     assert service.world.job(job_id).message == "queued", "the note is the reply's; the job's record is unchanged"
 
 
-def test_get_job_asks_for_a_daemon_for_a_queued_job_with_none_s4(service: Service) -> None:
+def test_get_job_asks_for_a_daemon_for_a_queued_job_with_none_after_the_grace_s4(service: Service) -> None:
     job_id = service.backend.submit_job_sync(service.request(LAMPS))["job_id"]
     service.launcher.ensured.clear()
+    out = get_job(service.backend, {"job_id": job_id})
+    assert service.launcher.ensured == [], "the daemon its submission asked for may still be starting up"
+    assert out["message"] == "queued"
+    service.backend.clock = lambda: time.time() + DAEMON_START_GRACE_S + 1
     out = get_job(service.backend, {"job_id": job_id})
     assert len(service.launcher.ensured) == 1
     assert out["status"] == "queued"

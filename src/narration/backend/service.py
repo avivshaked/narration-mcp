@@ -58,7 +58,7 @@ from narration.jobs.plan import VoiceSpec, estimated_audio_s
 from narration.lint import NegationLinter
 from narration.post import delivery_tools
 from narration.qa import Scorer
-from narration.store.store import utc_iso
+from narration.store.store import parse_iso, utc_iso
 from narration.text import TextPipeline, segment_too_long
 
 from . import views
@@ -87,6 +87,11 @@ POLL_S: Final = 0.5
 """How often ``get_job``'s long-poll reads the job again."""
 RELEASE_WAIT_S: Final = 10.0
 """How long ``release_gpu`` waits for the daemon to answer its command (well inside the write deadline)."""
+DAEMON_START_GRACE_S: Final = 30.0
+"""How long after a queued job was written ``get_job`` and ``cancel_job`` leave it to the daemon its submission
+asked for, which may still be starting up (``NarrationBackend._revive``). A detached daemon is a new interpreter
+that imports the service and opens the store before it writes its status: seconds (BELIEVE), longer when a
+virus scanner inspects it first."""
 GIB: Final = 1024**3
 REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
@@ -353,9 +358,16 @@ class NarrationBackend:
         being idle looks for work once more, and one asked to stop by the operator is let stop (the next call
         after it has gone starts another).
 
+        A ``queued`` job written less than ``DAEMON_START_GRACE_S`` ago is left alone: the daemon its submission
+        asked for may still be starting up, before it writes its status, and asking again would start a second
+        one (which exits at once). A job ``running`` or ``cancelling`` was taken by a daemon that had written its
+        status, so none running means it has gone.
+
         Raises ``DAEMON_UNAVAILABLE`` (with the job, its status and what to do) when no daemon could be started.
         """
         if job.status in TERMINAL_JOB_STATUSES:
+            return None
+        if job.status == "queued" and self._just_written(job):
             return None
         daemon = self.launcher.running(self.store)
         if daemon is not None and daemon.state != "stopped":
@@ -368,6 +380,14 @@ class NarrationBackend:
             raise _no_daemon_for(job, exc) from exc
         log.info("job %s is %s and no daemon was running; asked for one", job.job_id, job.status)
         return _revived_note(job.status, autostart=self.config.daemon.autostart)
+
+    def _just_written(self, job: JobRecord) -> bool:
+        """Whether the job was written less than ``DAEMON_START_GRACE_S`` ago (by this clock)."""
+        try:
+            age = self.clock() - parse_iso(job.updated_at)
+        except ValueError:
+            return False
+        return 0 <= age < DAEMON_START_GRACE_S
 
     # ================================================================ text (sections 3.2, 7.2, 9.1)
     def _text_json(self, text: SegmentText, measurement: MeasurementRecord | None) -> dict[str, Any]:
