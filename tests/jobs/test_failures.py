@@ -4,6 +4,7 @@ flight (design sections 4, 4.1, 10.1 and 14; plan.md WP31)."""
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import signal
 import threading
@@ -15,7 +16,7 @@ import pytest
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import EngineProfile
-from narration.contracts.names import CanaryStatus, GpuHolder
+from narration.contracts.names import CanaryStatus, DeterminismTier, GpuHolder
 from narration.contracts.worker import HelloReply
 from narration.jobs.failures import OOM_WAIT_S
 from narration.jobs.host import ResidencyError, RunnerHost
@@ -57,6 +58,32 @@ def test_a_load_the_guard_refuses_is_unloaded_and_the_next_job_is_checked_again_
     render = world.store.get_render(done.items[0].attempts[0].render_key)
     assert render is not None and render.canary.batch_status == "hash_match"
     assert world.pool.texts() == [KETTLE]
+
+
+class SimilarityPass:
+    """An engine guard whose canary's hash differed but whose similarity passed (section 10.1 step 3)."""
+
+    def after_load(self, host: RunnerHost, profile: EngineProfile, hello: HelloReply | None) -> CanaryStatus:
+        return "similarity_pass"
+
+
+@pytest.mark.parametrize("tier", ["bit_exact", "similar", None])
+def test_canary_mismatch_is_flagged_in_the_bit_exact_tier_only_s14(world: World, tier: DeterminismTier | None) -> None:
+    # Section 14: CANARY_MISMATCH is for the bit_exact tier only; section 10.1 step 3: never in the similar
+    # tier, where the canary's hash differs on every batch. A tier not yet measured (None) promises no hash.
+    profile = world.store.current_engine_profile("base")
+    assert profile is not None
+    world.store.put_engine_profile(dataclasses.replace(profile, tier=tier))
+    world.new_engine(guard=SimilarityPass())
+    job = world.submit(LAMPS)
+    world.run()
+    done = world.job(job.job_id)
+    assert done.status == "completed"
+    attempt = done.items[0].attempts[0]
+    render = world.store.get_render(attempt.render_key)
+    assert render is not None and render.canary.batch_status == "similarity_pass"  # recorded in every tier
+    flagged = [f for f in attempt.flags if f.code == codes.CANARY_MISMATCH]
+    assert len(flagged) == (1 if tier == "bit_exact" else 0)
 
 
 # ======================================================================== the pool's residency (section 4 item 1)

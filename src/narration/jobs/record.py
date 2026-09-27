@@ -248,7 +248,7 @@ class JobView:
     @staticmethod
     def _job_attempt(run: JobRun, seg: SegmentWork, slot: list[Attempt], position: int, attempt: Attempt) -> JobAttempt:
         """One attempt as the job keeps it, with its per-job flags (never part of its verdict): ``RETAKEN``,
-        ``CANARY_MISMATCH`` and ``SPK_OUTLIER``."""
+        ``CANARY_MISMATCH`` (``bit_exact`` tier only) and ``SPK_OUTLIER``."""
         flags: list[Flag] = []
         if position > 0:
             earlier = slot[:position]
@@ -275,7 +275,13 @@ class JobView:
                     },
                 )
             )
-        if attempt.render is not None and attempt.render.canary.batch_status == "similarity_pass":
+        # Section 14: CANARY_MISMATCH is for the bit_exact tier only (section 10.1 step 3: never in the similar
+        # tier, where the canary's hash differs on every batch; a tier not yet measured promises no hash).
+        if (
+            attempt.render is not None
+            and attempt.render.canary.batch_status == "similarity_pass"
+            and run.profile.tier == "bit_exact"
+        ):
             flags.append(
                 Flag(
                     code=codes.CANARY_MISMATCH,
