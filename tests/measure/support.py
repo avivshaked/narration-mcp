@@ -209,6 +209,7 @@ class MeasureWorld:
     def restart(self) -> None:
         """A new daemon over the same store and workers: a new engine, handler and runner, nothing in memory."""
         self.host.stop_mode = None
+        self.runner.registry.close()
         self.engine = JobEngine(self.config, self.engine.parts)
         self.handler = build_measure_handler(self.engine, material_root=self.material)
         self.runner = EngineRunner(measure_registry(self.engine, self.handler))
@@ -220,6 +221,7 @@ class MeasureWorld:
         return paragraph_text(self.corpus, segment_id)
 
     def close(self) -> None:
+        self.runner.registry.close()
         self.pool.close()
         self.store.close()
 

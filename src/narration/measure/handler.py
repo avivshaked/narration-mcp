@@ -663,6 +663,12 @@ class MeasureHandler:
         """Audio seconds of work left, for the queue's drain estimate (every rung counted until the ladder ends)."""
         return self.view.remaining_audio_s(run)
 
+    def close(self) -> None:
+        """Stop the thread that renews the leases (``Registry.close`` calls it at shutdown). The handler shares
+        the job engine's ``LeaseKeeper``, whose ``close`` may be called more than once; work started later starts
+        the thread again."""
+        self.core.leases.close()
+
 
 # ---------------------------------------------------------------------- helpers
 

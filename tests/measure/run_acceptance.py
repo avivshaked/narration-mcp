@@ -13,8 +13,9 @@ Run it from the checkout, with the daemon, the QA models (WP22) and the engine p
 2. Takes the developers' GPU lock (AGENTS.md section 5) for ``--minutes`` (at most 30; a longer run needs the
    lead's OK first) and releases it on every exit path. A lock this holder already has (a wrapper's) is used
    and left to the wrapper.
-3. Queues a ``measure`` job in the configured store, starts the daemon if none runs (``narration.daemon``),
-   and waits for the job, printing its progress in numbers.
+3. Queues a ``measure`` job in the store of the configuration (``--config``, else ``config.find_config``'s
+   rule), starts the daemon if none runs (``narration.daemon.start``), and waits for the job, printing its
+   progress in numbers.
 4. **The check.** Each calibration take's similarity to the finished anchor must not be flagged by the
    speaker check a generation take gets (``SPK_SIM_LOW``: warn below ``anchor_p5 - sim_warn_margin``, fail
    below ``sim_fail_floor``). Then, unless ``--no-generate``, a ``generate`` job of the calibration paragraphs
@@ -36,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import json
 import os
 import subprocess
@@ -49,10 +49,13 @@ from pathlib import Path
 from typing import Any, Final
 
 from narration import keys
-from narration.config import Config, MeasurementConfig, load_config
+from narration.config import CONFIG_ENV, Config, ConfigError, MeasurementConfig, find_config, load_config
 from narration.contracts import codes
-from narration.contracts.models import JobRecord, MeasurementRecord, Progress
+from narration.contracts.errors import NarrationError
+from narration.contracts.models import JobRecord, MaterialSet, MeasurementRecord, Progress
 from narration.contracts.names import JobKind
+from narration.daemon.start import ensure_daemon as start_daemon
+from narration.measure import load_corpus
 from narration.platform import get_platform
 from narration.qa.checks import speaker_flags
 from narration.store import NarrationStore
@@ -66,7 +69,6 @@ NEED_MB: Final = 8000
 MAX_LOCK_MINUTES: Final = 30
 BAKEOFF_ENV: Final = "NARRATION_BAKEOFF_ROOT"
 ALLOW_ENV: Final = "NARRATION_SPIKE_ALLOW_SHA256"
-CONFIG_ENV: Final = "NARRATION_CONFIG"
 VOICES: Final[Mapping[str, str]] = {
     "d2": "refs/auditions/qwen3-tts-voicedesign_d2-late-night_take1.wav",
     "d4": "refs/auditions/qwen3-tts-voicedesign_d4-radio-drama_take2.wav",
@@ -251,13 +253,14 @@ def queue_job(store: NarrationStore, kind: JobKind, body: Mapping[str, Any]) -> 
     return job
 
 
-def ensure_daemon(store: NarrationStore, config_path: Path) -> None:
-    """Start the daemon for the store unless one runs (``narration.daemon.start``, WP30)."""
+def ensure_daemon(store: NarrationStore, config_path: Path, job_id: str) -> None:
+    """Start the daemon for the store unless one runs (``narration.daemon.start``), after the job is queued. A
+    daemon that cannot be started cancels the job (``Unavailable``)."""
     try:
-        start = importlib.import_module("narration.daemon.start")
-    except ModuleNotFoundError as exc:
-        raise Unavailable("this checkout has no daemon (narration.daemon, WP30)") from exc
-    start.ensure_daemon(store, config_path, wait_s=30.0)
+        start_daemon(store, config_path, wait_s=30.0)
+    except NarrationError as exc:
+        give_up(store, job_id)
+        raise Unavailable(f"the daemon cannot be started: {exc.code}: {exc.message}") from exc
 
 
 def wait_for(store: NarrationStore, job_id: str, deadline: float) -> JobRecord | None:
@@ -331,12 +334,13 @@ def take_lock(minutes: int) -> bool:
 # ---------------------------------------------------------------------- the run
 
 
-def calibration_request(voice: Voice, measurement: MeasurementRecord, config: Config) -> dict[str, Any]:
+def calibration_request(
+    voice: Voice, measurement: MeasurementRecord, config: Config, corpus: MaterialSet | None = None
+) -> dict[str, Any]:
     """A ``generate`` request of the calibration paragraphs with the measurement's attempts (``takes`` = seeds,
-    no retakes), so every take is the calibration take the cache holds."""
-    from narration.measure import load_corpus
-
-    corpus = load_corpus(config.measurement.corpus)
+    no retakes), so every take is the calibration take the cache holds. ``corpus``: the calibration corpus
+    (default: the service's own, ``[measurement] corpus``)."""
+    corpus = corpus if corpus is not None else load_corpus(config.measurement.corpus)
     measured = {t.paragraph_id for t in measurement.calibration}
     segments = [
         {
@@ -358,9 +362,10 @@ def calibration_request(voice: Voice, measurement: MeasurementRecord, config: Co
 
 def run(args: argparse.Namespace) -> int:
     """The acceptance run (the module docstring). Returns the exit code."""
-    config_path = Path(args.config or os.environ.get(CONFIG_ENV, ""))
-    if not str(config_path) or not config_path.is_file():
-        raise Unavailable(f"pass --config, or set {CONFIG_ENV}, to the service's configuration file")
+    try:
+        config_path = find_config(args.config)
+    except ConfigError as exc:
+        raise Unavailable(str(exc)) from exc
     voice = bakeoff_voice(args.voice)
     config = load_config(config_path)
     out = Path(args.out) if args.out else CHECKOUT / ".dev" / "acceptance" / f"wp33-{voice.name}.json"
@@ -370,7 +375,7 @@ def run(args: argparse.Namespace) -> int:
         deadline = time.monotonic() + args.minutes * 60
         print(f"measuring {voice.name} (clip sha256 {voice.sha256[:12]}...)", flush=True)
         job = queue_job(store, "measure", voice.request())
-        ensure_daemon(store, config_path)
+        ensure_daemon(store, config_path, job.job_id)
         done = wait_for(store, job.job_id, deadline)
         if done is None:
             give_up(store, job.job_id)
@@ -386,7 +391,7 @@ def run(args: argparse.Namespace) -> int:
         result = report(voice, measurement, check)
         if not args.no_generate:
             generation = queue_job(store, "generate", calibration_request(voice, measurement, config))
-            ensure_daemon(store, config_path)
+            ensure_daemon(store, config_path, generation.job_id)
             scored = wait_for(store, generation.job_id, deadline)
             if scored is None:
                 give_up(store, generation.job_id)
@@ -418,7 +423,9 @@ def run(args: argparse.Namespace) -> int:
 
 def parse(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    parser.add_argument("--config", help=f"the service's configuration file (default: ${CONFIG_ENV})")
+    parser.add_argument(
+        "--config", help=f"the service's configuration file (default: ${CONFIG_ENV}, then the service's)"
+    )
     parser.add_argument("--voice", default="d4", choices=sorted(VOICES))
     parser.add_argument("--minutes", type=int, default=MAX_LOCK_MINUTES, help="GPU lock and wait, at most 30")
     parser.add_argument("--out", help="where the numbers go (default: <checkout>/.dev/acceptance/wp33-<voice>.json)")

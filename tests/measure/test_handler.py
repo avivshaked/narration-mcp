@@ -3,7 +3,7 @@
 Milestone M1: a caller measures an allowlisted synthetic clip, then narrates paragraphs with it. Every rule of
 section 3.2 that the job applies is checked here through the job, and in ``test_ladder`` on numbers. The
 world is small (the design text and one corpus paragraph, two seeds, three rungs) so each test is quick; the
-full-size measurement is ``test_full_measurement``.
+full-size measurement is in ``test_acceptance``.
 """
 
 from __future__ import annotations

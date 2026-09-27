@@ -114,3 +114,16 @@ def test_running_out_of_gpu_memory_twice_is_gpu_unavailable_s4(world: MeasureWor
     assert failed.error.details is not None
     assert (failed.error.details["segment_id"], failed.error.details["flag"]) == ("ladder-080", codes.GPU_OOM)
     assert not is_measured(world)
+
+
+def test_the_handler_stops_the_lease_thread_it_shares_when_closed_s4_1(world: MeasureWorld) -> None:
+    """``Registry.close`` (the runner's shutdown) closes the measure handler too: it shares the job engine's
+    ``LeaseKeeper``, and closing it more than once is harmless."""
+    world.measure()
+    world.run()
+    leases = world.engine.core.leases
+    assert leases.running  # started at the first lease, idle since
+    world.handler.close()
+    assert not leases.running
+    world.runner.registry.close()  # the engine and the handler again
+    assert not leases.running
