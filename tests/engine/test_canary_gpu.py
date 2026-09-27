@@ -7,7 +7,7 @@ calibrates each threshold with WavLM on the QA worker's CPU. Then it loads each 
 daemon's worker supervisor and runs the gate, which must pass on the hash in the ``bit_exact`` tier. Nothing
 it renders leaves the temporary folder.
 
-Run it (under 25 minutes on a 24 GB GPU; the Qwen models need about 6 GB and the QA models run on the CPU)::
+Run it (8 minutes on a 24 GB GPU on 2026-09-27; the Qwen models need about 6 GB, the QA models run on the CPU)::
 
     uv run python -m pytest -m "gpu and model" tests/engine/test_canary_gpu.py -s
 
