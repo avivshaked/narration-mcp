@@ -667,10 +667,10 @@ Updated by the lead on `main` only.
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | profiles, drift check and the real `installed_engine` built; rebasing onto `main`; `engine pin` on WP37's interface next; DC-16 contract awaits the owner's OK |
-| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `active` | `wp/33-measure` | the measure job works end to end on the fake workers; rebasing onto `main`; built against the draft corpus until H1 closes |
+| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `review` | `wp/33-measure` | the measure job end to end on the fake workers; acceptance (d4) prepared, runs after WP22 and WP32 merge; independent (Fable) review running |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
-| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `active` | `wp/36-backend` | first narration works end to end on the fake workers over JSON-RPC; `narration-mcp` serves the real backend; rebasing onto `main` |
+| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `review` | `wp/36-backend` | every tool built; first narration end to end on the fake workers, through the real daemon; `narration-mcp` serves it; independent (Fable) review running |
 | WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `review` | `wp/37-admin` | dispatcher, daemon, doctor, gc, verify, install; `render` after WP36, `bench` after WP38; independent review running |
 | WP38 | Alignment benchmark (spike a) | 2 | WP15, WP18, WP20 | yes | `todo` | – | H2, H3 |
 | WP39 | Ladder d2/d4 (spike c) | 2 | WP33 | yes (long) | `todo` | – | needs H1 |

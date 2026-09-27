@@ -20,9 +20,9 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   |---|---|---|---|
   | WP37 operator CLI | `wp/37-admin` | a1b119ea6c733e52b (reviewer a9dd8b1a7ed2648b1) | in review; `render` follows WP36 |
   | WP22 QA worker | `wp/22-qa-worker` | a560deac0c56c674c (reviewer ad2cf436a03859564) | in review; acceptance passes (DC-14, DC-15 at 60 s); QA group `vram_need_mb` = 11500 |
-  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` (stacked) | a203bffe41405429f | building; `installed_engine` first |
-  | WP33 `measure_voice` | `wp/33-measure` (stacked) | a21fe923fab0198e7 | building, against the draft corpus |
-  | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` (stacked) | a35085aca80cfb4e8 | building; M1's tools first |
+  | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f | building; the real `installed_engine` done; `engine` commands on WP37's interface next; DC-16 awaits the owner |
+  | WP33 `measure_voice` | `wp/33-measure` | a21fe923fab0198e7 (reviewer a9759b8d3287035d1, Fable) | in review |
+  | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | in review; created-`completed` at submit (§7.3) is a follow-up |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
