@@ -53,7 +53,6 @@ from narration_worker.determinism import parse_determinism
 from narration_worker.errors import OpError
 from narration_worker.handler import (
     DEVICE_PATTERN,
-    REVISION_PATTERN,
     Request,
     WorkerContext,
     WorkerHandler,
@@ -67,6 +66,7 @@ from narration_worker.handler import (
 )
 from narration_worker.protocol import Controls, WorkerErrorCode
 from narration_worker.qwen_settings import ATTN_IMPLEMENTATIONS, DTYPES, SettingsError, ceiling_of, parse_settings
+from narration_worker.snapshots import by_use, check_ref, check_snapshots
 from narration_worker.wav import write_float32_mono
 
 from .audio import (
@@ -248,17 +248,7 @@ class FakeHandler(WorkerHandler):
         ``model`` is accepted here, where ``qwen3`` refuses it. A refused load changes nothing; a load that
         passes clears the prepared voices.
         """
-        refs = _snapshot_refs(request)
-        for name, ref in refs:
-            if not Path(ref["snapshot_dir"]).is_dir():
-                raise OpError(
-                    "BACKEND_NOT_INSTALLED",
-                    f"no snapshot of {ref['repo']} at {ref['snapshot_dir']}; install the models (narration-admin "
-                    "install)",
-                    {"field": name, "repo": ref["repo"], "snapshot_dir": ref["snapshot_dir"]},
-                )
-        for name, ref in refs:
-            _check_revision(name, ref)
+        check_snapshots(_snapshot_refs(request))
         device = require_str(request, "device")
         if DEVICE_PATTERN.fullmatch(device) is None:
             raise OpError("INVALID_REQUEST", "device must be cpu, cuda or cuda:<n>", {"field": "device"})
@@ -590,44 +580,14 @@ def _sha256(path: Path) -> str:
 
 
 def _snapshot_refs(request: Request) -> list[tuple[str, dict[str, str]]]:
-    """A load's snapshot references as (field, ref): ``model``, then ``models.<use>``. Each must be an object
-    with ``repo``, ``revision`` and an absolute ``snapshot_dir`` (``INVALID_REQUEST``, as ``qwen3`` checks
-    ``model``)."""
+    """A load's snapshot references as (field, ref): ``model``, then ``models.<use>``, each checked by
+    ``snapshots.check_ref`` (as ``qwen3`` checks ``model``)."""
     refs: list[tuple[str, object]] = []
     if "model" in request:
         refs.append(("model", request["model"]))
     if "models" in request:
-        models = request["models"]
-        if not isinstance(models, dict):
-            raise OpError("INVALID_REQUEST", "models must be an object", {"field": "models"})
-        refs.extend((f"models.{use}", ref) for use, ref in cast(dict[str, object], models).items())
-    checked: list[tuple[str, dict[str, str]]] = []
-    for name, ref in refs:
-        if not isinstance(ref, dict) or not all(
-            isinstance(ref.get(k), str) for k in ("repo", "revision", "snapshot_dir")
-        ):
-            raise OpError("INVALID_REQUEST", f"{name} must have repo, revision and snapshot_dir", {"field": name})
-        ref = cast(dict[str, str], ref)
-        if not Path(ref["snapshot_dir"]).is_absolute():
-            field = f"{name}.snapshot_dir"
-            raise OpError("INVALID_REQUEST", f"{field} must be an absolute path", {"field": field})
-        checked.append((name, ref))
-    return checked
-
-
-def _check_revision(name: str, ref: Mapping[str, str]) -> None:
-    """A snapshot's revision is a 40-hex SHA and names its folder (design section 4), as ``qwen3`` checks."""
-    revision = ref["revision"]
-    if REVISION_PATTERN.fullmatch(revision) is None:
-        field = f"{name}.revision"
-        raise OpError("INVALID_REQUEST", f"{field} must be a 40-hex commit SHA", {"field": field})
-    folder = Path(ref["snapshot_dir"]).name
-    if folder != revision:
-        raise OpError(
-            "INVALID_REQUEST",
-            "the snapshot folder must be named by its revision (section 4)",
-            {"field": f"{name}.snapshot_dir", "revision": revision, "folder": folder},
-        )
+        refs.extend(by_use(request["models"]))
+    return [(name, check_ref(name, ref)) for name, ref in refs]
 
 
 def _ceiling(settings: object) -> int:

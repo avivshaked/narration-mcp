@@ -46,6 +46,7 @@ import numpy.typing as npt
 from narration_worker.determinism import apply_determinism, parse_determinism
 from narration_worker.errors import OpError
 from narration_worker.handler import (
+    DEVICE_PATTERN,
     Request,
     WorkerContext,
     WorkerHandler,
@@ -61,15 +62,7 @@ from .align import AlignOp, QaError, check_ctc_config, op_error, read_audio, sna
 from .asr import ARCHITECTURE as ASR_ARCHITECTURE
 from .asr import MODEL_TYPE as ASR_MODEL_TYPE
 from .asr import WhisperAsr, whisper_language
-from .snapshots import (
-    DEVICE_PATTERN,
-    Snapshot,
-    check_architecture,
-    check_named,
-    check_present,
-    check_use,
-    parse_models,
-)
+from .snapshots import Snapshot, check_architecture, check_use, parse_models
 from .sv import ARCHITECTURE as SV_ARCHITECTURE
 from .sv import DEVICES as EMBED_DEVICES
 from .sv import MODEL_TYPE as SV_MODEL_TYPE
@@ -124,9 +117,8 @@ class QaHandler(WorkerHandler):
     def op_load(self, request: Request) -> dict[str, Any]:
         """Load the models ``models`` names from their pinned snapshots (see the module docstring)."""
         snapshots = _qa(parse_models, request)
-        for check in (check_present, check_named, check_use):
-            for snapshot in snapshots:
-                _qa(check, snapshot)
+        for snapshot in snapshots:
+            _qa(check_use, snapshot)
         device = require_str(request, "device")
         if DEVICE_PATTERN.fullmatch(device) is None:
             raise OpError("INVALID_REQUEST", "device must be cpu, cuda or cuda:<n>", {"field": "device"})

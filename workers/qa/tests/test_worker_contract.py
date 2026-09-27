@@ -30,25 +30,3 @@ class TestQaWorkerContract(contract.WorkerContract):
             for use in ("asr", "sv", "aligner")
         }
         return {"device": "cpu", "models": models}
-
-    def test_load_checks_snapshot_references_as_the_other_workers_do_s4(self, worker: Any, store_root: Path) -> None:
-        """The order, codes and ``details.field`` of the fake and the ``qwen3`` worker (WP16's review): a relative
-        folder, then a missing one before anything else, then a revision that is not 40-hex or does not name its
-        folder."""
-        folder = store_root / "snapshots" / ("0" * 40)
-        folder.mkdir(parents=True)
-        ref = {"repo": "example/asr", "revision": "0" * 40, "snapshot_dir": str(folder)}
-        cases = [
-            ({"asr": ref | {"snapshot_dir": "relative"}}, "INVALID_REQUEST", "models.asr.snapshot_dir"),
-            (
-                {"asr": ref | {"revision": "x", "snapshot_dir": str(store_root / "none")}},
-                "BACKEND_NOT_INSTALLED",
-                "models.asr",
-            ),
-            ({"asr": ref | {"revision": "1" * 40}}, "INVALID_REQUEST", "models.asr.snapshot_dir"),
-            ({"asr": ref | {"revision": "main"}}, "INVALID_REQUEST", "models.asr.revision"),
-        ]
-        for models, code, field in cases:
-            reply = worker.request("load", timeout_s=self.timeout_s, device="cpu", models=models)
-            assert reply["ok"] is False and reply["error"]["code"] == code, (models, reply)
-            assert reply["error"].get("details", {}).get("field") == field, (models, reply)
