@@ -7,9 +7,10 @@ The analysis key names the ASR and speaker models by repo and revision, and the 
 - the **CTC aligner** (``[alignment] model``, the wav2vec2 model by default) on the CPU, which WP15's
   ``CtcAligner`` drives with the thresholds of ``[alignment]``.
 
-``QA_VRAM_MB`` is the VRAM the group needs (section 4 item 2): WP22 measured about 3.4 GB resident, 4.4 GB for
-transcription with word times and 0.45 GB of CUDA context for takes up to 60 s, and proposed 9000 (KNOW:
-``spikes/h-i-qa-load`` on ``wp/22-qa-worker``; the embedding of longer takes is windowed, DC-15).
+``QA_VRAM_MB`` is the VRAM the group needs (section 4 item 2): WP22 measured transcription with word times
+peaking at 10.6 GB reserved, flat from 30 s, and the embedding of longer takes is windowed (DC-15), so its
+peak stays under that for a take of any length. WP22 proposed 11500 and the lead set it (KNOW:
+``status/WP22.md`` and ``spikes/h-i-qa-load`` on ``wp/22-qa-worker``).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from narration.jobs.pins import ModelPin, QaPins
 from .models import WAVLM_SV, WHISPER, PinnedModel, pinned
 from .profile import EngineSetupError
 
-QA_VRAM_MB: Final = 9000
+QA_VRAM_MB: Final = 11500
 
 
 def model_pin(config: Config, model: PinnedModel) -> ModelPin:
