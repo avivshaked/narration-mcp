@@ -273,6 +273,12 @@ are tracked here but no version is tagged; nothing described below is installabl
   resubmission that is all cached reports `segments_cached` and no analyses to do, instead of 0 and every
   analysis, and its `est_wall_s` no longer adds a QA model load. `get_server_status`'s `alignment` names the
   configured aligner's method.
+- `submit_job`'s `VOICE_NOT_MEASURED` says when the clip is measured under a transcript that differs from the
+  one sent only in whitespace or quotes, dashes and ellipses (a trailing newline, a double space, curly quotes
+  for straight ones): `field` is `voice.transcript`, and `details.transcript_mismatch` gives the index of the
+  first differing character and each side's character there, with the hint to send the measured transcript
+  rather than measure again. Otherwise the hint also says to send a clip's transcript exactly as it was
+  measured. Neither transcript is quoted in the error.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set

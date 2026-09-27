@@ -65,7 +65,7 @@ from . import views
 from .assemble import assemble, consistency_of, measured_error
 from .clips import ClipRef, admit_clip, check_synthetic, refield
 from .launch import DAEMON_RETRY_S, DaemonLauncher, DetachedLauncher
-from .measures import Measurements, StoreMeasurements
+from .measures import Measurements, StoreMeasurements, measured_nearby, not_measured
 from .planning import AnalysisPins, plan_request
 from .requests import (
     check_controls,
@@ -202,9 +202,17 @@ class NarrationBackend:
             )
         return profile
 
-    def _measurement(self, voice_hash: str, profile: EngineProfile) -> MeasurementRecord:
-        """The measurement the request is judged against; ``VOICE_NOT_MEASURED`` when there is none."""
-        return self.measurements.require(voice_hash, profile)
+    def _measurement(self, voice: VoiceSpec, voice_hash: str, profile: EngineProfile) -> MeasurementRecord:
+        """The measurement the request is judged against; ``VOICE_NOT_MEASURED`` when there is none, saying
+        where the transcript differs when this clip is measured under a near spelling of it
+        (``measures.measured_nearby``), and otherwise to measure it."""
+        try:
+            return self.measurements.require(voice_hash, profile)
+        except NarrationError as exc:
+            if exc.code != codes.VOICE_NOT_MEASURED:
+                raise
+            nearby = measured_nearby(self.measurements, voice, profile)
+            raise not_measured(exc, voice, voice_hash, profile, nearby) from exc
 
     def _check_disk(self) -> None:
         """``STORE_FULL`` (retryable) when the store's disk has less free space than ``min_free_disk_gb``."""
@@ -457,7 +465,8 @@ class NarrationBackend:
         clip = ClipRef(path=request.voice.path, sha256=request.voice.sha256)
         check_synthetic(self.store, config.voices.allow_sha256, clip, field="voice")
         voice_hash = self._voice_hash(request.voice)
-        measurement = self._measurement(voice_hash, profile)  # before the clip is read: nothing to copy if unmeasured
+        # Before the clip is read: nothing to copy if unmeasured.
+        measurement = self._measurement(request.voice, voice_hash, profile)
         dry_run = request.options.dry_run
         if not dry_run:
             self._check_disk()
