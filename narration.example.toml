@@ -21,7 +21,8 @@ models_root = '<service_root>\models'     # pinned model snapshots, downloaded b
 # itself (it is on the service's own provenance list), or if its sha256 hash is listed here. Use this
 # list only for clips you designed with some other tool before you had this service, and are confident
 # are synthetic (not a recording of a real person). It ships empty: nobody's clip is allowlisted by
-# default.
+# default. `narration-admin voices allow <clip.wav>` adds a clip after you confirm it is synthetic, and
+# `narration-admin voices list` shows the list. narration-mcp and the daemon read it when they start.
 allow_sha256 = []
 
 [retention]

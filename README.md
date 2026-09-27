@@ -102,7 +102,8 @@ folder of your clone.
 3. In a session, call `measure_voice` on your voice clip once. Then call `submit_job`, poll `get_job`,
    and read the takes with `get_results`. The first job starts the background daemon that does the work.
    The server clones only voices this service designed, or clips whose sha256 is in `[voices]
-   allow_sha256`.
+   allow_sha256`. `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to that list,
+   after you confirm that it is synthetic.
 
 ## Project status, contributing and security
 
