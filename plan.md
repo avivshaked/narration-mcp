@@ -663,7 +663,7 @@ Updated by the lead on `main` only.
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; H1: 8 of 10 approved; for `ladder-080` and `align-03` the lead recommends approving as written (the fault is the seed's; 2026-09-27), awaiting the owner; then the freeze adds the calibration's design text |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
-| WP22 | QA worker | 2 | WP16, WP15 | yes | `review` | `wp/22-qa-worker` | acceptance passes with DC-14 and DC-15 (60 s); QA group needs 11500 MB; independent review running |
+| WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
 | WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | profiles, drift check and the real `installed_engine` built; rebasing onto `main`; `engine pin` on WP37's interface next; DC-16 contract awaits the owner's OK |
@@ -995,3 +995,5 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     default. WP32, WP33 and WP36 rebase onto `main`. WP22 and WP37 are in independent review.
   - **WP33's measure job and WP36's tools work end to end on the fake workers:** measure a voice, then
     narrate with `takes: 2` over JSON-RPC, with results validated against the output schema.
+  - **WP22 merged (PR #29):** the QA worker; design revision 5.13 (DC-14, DC-15, the QA group's
+    memory). WP37 fixed its review's findings (a path-traversal hole in `install` among them) and is in CI.

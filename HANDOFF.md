@@ -11,15 +11,14 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   in parallel now; the rest of plan.md follows M1.
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
-  configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), contracts
-  1.1–1.6.5, the private-text guard. Design revision 5.12.
+  configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), WP22 the QA
+  worker (PR #29), contracts 1.1–1.6.5, the private-text guard. Design revision 5.13.
 - **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
   its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
   | WP37 operator CLI | `wp/37-admin` | a1b119ea6c733e52b (reviewer a9dd8b1a7ed2648b1) | in review; `render` follows WP36 |
-  | WP22 QA worker | `wp/22-qa-worker` | a560deac0c56c674c (reviewer ad2cf436a03859564) | in review; acceptance passes (DC-14, DC-15 at 60 s); QA group `vram_need_mb` = 11500 |
   | WP32 engine profiles, canary, `installed_engine` | `wp/32-engine` | a203bffe41405429f | building; the real `installed_engine` done; `engine` commands on WP37's interface next; DC-16 awaits the owner |
   | WP33 `measure_voice` | `wp/33-measure` | a21fe923fab0198e7 (reviewer a9759b8d3287035d1, Fable) | in review |
   | WP36 the tools (front-end ↔ daemon) | `wp/36-backend` | a35085aca80cfb4e8 (reviewer ae39d41a64a79fc93, Fable) | in review; created-`completed` at submit (§7.3) is a follow-up |
@@ -78,7 +77,7 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 2. **WP37 follow-ups:** `render` over WP36's backend once WP36 is on `main`; `doctor` checks the material
    manifests once WP33's corpus loader is; a single-item evict in the store for what `verify` finds damaged
    (the store's area); `reset_workers` stays a proposal.
-3. **WP22:** independent review, then merge with design §11.1's text for DC-14 and DC-15.
+3. WP22 is merged (the main checkout's `workers/qa` venv is synced).
 4. **WP32, WP33, WP36:** reviews and merges, as each is ready. Then WP37 (the CLI; `engine pin` is WP32's).
 5. **Gate H1:** the result is in `OWNER-ACTIONS.md` §1 (the fault is the seed's; recommend approving 05
    and 08 as written). On the owner's approval, the lead freezes the manifests (status `frozen`) and adds
