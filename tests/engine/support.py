@@ -8,13 +8,17 @@ the network; the tests that run a worker use ``narration_worker``'s ``fake`` rol
 from __future__ import annotations
 
 import dataclasses
+import importlib.metadata
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 
 from narration.config import Config, WorkerProject
+from narration.contracts.interfaces import WorkerClient
 from narration.engine.models import CTC_ALIGNER, QWEN_BASE, QWEN_DESIGN, WAVLM_SV, WHISPER, PinnedModel
+from narration.engine.pinning import SubprocessStarter
 from narration.engine.profile import QWEN_PACKAGES
 
 GENERATION: Final[dict[str, Any]] = {
@@ -90,6 +94,25 @@ def make_install(root: Path, *, versions: Mapping[str, str] | None = None, qa: b
         config, workers=dataclasses.replace(config.workers, qwen3=WorkerProject(project=project))
     )
     return Install(config=config, models_root=models_root, store_root=store_root, project=project)
+
+
+def fake_install(root: Path) -> Install:
+    """An installation whose Qwen lock names the fake worker's package at the version it reports, so a profile
+    pinned with ``FAKE_WORKER_PACKAGES`` matches the fake's ``hello``."""
+    return make_install(root, versions={"narration-worker": importlib.metadata.version("narration-worker")})
+
+
+class CountingStarter:
+    """Starts fake workers in place of the real ones (``engine pin``'s ``Starter``), and counts them."""
+
+    def __init__(self, config: Config) -> None:
+        base = {k: v for k, v in os.environ.items() if k != "NARRATION_FAKE_SPEC"}
+        self.inner = SubprocessStarter(config, role="fake", base_env=base)
+        self.started: list[str] = []
+
+    def start(self, role: Any, *, cublas_workspace_config: str | None = None) -> WorkerClient:
+        self.started.append(role)
+        return self.inner.start(role, cublas_workspace_config=cublas_workspace_config)
 
 
 def hello(packages: Mapping[str, str], *, cublas: str | None = ":4096:8") -> dict[str, Any]:

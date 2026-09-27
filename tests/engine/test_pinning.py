@@ -7,7 +7,6 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import importlib.metadata
-import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -16,38 +15,19 @@ import pytest
 
 from narration.config import Config, EnginesConfig, QwenBaseConfig
 from narration.contracts import names
-from narration.contracts.interfaces import WorkerClient
 from narration.contracts.models import CanaryMaterial
 from narration.engine.canary import CALIBRATION_SEEDS, CANARY_MARGIN, find_canary, material_id
 from narration.engine.models import QWEN_BASE, QWEN_DESIGN
-from narration.engine.pinning import PinRefused, SubprocessStarter, bridge, pin, plan
+from narration.engine.pinning import PinRefused, bridge, pin, plan
 from narration.store import NarrationStore
 from tests.store.standin import StandInPlatform
 
-from .support import Install, make_install, write_lock
+from .support import FAKE_WORKER_PACKAGES, CountingStarter, Install, fake_install, write_lock
 
-WORKER_PACKAGES = ("narration-worker",)
+WORKER_PACKAGES = FAKE_WORKER_PACKAGES
 """The fake worker reports only its own package, so the tests' profiles pin only that one."""
 BASE_P1, BASE_P2 = "qwen3-base-1.7b.p1", "qwen3-base-1.7b.p2"
 DESIGN_P1 = "qwen3-design-1.7b.p1"
-
-
-class CountingStarter:
-    """Starts fake workers in place of the real ones, and counts them."""
-
-    def __init__(self, config: Config) -> None:
-        base = {k: v for k, v in os.environ.items() if k != "NARRATION_FAKE_SPEC"}
-        self.inner = SubprocessStarter(config, role="fake", base_env=base)
-        self.started: list[str] = []
-
-    def start(self, role: Any, *, cublas_workspace_config: str | None = None) -> WorkerClient:
-        self.started.append(role)
-        return self.inner.start(role, cublas_workspace_config=cublas_workspace_config)
-
-
-def fake_install(root: Path) -> Install:
-    """An installation whose Qwen lock names the fake worker's package at the version it reports."""
-    return make_install(root, versions={"narration-worker": importlib.metadata.version("narration-worker")})
 
 
 @dataclasses.dataclass
