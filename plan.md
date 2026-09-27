@@ -1,6 +1,6 @@
 # Narration MCP: implementation plan
 
-*Plan revision 2, 2026-09-26. Status: **H0 answered and the plan pushed; WP00 next.** Nothing is built yet.*
+*Plan revision 3, 2026-09-27. Status: **Waves 0 and 1 merged; Wave 2 under way; first narration (M1, §6) is the priority.***
 
 **Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.11**. It is the
 bake-off's design copied into this repository, and differs only in two example paths and a header note.
@@ -230,6 +230,8 @@ it. Status: `proposed` · `approved` · `applied` (in the design) · `rejected`.
 | DC-11 | **A wildcard for a token the aligner cannot spell.** §11.2 step 1 says the words around a left-out token (a number in digits) "still align". WP15 measured otherwise on real takes: in all six bake-off takes a paragraph that ends in two numbers written in digits puts the next cue 1.3–3.4 s early, and three of the six raise no flag. Spike (b) put a wildcard token in the gap on that paragraph, and the worst word error fell from 89 frames to 9. Proposed: such a token becomes the aligner's wildcard instead of being left out. Approved by the lead as a gap-fill (the owner may overrule), on condition that WP15 measures it fixes that boundary on all six takes and moves no other; the design text is applied when WP15 merges with that evidence. | §11.2 | **applied** (rev 5.9); met: its two conditions held on the evidence (`status/WP15.md`) | WP15 |
 | DC-12 | **A cue no retake can place is not a retake trigger.** A cue whose text has no word the aligner can place gets `CUE_UNALIGNED`, a retake trigger, and fails the same way on every retake. It now carries `details.reason` = `no_alignable_words` and does not trigger a retake; it stays in listen-first. A lead gap-fill from WP15 (the owner may overrule); `codes.is_retake_trigger` takes the flag's details. | §11.1, §11.2 | **applied** (rev 5.5) | WP15, WP31 |
 | DC-13 | **The service's own default design text.** The §16 default `design_text`, which is also the canary's design text (DC-3), was the bake-off's reference text. The bake-off's texts are private (AGENTS.md §1 rule 1), and this is a public project, so the service now ships a text written for it: "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen." It has two sentences and 32 words, and no digits or names. A clip designed earlier keeps the transcript `design_voice` returned for it. The owner decided (2026-09-26). | §3.1, §7.3 (example), §16, App. A, App. B | **applied** (rev 5.8) | WP18 |
+| DC-14 | **Whisper decodes with five beams, not conditioned on the previous window.** §11.1 step 2 says greedy decoding conditioned on the previous text. WP22 measured that it loops on 2 of the 6 bake-off takes (WER 0.40); five beams without conditioning reproduce the bake-off's WER exactly on all six (ADR 0004, `spikes/acceptance-wp22/decoding.json`). A lead gap-fill (the owner may overrule), since the design's own acceptance is to match the bake-off. | §11.1 | **approved** (lead, 2026-09-27); applied when WP22 merges | WP22 |
+| DC-15 | **A long clip is embedded in windows.** WavLM's memory grows with the square of the length (0.6 GB at 30 s, 8.4 GB at 119 s; WP22, spike h), and a segment longer than the voice's limit is rendered and warned about, never refused. Audio longer than 30 s is embedded as equal windows of at most 30 s; the embedding is the mean of the L2-normalised window embeddings, normalised again. Audio of 30 s or less is unchanged. Cosine to a single pass: 0.999 at 60 s, 0.994 at 119 s. A lead gap-fill (the owner may overrule). | §11.1, §4 (QA worker) | **approved** (lead, 2026-09-27); applied when WP22 merges | WP22 |
 
 ---
 
@@ -655,19 +657,19 @@ Updated by the lead on `main` only.
 | WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
 | WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19 | 2026-09-26; follow-ups 2 re-verified (merge with Low follow-ups) on `wp/16-worker-followups`, to merge first: shared Qwen settings parser, one WAV writer, contracts 1.6.3 |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19, #24 | 2026-09-27; second follow-ups merged (PR #24): one Qwen settings parser, one WAV writer, contracts 1.6.3, design 5.10; Low follow-ups in HANDOFF.md |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
 | WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; the service's own default design text (DC-13, design 5.8); fixtures settled with WP10; H1: 8 of 10 approved, `ladder-080` and `align-03` under investigation (an artefact at the start of the take) |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
-| WP22 | QA worker | 2 | WP16, WP15 | yes | `paused` | `wp/22-qa-worker` | about half built; acceptance matches the bake-off; ADR 0004 (decoding) proposed; next steps in its status file |
-| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `review` | `wp/30-daemon` | three reviews; every fix made; ready to merge after the lead's diff check (contracts 1.6.4 at rebase, design text drafted) |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `paused` | `wp/31-jobs` | review fixes made; re-verification half done (a candidate Medium: a connection per lease renewal); rebases after WP30 |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `todo` | – | DC-3 |
-| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `todo` | – | needs H1 |
+| WP22 | QA worker | 2 | WP16, WP15 | yes | `active` | `wp/22-qa-worker` | acceptance matches the bake-off; DC-14 (decoding) and DC-15 (windowed embedding) approved; finishing to review |
+| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PR #25 | 2026-09-27; three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `review` | `wp/31-jobs` | reviewer finishing its re-verification; then rebase on WP30, contracts 1.6.5 |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `active` | `wp/32-engine` | stacked on `wp/31-jobs`; `installed_engine` first (M1), then `engine pin`, the canary (DC-3) |
+| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `active` | `wp/33-measure` | stacked on `wp/31-jobs`; built against the draft corpus until H1 closes |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
-| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `todo` | – | DC-2 |
+| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `active` | `wp/36-backend` | stacked on `wp/31-jobs`; M1's tools first |
 | WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `todo` | – | |
 | WP38 | Alignment benchmark (spike a) | 2 | WP15, WP18, WP20 | yes | `todo` | – | H2, H3 |
 | WP39 | Ladder d2/d4 (spike c) | 2 | WP33 | yes (long) | `todo` | – | needs H1 |
@@ -713,6 +715,15 @@ Wave 2             WP30 ─┐   WP22 (GPU, bounded)   WP36 (after WP31)   WP37
                                                               ▼
 Wave 3             WP40 ─► WP41 (H4) ─► WP42        WP43 ─► WP44 (release only with the owner)
 ```
+
+**First narration (M1), the owner's priority (2026-09-27).** The owner needs to generate narration through
+the MCP as soon as possible, because it blocks other work. M1 is reached when, in a Claude Code session with
+this server configured, a caller measures an allowlisted synthetic clip with `measure_voice`, then submits
+paragraphs of cues with `submit_job`, polls `get_job`, and receives QA'd, cue-aligned takes from
+`get_results`. Its path: WP30 and WP31 (merge), WP22 (QA worker), WP32 (`installed_engine`, the engine
+profile, `engine pin` and the canary), WP33 (`measure_voice`), WP36 (the tools), the corpus frozen after
+gate H1 (WP18), and WP37's daemon and doctor commands. WP32, WP33 and WP36 start stacked on `wp/31-jobs`
+rather than waiting for it to merge. WP34, WP35, WP38, WP39 and Wave 3 follow M1.
 
 **Critical path:** WP00 → WP01 → WP16 → WP20 (the Qwen worker) → WP32 / WP31 → WP33 → WP40 → WP41. The
 GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start first within Wave 1.
@@ -951,3 +962,15 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
   work, wrote its status file as a handoff and stopped; the GPU lock is free. HANDOFF.md's "Paused by
   the owner" section gives the order to resume: WP16's follow-ups, WP30, WP31, WP22, then gate H1's
   investigation of `ladder-080` and `align-03`. The owner found both items' second takes clean.
+- 2026-09-27, morning: **resumed; the owner set first narration through the MCP as the priority**
+  (M1, §6).
+  - **WP16's second follow-ups merged (PR #24):** contracts 1.6.3, design revision 5.10.
+  - **The GPU lock "discrepancy" is explained:** `owner.json` stamps UTC, and WP22's report gave
+    those stamps as local times. The tool's release and status paths are consistent.
+  - **DC-14 and DC-15 approved** as lead gap-fills (Whisper's decoding; a long clip's embedding in
+    windows); the owner may overrule.
+  - **WP32, WP33 and WP36 started**, stacked on `wp/31-jobs`, beside WP22 and WP31's re-verification;
+    gate H1's investigation restarted (measure the 20 renders, then 32 renders over 8 seeds).
+  - **WP30 merged (PR #25):** contracts 1.6.4, design revision 5.11. Linux CI found a test that took
+    `launcher.pid + 1` as a wrong pid, which is the daemon's own pid where pids are sequential (fixed),
+    and one test flaky on Windows, which WP30's agent is fixing on `wp/30-flake`.
