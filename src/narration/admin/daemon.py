@@ -3,8 +3,9 @@
 - ``start`` starts the daemon detached (``narration.daemon.start.ensure_daemon``), unless one already
   serves this store, and waits until it serves. When the daemon cannot leave this terminal's Job Objects (a
   job around the terminal forbids breakaway, so Windows either refuses the start or would leave the daemon
-  inside that job, where the platform ends it before it runs), it says so and offers ``--foreground``, which
-  runs the daemon in this terminal until it exits.
+  inside that job, where the platform ends it before it runs; or Windows could not say), it says so
+  (``refusal_text``) and offers ``--foreground``, which runs the daemon in this terminal until it exits. A
+  started daemon's message says when it exits for want of work (``[daemon] idle_exit_min``).
 - ``stop`` asks the running daemon to stop: to finish the segment in flight, unload and exit (``stop``); or,
   with ``--now``, to end the work in flight at once and put it back on the queue (``stop_now``). **It posts
   the command only when ``running_daemon`` says a daemon runs.** A daemon honours only the stops posted
@@ -34,6 +35,7 @@ from narration.daemon.__main__ import LOG_NAME
 from narration.daemon.settings import scrub_python_env
 from narration.daemon.start import daemon_argv, ensure_daemon, running_daemon
 from narration.daemon.sweep import StatusUnreadable, daemon_alive, read_status
+from narration.platform import JOB_CHECK_FAILED
 from narration.store import NarrationStore
 
 from .cli import EXIT_FAILED, EXIT_OK, PROGRAM, Admin, AdminError, Subparsers
@@ -126,20 +128,15 @@ def start_daemon(admin: Admin, args: argparse.Namespace) -> int:
     except NarrationError as exc:
         if exc.code != "DAEMON_UNAVAILABLE":
             raise
-        raise AdminError(
-            f"The daemon cannot be detached from this terminal ({exc.message}). This terminal runs inside a "
-            "Job Object that forbids breakaway, as some programs' built-in terminals do, so a daemon started "
-            f"here would end with that program. Run `{PROGRAM} daemon start` from a terminal outside that "
-            f"program, or run the daemon in this one with `{PROGRAM} daemon start --foreground` and keep the "
-            "terminal open while it works."
-        ) from exc
+        raise AdminError(refusal_text(exc)) from exc
     if not result.started:
         admin.say(f"A daemon already serves {root}: {_describe(result.status)}.")
         return EXIT_OK
+    idle = _idle_exit_text(config.daemon.idle_exit_min)
     if wait_s == 0:
         admin.say(
             f"Started a daemon for {root} (launcher pid {result.spawned_pid}). It serves once it has written "
-            f"its status; check with `{PROGRAM} daemon status`."
+            f"its status; check with `{PROGRAM} daemon status`.{idle}"
         )
         return EXIT_OK
     if result.status is None:
@@ -148,8 +145,44 @@ def start_daemon(admin: Admin, args: argparse.Namespace) -> int:
             f"serves within {wait_s:g} s. Its log is {_log_path(store)}; check with `{PROGRAM} daemon status`."
         )
         return EXIT_FAILED
-    admin.say(f"Started the daemon for {root}: {_describe(result.status)}.")
+    admin.say(f"Started the daemon for {root}: {_describe(result.status)}.{idle}")
     return EXIT_OK
+
+
+def refusal_text(exc: NarrationError) -> str:
+    """What to tell the operator when the daemon could not be detached from this terminal, chosen by the
+    platform's ``details["reason"]`` (``narration.platform``: ``BREAKAWAY_REFUSED``, ``LEFT_IN_JOB``,
+    ``JOB_CHECK_FAILED``), so the cause is named only where Windows established it. The rule (lead decision):
+    the daemon runs only in no Job Object at all, so any enclosing job that forbids breakaway refuses the
+    detached start, even one that would not end the daemon. Every case offers ``--foreground``."""
+    reason = (exc.details or {}).get("reason")
+    if reason == JOB_CHECK_FAILED:
+        cause = (
+            "Windows could not confirm that the daemon had left this terminal's Job Objects, so it was ended "
+            "before it ran: the daemon runs only in no Job Object at all"
+        )
+    else:
+        cause = (
+            "This terminal runs inside a Job Object that forbids breakaway, as CI runners and some programs' "
+            "built-in terminals do. The daemon runs only in no Job Object at all, even one that would not end it"
+        )
+    return (
+        f"The daemon cannot be detached from this terminal ({exc.message}). {cause}. Run `{PROGRAM} daemon "
+        "start` from a terminal whose Job Objects allow breakaway (a plain terminal outside that program), or "
+        f"run the daemon in this one with `{PROGRAM} daemon start --foreground` and keep the terminal open "
+        "while it works."
+    )
+
+
+def _idle_exit_text(idle_exit_min: int) -> str:
+    """The sentence that says when a hand-started daemon leaves (``[daemon] idle_exit_min``), so a user whose
+    client cannot start the daemon itself knows to start it again, or to raise the setting."""
+    if idle_exit_min <= 0:
+        return " It exits as soon as it has no work ([daemon] idle_exit_min is 0)."
+    return (
+        f" It exits after {idle_exit_min} min without work ([daemon] idle_exit_min); a client that cannot start "
+        "it itself needs this command again then, or a larger setting."
+    )
 
 
 def foreground_argv(store: NarrationStore, config_path: Path, *, python: Path, launched_at: float) -> list[str]:

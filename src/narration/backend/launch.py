@@ -25,11 +25,14 @@ from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Store
 from narration.contracts.models import DaemonStatus
 from narration.daemon import start as daemon_start
+from narration.platform import DAEMON_RETRY_AFTER_S
 
 log = logging.getLogger(__name__)
 
-DAEMON_RETRY_S: Final = 30.0
-"""``DAEMON_UNAVAILABLE``'s ``retry_after_s`` (DC-2): time for an operator to start the daemon by hand."""
+DAEMON_RETRY_S: Final = DAEMON_RETRY_AFTER_S
+"""``DAEMON_UNAVAILABLE``'s ``retry_after_s`` (DC-2): time for an operator to start the daemon by hand. One
+value at every level: the platform's (``narration.platform.DAEMON_RETRY_AFTER_S``, the lead's ruling), so an
+MCP client sees the same figure as the operator's terminal."""
 SERVING_STATES: Final = ("idle", "busy")
 """The daemon states that serve the queue (``stopping`` is on its way out)."""
 START_HINT: Final = (

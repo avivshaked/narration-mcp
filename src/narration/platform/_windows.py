@@ -31,7 +31,7 @@ import psutil
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 
-from . import real_path, winpaths
+from . import BREAKAWAY_REFUSED, DAEMON_RETRY_AFTER_S, JOB_CHECK_FAILED, LEFT_IN_JOB, real_path, winpaths
 
 # ---------------------------------------------------------------- constants (Windows SDK values)
 CREATE_BREAKAWAY_FROM_JOB: Final = 0x01000000
@@ -84,24 +84,8 @@ SINGLETON_PREFIX: Final = "Global\\narration-mcp.daemon."
 """The daemon mutex's name before the store path's hash. Never change it: a daemon of an older version and
 one of a newer version must still exclude each other on the same store."""
 
-DAEMON_RETRY_AFTER_S: Final = 60.0
-"""``retry_after_s`` of ``DAEMON_UNAVAILABLE`` when breakaway is refused or incomplete (DC-2 asks every
-retryable error for one). The fix needs a person: someone must read the hint, run ``narration-admin daemon
-start`` in a terminal, and let the daemon come up. A retry sooner than that fails the same way (lead ruling,
-WP19 review)."""
-
-BREAKAWAY_REFUSED: Final = "breakaway_refused"
-"""``DAEMON_UNAVAILABLE``'s ``details["reason"]`` when ``CreateProcess`` refused the breakaway (access denied):
-this process's innermost Job Object forbids it."""
-
-LEFT_IN_JOB: Final = "left_in_job"
-"""``DAEMON_UNAVAILABLE``'s ``details["reason"]`` when ``CreateProcess`` accepted the breakaway but the daemon was
-still in a Job Object: one around this process's innermost job forbids breakaway (see ``spawn_detached``,
-"Nested jobs"). The daemon was ended before it ran its first instruction."""
-
-JOB_CHECK_FAILED: Final = "job_check_failed"
-"""``DAEMON_UNAVAILABLE``'s ``details["reason"]`` when Windows could not say whether the daemon was in a job. It
-was ended before it ran: a daemon that may die with its client is never let run."""
+# DAEMON_RETRY_AFTER_S, BREAKAWAY_REFUSED, LEFT_IN_JOB and JOB_CHECK_FAILED are defined in narration.platform
+# (OS-neutral values the front-end and narration-admin read too) and imported above.
 
 
 # ---------------------------------------------------------------- kernel32
@@ -284,7 +268,8 @@ class _JobObject:
     inheritable, so no child can keep the job alive. ``allow_breakaway`` lets the job's processes start
     children outside it with ``CREATE_BREAKAWAY_FROM_JOB``; ``silent_breakaway`` keeps their children out of
     it whether they ask or not. The tests use both to stand in for the jobs of MCP clients (the Python SDK's
-    has neither; libuv's, so Node's and Claude Code's, has both) and for a venv launcher's (silent only).
+    has neither; libuv's has both, so Node.js's does, as measured, and, we believe, Claude Code's) and for a
+    venv launcher's (silent only).
     """
 
     def __init__(
@@ -485,6 +470,19 @@ class WindowsPlatform:
         is created suspended, Windows is asked whether it is in any job (``IsProcessInJob``), and only a
         daemon in none is let run. One still in a job is ended before its first instruction
         (``LEFT_IN_JOB``); so is one whose membership cannot be read (``JOB_CHECK_FAILED``).
+
+        **The rule is "in no Job Object at all"** (lead decision, WP30-escape review). Any enclosing job that
+        forbids breakaway refuses the detached start, even one that would not end the daemon: this process
+        cannot read an enclosing job's limits or know who holds its handle (the MCP Python SDK, for one,
+        terminates its job whatever the job's flags). The known case (KNOW, PR #37's CI): GitHub's hosted
+        Windows runner puts its steps in such a job. The supported route there is ``narration-admin daemon
+        start --foreground``, or a host whose jobs allow breakaway.
+
+        **What is checked.** The process created, ``argv[0]``. Under a venv that is the launcher; its child,
+        the interpreter that records its own pid in ``run/daemon.json``, is born into the launcher's own
+        kill-on-close job (the launcher's, not the client's; the launcher holds its only handle while it waits
+        for the interpreter). So the daemon runs in no job of the client's, and its launcher must never be
+        ended by pid: the daemon would go with it.
         """
         if not argv:
             raise ValueError("argv is empty")
@@ -517,42 +515,43 @@ class WindowsPlatform:
                 retry_after_s=DAEMON_RETRY_AFTER_S,
             ) from exc
         # The child is suspended and this Popen holds its handle, so its pid names it until it is resumed.
+        # Whatever interrupts the check or the resume (an OSError, Ctrl+C in narration-admin's main thread, any
+        # exception at all), the suspended child is ended first: none is ever left suspended and unreaped.
         try:
-            still_in_job = _in_job(process.pid, None)
-        except OSError as exc:
-            _end(process)
-            in_job, allows_breakaway = _own_job_breakaway()
-            raise NarrationError(
-                codes.DAEMON_UNAVAILABLE,
-                "Windows could not say whether the daemon had left this process's Job Object "
-                f"({exc.strerror or exc}); a daemon that may die with this client mid-job is never let run, "
-                "so it was ended before it started.",
-                details={
-                    "reason": JOB_CHECK_FAILED,
-                    "winerror": exc.winerror,
-                    "in_job": in_job,
-                    "job_allows_breakaway": allows_breakaway,
-                },
-                retry_after_s=DAEMON_RETRY_AFTER_S,
-            ) from exc
-        if still_in_job:
-            _end(process)
-            in_job, allows_breakaway = _own_job_breakaway()
-            raise NarrationError(
-                codes.DAEMON_UNAVAILABLE,
-                "Windows started the daemon inside a Job Object it could not leave: this process's innermost "
-                "job allows breakaway (a venv launcher's does), but one around it does not, and the daemon "
-                "stayed in that one. It would die with this client mid-job, so it was ended before it started.",
-                details={
-                    "reason": LEFT_IN_JOB,
-                    "in_job": in_job,
-                    "job_allows_breakaway": allows_breakaway,
-                },
-                retry_after_s=DAEMON_RETRY_AFTER_S,
-            )
-        try:
+            try:
+                still_in_job = _in_job(process.pid, None)
+            except OSError as exc:
+                in_job, allows_breakaway = _own_job_breakaway()
+                raise NarrationError(
+                    codes.DAEMON_UNAVAILABLE,
+                    "Windows could not say whether the daemon had left this process's Job Objects "
+                    f"({exc.strerror or exc}); a daemon that may die with this client mid-job is never let run, "
+                    "so it was ended before it started.",
+                    details={
+                        "reason": JOB_CHECK_FAILED,
+                        "winerror": exc.winerror,
+                        "in_job": in_job,
+                        "job_allows_breakaway": allows_breakaway,
+                    },
+                    retry_after_s=DAEMON_RETRY_AFTER_S,
+                ) from exc
+            if still_in_job:
+                in_job, allows_breakaway = _own_job_breakaway()
+                raise NarrationError(
+                    codes.DAEMON_UNAVAILABLE,
+                    "Windows started the daemon inside a Job Object it could not leave: this process's innermost "
+                    "job allows breakaway (a venv launcher's does), but one around it does not, and the daemon "
+                    "stayed in that one. A daemon runs only in no Job Object at all, so it was ended before it "
+                    "started.",
+                    details={
+                        "reason": LEFT_IN_JOB,
+                        "in_job": in_job,
+                        "job_allows_breakaway": allows_breakaway,
+                    },
+                    retry_after_s=DAEMON_RETRY_AFTER_S,
+                )
             _resume(process.pid)
-        except OSError:
+        except BaseException:
             _end(process)
             raise
         return process.pid
