@@ -11,7 +11,10 @@ The proof for a daemon (``capture_daemon``):
   wrote that status while it ran, holding that pid; a process that holds the pid now and existed then must
   be that daemon, since two live processes never share a pid. A later process given the same pid was
   created after ``started_at`` and is refused. ``started_at`` is written to the millisecond, cut short, so
-  "no later than" allows the millisecond the cut removed (``STARTED_AT_PRECISION_S``), and no more;
+  "no later than" allows the millisecond the cut removed (``STARTED_AT_PRECISION_S``), and no more. A real
+  daemon reads that clock long after its creation. A test that writes a status must also give a time the
+  clock reached after the creation (``test_owned.a_time_after_creation``): on Windows ``time.time`` can lag
+  the exact ``create_time`` by a timer tick;
 - its parent is the launcher pid the test's session got back from ``start_detached`` (or it is that pid
   itself). psutil's ``parent()`` refuses a parent younger than the child, so a reused parent pid is refused.
 
