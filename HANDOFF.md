@@ -22,7 +22,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   | The daemon-detach fix (WP30's area) | `wp/30-escape`, PR #37 | a9adeef63f4026ccc (Fable) | review fixes verified (two read-only verifiers: merge with follow-ups; CI green). **Merge after the owner's narration session**: it changes how the daemon starts |
   | WP34 design and profile | `wp/34-design`, PR #39 | aee097b972cdb073f | review fixes done (contracts 1.6.7); CI green. **Merge after the owner's session**, after a full-suite run |
   | The caller's guidance in the tool texts | `wp/36-guidance`, PR #40 | aa82ffe101d84906f | read-only review running; texts only, so it may merge during the session |
-  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | read-only review running; merge after the owner's session |
+  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | fixing its review (lead's decisions: revive a queued job only after a crash, never after an operator's stop; one daemon spawn per start window; explicit shield and retryable sets); merge after the owner's session |
+  | WP47 pace in characters per second (D2) | `wp/47-pace-cps` | af6d02f523a3a52f0 | building; merges after the owner's session, then the voice is measured again (cached renders, QA only) |
 
   PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
   client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a
@@ -69,8 +70,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **The readiness audit's decisions** (`.dev/lead/readiness_synthesis.md`, local; section 4):
   - D1: a full ladder for the first voice, or keep the stop at 300 (some of the consumer's paragraphs are
     longer); needs a GPU hold over 30 min, which the lock tool refuses without an override;
-  - D2: judge pace in characters per second rather than words per minute (§3.2, §11.1): the ladder texts'
-    word lengths differ, which the wpm trend reads as pace;
+  - D2: **decided 2026-09-27: characters per second** (WP47). The first real job's short segments failed
+    `PACE_FAST` falsely on every attempt;
   - D3: a compact `get_results` (a segment filter; words off by default) (§7.5);
   - D4: run the service from a pinned checkout, or freeze merges that touch the engine while narrating;
   - D5: whether dev GPU work pauses while the owner narrates;
@@ -163,6 +164,10 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
   x_vector_only_mode` must stay `false` (the canary clones with `false`), so document it or make the
   canary follow it; a canary-text change forces new profile ids (a canary-only re-pin under the same id
   would need a store change).
+- **WP48, a failure audit (the owner asked, 2026-09-27):** collect every failed or retaken take across jobs,
+  with its reasons, for the owner to audit (`narration-admin failures`, an export, a report section, and
+  WP46's view). The store already keeps them; what is missing is a cross-job view and retention that waits
+  for the audit.
 - **WP46, a frontend (the owner asked, 2026-09-27):** plan a view of jobs, takes, voices, the allowlist and the
   engine and daemon state, **after the other work**. Write the plan for the owner's approval first; build nothing before it.
 - **WP45 (the owner asked, 2026-09-27; DC-17):** `narration-admin voices allow <clip.wav>` adds a clip
