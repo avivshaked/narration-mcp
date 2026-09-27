@@ -1,7 +1,7 @@
 # WP36 The caller's guidance in the tool texts (readiness audit item 1.1)
 State: review pending the full suite        Updated: 2026-09-27T21:40+01:00
 
-Branch `wp/36-guidance`, rebased onto `main` at 15d046a (WP45 merged). Text only, except for two hint selections in
+Branch `wp/36-guidance`, rebased onto `main` at 4e0d85f (WP45 merged). Text only, except for two hint selections in
 `mcp/validation.py`. The audit ids it answers: mcp-2, qa-4, cf-7, cf-2, mcp-1, rt-1, mcp-7, mcp-8, rt-6,
 cf-10, mcp-10, mcp-11, triage-9 and cf-11.
 
