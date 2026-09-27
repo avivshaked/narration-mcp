@@ -20,8 +20,14 @@ reproduces every similarity of ``refs/auditions/voicelock.csv`` (52 rows) and th
 (``config.json``, ``preprocessor_config.json``); ``refs/pr/8`` holds only the weights. The ``.bin`` is a pickle,
 so it loads with ``weights_only=True``, which refuses anything but tensors.
 
-**Memory.** WavLM attends over the whole clip, so an embedding's memory grows with the square of its length:
-KNOW (``spikes/h-i-qa-load``) 0.6 GB above the resident models at 30 s, 2.2 GB at 60 s, 8.4 GB at 119 s.
+**Windows (DC-15).** Audio of up to 30 s is embedded in one pass, exactly as above. Longer audio is cut into
+``ceil(length / 30 s)`` consecutive windows of equal length (differing by at most one sample), each is embedded
+in one pass, and the result is the mean of the windows' L2-normalised embeddings, normalised again. Why: WavLM
+attends over the whole clip, so one pass's memory grows with the square of its length (KNOW, ``spikes/h-i-qa-load``:
+0.6 GB above the resident models at 30 s, 2.2 GB at 60 s, 8.4 GB at 119 s); windows keep it at the 30 s figure
+for any length. The cost is a slightly different vector for long audio: the windowed embedding's cosine to the
+one-pass one is 0.999 at 60 s and 0.994 at 119 s on a real take (the same spike). Every number of the bake-off's
+evidence came from segments shorter than 30 s, so none changes.
 """
 
 from __future__ import annotations
@@ -40,6 +46,18 @@ ARCHITECTURE: Final = "WavLMForXVector"
 MODEL_TYPE: Final = "wavlm"
 DEVICES: Final = ("cuda", "cpu")
 """The devices an ``embed`` may name."""
+WINDOW_S: Final = 30
+"""The longest audio embedded in one pass (DC-15); longer audio is embedded in equal windows of at most this."""
+WINDOW_SAMPLES: Final = WINDOW_S * SAMPLE_RATE
+
+
+def windows(audio_16k: npt.NDArray[np.float32], limit: int = WINDOW_SAMPLES) -> list[npt.NDArray[np.float32]]:
+    """The audio as it is when it has at most ``limit`` samples; otherwise ``ceil(len / limit)`` consecutive windows
+    of equal length (``numpy.array_split``: lengths differ by at most one sample), which together are the audio."""
+    count = -(-int(audio_16k.shape[0]) // limit)
+    if count <= 1:
+        return [audio_16k]
+    return list(np.array_split(audio_16k, count))
 
 
 def min_samples(config: Any) -> int:
@@ -132,7 +150,8 @@ class WavLmSv:
         return self._models[self.device], self.device
 
     def embed(self, audio_16k: npt.NDArray[np.float32], device: str) -> dict[str, Any]:
-        """The ``EmbedReply`` members other than ``id`` and ``ok`` for mono 16 kHz audio.
+        """The ``EmbedReply`` members other than ``id`` and ``ok`` for mono 16 kHz audio: one pass for up to 30 s,
+        else the re-normalised mean of equal windows' embeddings (DC-15; module docstring).
 
         ``InvalidRequest`` (``device``) for a device other than ``DEVICES``, or ``cuda`` with the model on the CPU;
         ``UnreadableAudio`` (``UNSUPPORTED_AUDIO``, reason ``too_short``) for audio shorter than the model can
@@ -154,6 +173,17 @@ class WavLmSv:
                 },
             )
         model, where = self._model_for(device)
+        vectors = [self._one_pass(model, where, window) for window in windows(audio_16k)]
+        if len(vectors) == 1:
+            vector = vectors[0]
+        else:
+            mean = np.mean(np.stack(vectors), axis=0)
+            vector = mean / np.linalg.norm(mean)
+        values = [float(v) for v in vector.tolist()]
+        return {"embedding": values, "dim": len(values), "model": self.repo, "revision": self.revision}
+
+    def _one_pass(self, model: Any, where: str, audio_16k: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
+        """One pass of the bake-off's recipe (module docstring): the L2-normalised x-vector, as float64."""
         torch = self._torch
         features = self._extractor(
             np.ascontiguousarray(audio_16k, dtype=np.float32), sampling_rate=SAMPLE_RATE, return_tensors="pt"
@@ -161,5 +191,4 @@ class WavLmSv:
         with torch.inference_mode():
             embedding = model(**features).embeddings[0]
             vector = torch.nn.functional.normalize(embedding.float(), dim=-1).cpu().numpy()
-        values = [float(v) for v in np.asarray(vector, dtype=np.float64).tolist()]
-        return {"embedding": values, "dim": len(values), "model": self.repo, "revision": self.revision}
+        return np.asarray(vector, dtype=np.float64)

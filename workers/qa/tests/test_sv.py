@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from narration_worker_qa import align as qa
-from narration_worker_qa.sv import WavLmSv, min_samples
+from narration_worker_qa.sv import WINDOW_SAMPLES, WavLmSv, min_samples, windows
 
 torch = pytest.importorskip("torch", reason="needs torch and transformers: the QA worker's full venv")
 pytest.importorskip("transformers", reason="needs torch and transformers: the QA worker's full venv")
@@ -81,3 +81,46 @@ def test_min_samples_follows_the_models_layout_s11_1() -> None:
 def test_embed_before_load_is_not_loaded_s11_1() -> None:
     with pytest.raises(qa.NotLoaded):
         WavLmSv(torch).embed(_audio(), "cpu")
+
+
+# ---------------------------------------------------------------------- windows (DC-15)
+
+
+@pytest.mark.parametrize(
+    ("seconds", "count"),
+    [(1.0, 1), (30.0, 1), (30.0 + 1 / 16_000, 2), (60.0, 2), (61.0, 3), (119.0, 4), (150.0, 5)],
+)
+def test_long_audio_is_cut_into_equal_windows_of_at_most_30_s_dc15(seconds: float, count: int) -> None:
+    audio = np.arange(round(seconds * 16_000), dtype=np.float32)
+    parts = windows(audio)
+    assert len(parts) == count
+    lengths = [part.shape[0] for part in parts]
+    assert max(lengths) <= WINDOW_SAMPLES and max(lengths) - min(lengths) <= 1
+    assert np.array_equal(np.concatenate(parts), audio)
+
+
+def _one_pass(sv: WavLmSv, audio: np.ndarray) -> np.ndarray:
+    """The bake-off's recipe on the whole clip, outside the class (``Scorer.embed``)."""
+    model = sv._models["cpu"]
+    features = sv._extractor(audio, sampling_rate=16_000, return_tensors="pt")
+    with torch.no_grad():
+        vector = torch.nn.functional.normalize(model(**features).embeddings[0], dim=-1)
+    return vector.numpy().astype(np.float64)
+
+
+def test_audio_of_30_s_or_less_is_embedded_in_exactly_one_pass_dc15(sv: WavLmSv) -> None:
+    for seconds in (1.0, 30.0):
+        audio = _audio(seconds, seed=5)
+        assert sv.embed(audio, "cpu")["embedding"] == _one_pass(sv, audio).tolist()
+
+
+def test_longer_audio_is_the_renormalised_mean_of_its_windows_dc15(sv: WavLmSv) -> None:
+    audio = _audio(61.0, seed=6)
+    parts = windows(audio)
+    assert len(parts) == 3
+    mean = np.mean([_one_pass(sv, part) for part in parts], axis=0)
+    expected = mean / np.linalg.norm(mean)
+    got = np.asarray(sv.embed(audio, "cpu")["embedding"])
+    assert np.allclose(got, expected, rtol=0, atol=1e-12)
+    assert abs(float(np.linalg.norm(got)) - 1.0) < 1e-12
+    assert not np.allclose(got, _one_pass(sv, audio), atol=1e-6)  # not the one-pass vector

@@ -16,8 +16,9 @@ embeddings, pitch tracks, token spans and profile numbers, and never a verdict.
   model (``f0`` and ``profile`` then run). A load that fails part-way leaves nothing loaded. ``vram_mb`` is the
   CUDA memory torch has reserved after the load, and null when no model went to a GPU.
 - ``transcribe`` (``asr``): Whisper-large-v3 as ``asr`` pins it. ``language`` is a name or code (``"English"``).
-- ``embed`` (``sv``): an L2-normalised x-vector, on ``cuda`` (the loaded GPU) or ``cpu`` (a CPU copy made on
-  first use, so the canary check never swaps models; section 10.1).
+- ``embed`` (``sv``): an L2-normalised x-vector, on ``cuda`` (the GPU the model was loaded on) or ``cpu`` (a CPU
+  copy made on first use, so the canary check never swaps models; section 10.1). Audio of up to 30 s is embedded
+  in one pass; longer audio in equal windows of at most 30 s, whose embeddings' mean is normalised again (DC-15).
 - ``f0``: a ``librosa.pyin`` track between ``fmin_hz`` and ``fmax_hz``, every 10 ms at 16 kHz.
 - ``align`` (``aligner``): WP15's CTC alignment (``align.AlignOp``).
 - ``profile``: the voice profile's numbers (``models.ProfileMeasurements``) and two PNG pictures written to
@@ -201,7 +202,14 @@ class QaHandler(WorkerHandler):
         return self._run(lambda: asr.transcribe(audio, language, word_timestamps=word_timestamps, long_form=long_form))
 
     def op_embed(self, request: Request) -> dict[str, Any]:
-        """The WavLM-SV x-vector of a WAV, L2-normalised: ``protocol.EmbedReply``."""
+        """The WavLM-SV x-vector of a WAV, L2-normalised: ``protocol.EmbedReply``.
+
+        ``device`` ``cuda`` runs on the GPU the model was loaded on, ``cpu`` on a CPU copy (the canary's path). Audio
+        of up to 30 s is embedded in one pass, exactly as the bake-off's evidence was; longer audio is cut into
+        ``ceil(length / 30 s)`` equal windows, and the reply is the mean of their L2-normalised embeddings,
+        normalised again (DC-15), which bounds the memory at a 30 s pass's. KNOW (``spikes/h-i-qa-load``): its
+        cosine to a one-pass embedding of the same audio is 0.999 at 60 s and 0.994 at 119 s.
+        """
         sv = self._need(self._sv, "embed", "sv")
         device = require_one_of(request, "device", EMBED_DEVICES)
         audio = self._audio_16k(request)
