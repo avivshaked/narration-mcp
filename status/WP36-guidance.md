@@ -1,7 +1,7 @@
 # WP36 The caller's guidance in the tool texts (readiness audit item 1.1)
-State: review pending the full suite        Updated: 2026-09-27T21:30+01:00
+State: review pending the full suite        Updated: 2026-09-27T21:40+01:00
 
-Branch `wp/36-guidance`, rebased onto `main` at 78b2fae. Text only, except for two hint selections in
+Branch `wp/36-guidance`, rebased onto `main` at 15d046a (WP45 merged). Text only, except for two hint selections in
 `mcp/validation.py`. The audit ids it answers: mcp-2, qa-4, cf-7, cf-2, mcp-1, rt-1, mcp-7, mcp-8, rt-6,
 cf-10, mcp-10, mcp-11, triage-9 and cf-11.
 
@@ -43,9 +43,10 @@ cf-10, mcp-10, mcp-11, triage-9 and cf-11.
   - A candidate flagged `WER_HIGH` would get `REF_TEXT_MISMATCH` from `measure_voice`.
   - `profile_voice` has no speaking rate, because it is sent no transcript.
   - WP34 does not touch `descriptions.py` or `schemas.py`, so there are no conflicts.
-- **VOICE_NOT_SYNTHETIC's hint.** It says to add the sha256 to `[voices] allow_sha256` and to stop the
-  daemon (`narration-admin daemon stop`; `daemon start` or the next submission starts it again). It also
-  says to reconnect the client (`/mcp` in Claude Code). This is right because both processes load the
+- **VOICE_NOT_SYNTHETIC's hint.** It names WP45's `narration-admin voices allow <clip.wav>`, which adds the
+  sha256 to `[voices] allow_sha256`. It then says to stop the daemon first (`narration-admin daemon stop`;
+  `daemon start` or the next submission starts it again), then reconnect the client (`/mcp` in Claude
+  Code). That is the order WP45's `restart_advice` gives. This is right because both processes load the
   config once: `daemon/__main__.py:104` and `mcp/__main__.py`. Both check the allowlist:
   `backend/service.py` at submit, and `jobs/engine.py:151`.
 - **mcp-10 hint polish** (`mcp/validation.py`):
@@ -74,7 +75,9 @@ cf-10, mcp-10, mcp-11, triage-9 and cf-11.
 - After those edits, only targeted tests ran, at the lead's request (the owner's GPU work):
   - `tests/mcp/test_descriptions.py` (new): 30 passed;
   - `tests/mcp/test_front_end.py`: 170 passed.
-- `uv run python -m basedpyright` over the whole tree, at 21:21 on the final code: 0 errors.
+- `uv run python -m basedpyright` over the whole tree, at 21:21: 0 errors. After that I rebased onto WP45
+  and changed the VOICE_NOT_SYNTHETIC hint (string only). Since then: `basedpyright` on the changed files,
+  0 errors; `tests/mcp/test_descriptions.py` 30 passed; `tests/contracts/test_codes.py` 15 passed.
 - A second full `pytest` run started at 21:21. I stopped it (and its processes) when the lead asked for no
   full suites while the owner narrates. **Pending: the full default suite on the final commit**, when the
   lead says so.

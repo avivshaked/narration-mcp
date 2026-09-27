@@ -241,9 +241,8 @@ def test_an_upper_case_sha256_is_told_to_lower_case_it_s14(tool: str, field: str
 
 def test_voice_not_synthetic_says_to_restart_the_daemon_and_reconnect_s17_4() -> None:
     hint = codes.ERRORS[codes.VOICE_NOT_SYNTHETIC].hint
-    assert "allow_sha256" in hint
-    assert "narration-admin daemon stop" in hint
-    assert "/mcp" in hint
+    assert "narration-admin voices allow" in hint and "allow_sha256" in hint
+    assert hint.index("narration-admin daemon stop") < hint.index("/mcp"), "the daemon first (WP45)"
 
 
 # ---------------------------------------------------------------- keys (section 10.2)

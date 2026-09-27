@@ -288,8 +288,8 @@ are tracked here but no version is tagged; nothing described below is installabl
   parameter now has a description. The instructions and every tool description fit in 2048 characters,
   where Claude Code cuts server instructions. `audition_pronunciation` is marked "not in this build yet"
   wherever it is advertised; its prompts show how to hear a respelling with `submit_job` meanwhile.
-  `VOICE_NOT_SYNTHETIC`'s hint says to restart the daemon and reconnect the client after editing
-  `[voices] allow_sha256`. An upper-case `sha256` is told to lower-case it, and a top-level option such as
+  `VOICE_NOT_SYNTHETIC`'s hint names `narration-admin voices allow`, and says to restart the daemon first,
+  then reconnect the client, after the allowlist changes. An upper-case `sha256` is told to lower-case it, and a top-level option such as
   `takes` is pointed to `options.takes`. The README starts the server with the environment's Python
   (`-m narration.mcp`) and says to start the daemon from a terminal when the client cannot. Nothing that
   enters a cache key changed, so no voice needs measuring again.
