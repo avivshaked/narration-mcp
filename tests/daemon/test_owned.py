@@ -93,7 +93,10 @@ def test_the_daemon_that_wrote_its_status_is_captured_with_its_launcher_and_kill
         owned = capture_daemon(status_of(daemon_pid, started_at=time.time()), launcher_pid=launcher_pid)
         assert owned is not None and owned.daemon is not None and owned.launcher is not None
         assert (owned.daemon.pid, owned.launcher.pid) == (daemon_pid, launcher_pid)
-        assert capture_daemon(status_of(daemon_pid, started_at=time.time()), launcher_pid=launcher.pid + 1) is None
+        # A wrong launcher: this test process, which is alive and is neither the daemon nor its parent. (Not
+        # ``launcher.pid + 1``: where pids are sequential, that is the daemon itself, which a capture accepts as
+        # its own launcher.)
+        assert capture_daemon(status_of(daemon_pid, started_at=time.time()), launcher_pid=psutil.Process().pid) is None
         owned.kill()
         assert not owned.running()
         assert launcher.wait(timeout=30) is not None
