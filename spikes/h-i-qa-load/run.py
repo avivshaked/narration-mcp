@@ -125,6 +125,7 @@ def main() -> int:
             "seconds": round(seconds, 2),
             "peak_max_allocated_mb": memory["max_allocated_mb"],
             "peak_max_reserved_mb": memory["max_reserved_mb"],
+            "reserved_after_mb": memory["reserved_mb"],
             "warnings": warned,
         }
 

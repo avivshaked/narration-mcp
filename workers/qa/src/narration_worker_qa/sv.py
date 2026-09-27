@@ -45,6 +45,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .align import SAMPLE_RATE, InvalidRequest, NotLoaded, UnreadableAudio, is_broken_file, load_error
+from .gpu import release_cached_memory
 from .snapshots import check_architecture
 
 ARCHITECTURE: Final = "WavLMForXVector"
@@ -179,7 +180,10 @@ class WavLmSv:
                 },
             )
         model, where = self._model_for(device)
-        vectors = [self._one_pass(model, where, window) for window in windows(audio_16k)]
+        try:
+            vectors = [self._one_pass(model, where, window) for window in windows(audio_16k)]
+        finally:
+            release_cached_memory(self._torch, where)
         if len(vectors) == 1:
             vector = vectors[0]
         else:

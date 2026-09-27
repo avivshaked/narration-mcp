@@ -44,6 +44,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .align import SAMPLE_RATE, InvalidRequest, NotLoaded, is_broken_file, load_error
+from .gpu import release_cached_memory
 from .snapshots import check_architecture
 
 ARCHITECTURE: Final = "WhisperForConditionalGeneration"
@@ -211,10 +212,13 @@ class WhisperAsr:
             return reply
         generate = decoding_settings(code, long_form=long_form, decoding=self._decoding)
         generate["generation_config"] = copy.deepcopy(self._generation)
-        output = self._pipeline(
-            {"raw": np.ascontiguousarray(audio_16k, dtype=np.float32), "sampling_rate": SAMPLE_RATE},
-            return_timestamps="word" if word_timestamps else True,
-            generate_kwargs=generate,
-        )
+        try:
+            output = self._pipeline(
+                {"raw": np.ascontiguousarray(audio_16k, dtype=np.float32), "sampling_rate": SAMPLE_RATE},
+                return_timestamps="word" if word_timestamps else True,
+                generate_kwargs=generate,
+            )
+        finally:
+            release_cached_memory(self._torch, self.device)
         reply["text"], reply["words"] = words_of(output, word_timestamps=word_timestamps)
         return reply
