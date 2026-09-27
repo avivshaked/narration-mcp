@@ -107,6 +107,19 @@ def one(seconds: float) -> dict[str, Any]:
     }
 
 
+def software_facts() -> dict[str, Any]:
+    """Versions only. Unlike ``common.software_facts`` this never asks torch about CUDA, which would start a
+    CUDA context on a GPU this CPU-only spike does not hold the lock for."""
+    import platform
+    from importlib.metadata import version
+
+    return {
+        "python": platform.python_version(),
+        "os": platform.system(),
+        "packages": {name: version(name) for name in ("transformers", "torch", "torchaudio", "numpy")},
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--lengths", type=float, nargs="+", default=[30.0, 60.0, 120.0, 240.0, 480.0])
@@ -137,13 +150,11 @@ def main() -> int:
             continue
         runs.append(json.loads(completed.stdout.strip().splitlines()[-1]))
         print(runs[-1], flush=True)
-    import torch
-
     results = {
         "spike": "aligner memory by length (WP15 F5)",
         "design_sections": ["11.2"],
         "ran_at": common.now(),
-        "software": common.software_facts(torch),
+        "software": software_facts(),
         "cpu_threads": common.CPU_THREADS,
         "machine_ram_gb": round(psutil.virtual_memory().total / 1024**3),
         "tokens_per_second": TOKENS_PER_S,
