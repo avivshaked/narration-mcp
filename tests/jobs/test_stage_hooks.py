@@ -63,4 +63,3 @@ def test_hook_defaults_score_a_generation_take_as_before_s11_1(world: World) -> 
     assert analysis.qa.metrics.spk_sim_anchor is not None
     assert analysis.qa.thresholds.spk_warn is not None
     assert analysis.qa.thresholds.pace_tol is not None
-
