@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.12 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.13 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -78,6 +78,9 @@ applied here, each listed in the revision history below.*
 - *Revision 5.12 (the same day) states when a job's `outcome` is `needs_attention` (sections 7.4 and 8):
   only when some segment's suggestion is a verdict fail, or some segment has no take; warnings alone
   leave `all_passed`.*
+- *Revision 5.13 (the same day) applies DC-14 and DC-15 (section 11.1 steps 2 and 8) and the QA group's
+  measured memory (section 4): Whisper decodes with five beams, not conditioned on the previous window;
+  audio over 60 s is embedded in windows of at most 60 s; the QA group needs about 11.5 GB.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -632,8 +635,9 @@ role with its own engine profile. Nothing else is built (owner decision).
 **GPU scheduler**
 
 1. One resident group at a time: **Qwen** (Base, or VoiceDesign for design jobs) or **QA** (Whisper +
-   WavLM). The aligner and profiling are on the CPU. VRAM to measure in Phase 0 (ASSUME Qwen ~6–8 GB,
-   QA ~5 GB).
+   WavLM). The aligner and profiling are on the CPU. The QA group needs about 11.5 GB with its CUDA
+   context, at any take length: transcription with word times peaks at 10.5 GB, and the worker returns
+   unused cached memory after each op (KNOW, WP22 spike h). Qwen: see WP20's spike h.
 2. Before loading, it checks through NVML that free VRAM ≥ need + 1 GB. Otherwise the phase is
    `waiting_for_gpu`, rechecked every 15 s. After 30 min: `GPU_UNAVAILABLE` (retryable).
    - It **never** kills, throttles or inspects other processes.
@@ -1535,9 +1539,11 @@ on other takes, because verdicts are cached (section 10.2).
    whose generation reached its call's `max_new_tokens` (DC-4) is `TOKEN_CAP_HIT` (fail), because the
    model stopped mid-text or ran away, and that must never pass silently. The worker reports it exactly
    (the last token was not the end token), never from the audio's length.
-2. **ASR**: Whisper-large-v3 (fp16, English, greedy, word timestamps; revision pinned). A take can be
-   longer than Whisper's 30 s window, so the QA profile pins sequential long-form transcription (30 s
-   windows, each conditioned on the text before it) with word timestamps.
+2. **ASR**: Whisper-large-v3 (fp16, English, five beams, word timestamps; revision pinned; DC-14). A
+   take can be longer than Whisper's 30 s window, so the QA profile pins sequential long-form
+   transcription (30 s windows, **not** conditioned on the text before them) with word timestamps. Greedy
+   decoding conditioned on the previous window looped on 2 of the bake-off's 6 takes (WER 0.40); five
+   beams without conditioning reproduce the bake-off's WER exactly (ADR 0004).
 3. **Cue alignment** (section 11.2).
 4. **Text match** against `spoken_text`.
    - `wer_raw` uses Whisper's normaliser and is reported for comparison only. On name-dense text it
@@ -1559,6 +1565,10 @@ on other takes, because verdicts are cached (section 10.2).
      transcript.
    - **Tail:** `END_INSERTION`, a warn at ≥ 1 word and a fail at ≥ 3.
 8. **Speaker**: WavLM-SV similarity to the voice's anchor, from its measurement. This is in the verdict.
+   Audio of 60 s or less is embedded in one pass. Longer audio is embedded as equal windows of at most
+   60 s, and the embedding is the mean of the L2-normalised window embeddings, normalised again (DC-15):
+   WavLM's memory grows with the square of the length (8.4 GB at 119 s in one pass). Cosine to one pass:
+   0.998 at 90 s, 0.998 at 119 s (WP22, spike h).
 9. **Pace**: **spoken** words per minute (and spoken characters per second) over the voiced span,
    compared with the voice's pace curve at this segment's spoken length.
 10. **Fit** (only with `scene_seconds`): reported, never remedied, in v1.
