@@ -1,9 +1,10 @@
 """``narration-admin daemon start | stop [--now] | status`` (design sections 4, 4.1 and 7.1).
 
 - ``start`` starts the daemon detached (``narration.daemon.start.ensure_daemon``), unless one already
-  serves this store, and waits until it serves. When Windows refuses to detach it from this terminal (the
-  terminal's own job forbids breakaway), it says so and offers ``--foreground``, which runs the daemon in
-  this terminal until it exits.
+  serves this store, and waits until it serves. When the daemon cannot leave this terminal's Job Objects (a
+  job around the terminal forbids breakaway, so Windows either refuses the start or would leave the daemon
+  inside that job, where the platform ends it before it runs), it says so and offers ``--foreground``, which
+  runs the daemon in this terminal until it exits.
 - ``stop`` asks the running daemon to stop: to finish the segment in flight, unload and exit (``stop``); or,
   with ``--now``, to end the work in flight at once and put it back on the queue (``stop_now``). **It posts
   the command only when ``running_daemon`` says a daemon runs.** A daemon honours only the stops posted
@@ -126,10 +127,11 @@ def start_daemon(admin: Admin, args: argparse.Namespace) -> int:
         if exc.code != "DAEMON_UNAVAILABLE":
             raise
         raise AdminError(
-            f"Windows refused to start the daemon detached from this terminal ({exc.message}). This terminal "
-            "runs inside a job that forbids breakaway, as some programs' built-in terminals do. Run "
-            f"`{PROGRAM} daemon start` from a terminal outside that program, or run the daemon in this one with "
-            f"`{PROGRAM} daemon start --foreground` and keep the terminal open while it works."
+            f"The daemon cannot be detached from this terminal ({exc.message}). This terminal runs inside a "
+            "Job Object that forbids breakaway, as some programs' built-in terminals do, so a daemon started "
+            f"here would end with that program. Run `{PROGRAM} daemon start` from a terminal outside that "
+            f"program, or run the daemon in this one with `{PROGRAM} daemon start --foreground` and keep the "
+            "terminal open while it works."
         ) from exc
     if not result.started:
         admin.say(f"A daemon already serves {root}: {_describe(result.status)}.")

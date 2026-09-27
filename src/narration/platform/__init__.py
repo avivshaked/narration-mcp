@@ -3,8 +3,9 @@
 ``get_platform()`` returns the ``narration.contracts.interfaces.Platform`` for this OS:
 
 * on Windows, ``WindowsPlatform``: the daemon's singleton (a named mutex keyed on the store path), detached
-  start with breakaway, kill-on-close Job Objects for workers, below-normal priority, the path rules of
-  sections 17.2 and 17.3, and the free-disk check;
+  start with breakaway (the daemon runs only once Windows confirms it is in no Job Object), kill-on-close
+  Job Objects for workers, below-normal priority, the path rules of sections 17.2 and 17.3, and the
+  free-disk check;
 * on any other OS, ``UnsupportedOsPlatform``, whose every call raises
   ``narration.contracts.errors.UnsupportedPlatform`` (v1 is Windows only, plan.md Q2).
 

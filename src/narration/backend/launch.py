@@ -7,9 +7,10 @@ read sees it ``stopping`` and starts another.
 
 ``DetachedLauncher`` uses WP30's ``narration.daemon.start``: ``ensure_daemon`` starts ``python -m
 narration.daemon`` detached unless a daemon already serves the store, and ``running_daemon`` reads
-``run/daemon.json`` and checks its pid. A start the platform refuses (breakaway forbidden by the client's Job
-Object) is ``DAEMON_UNAVAILABLE``, retryable, with the hint to run ``narration-admin daemon start`` in a
-terminal; a daemon that is not detached is never started, since it would die with its client mid-job.
+``run/daemon.json`` and checks its pid. A start the platform refuses (the daemon could not leave the client's
+Job Objects: breakaway forbidden, or the daemon left in an enclosing job and ended before it ran) is
+``DAEMON_UNAVAILABLE``, retryable, with the hint to run ``narration-admin daemon start`` in a terminal; a
+daemon that is not detached never runs, since it would die with its client mid-job.
 """
 
 from __future__ import annotations

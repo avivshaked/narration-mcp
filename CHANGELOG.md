@@ -328,3 +328,15 @@ are tracked here but no version is tagged; nothing described below is installabl
   place; a daemon started by hand without `-P` logs a warning saying so. Its workers start with
   `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so on a machine with two GPUs `[gpu] device` names the same GPU for the
   free-memory check and for the models.
+
+### Fixed
+
+- A daemon started from an MCP session could die with the session, without a stop, on Windows. When the
+  client runs the server in a Job Object that forbids breakaway (the MCP Python SDK does) and the server is
+  the venv's `python.exe`, a launcher that puts the interpreter in a nested job of its own, Windows accepted
+  the daemon's breakaway from the inner job but left it in the client's; the client's exit then killed it.
+  The daemon is now created suspended and runs only once Windows confirms it is in no Job Object. One left
+  in a job is ended before it runs, and the caller gets `DAEMON_UNAVAILABLE` (retryable; its `details.reason`
+  is `left_in_job`, `breakaway_refused` or `job_check_failed`) with the hint to run
+  `narration-admin daemon start` in a terminal. Under Node.js clients, Claude Code among them, whose jobs
+  allow breakaway, the daemon leaves every job and keeps running, as before (spike k).
