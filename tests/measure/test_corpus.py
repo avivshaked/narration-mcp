@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from narration import keys
+from narration.config import VoiceDesignConfig
 from narration.contracts.errors import MaterialError
 from narration.contracts.models import Hint
 from narration.contracts.names import CORPUS
@@ -26,6 +27,17 @@ def test_the_services_own_corpus_loads_and_matches_its_manifest_s15() -> None:
     assert corpus.paragraphs and corpus.ladder
     assert all(p.target_spoken_chars is not None for p in corpus.ladder)
     assert corpus.hints == tuple(Hint(term=n) for n in corpus.invented_names)
+
+
+def test_the_services_corpus_is_frozen_and_renders_its_design_text_first_s3_2() -> None:
+    """Gate H1 froze the corpus with its design text (DC-13, the service's default), which the calibration set
+    renders before the three corpus paragraphs."""
+    corpus = load_corpus(CORPUS)
+    assert corpus.status == "frozen"
+    first, *rest = corpus.paragraphs
+    assert first.segment_id == DESIGN_SEGMENT
+    assert [c.text for c in first.cues] == [VoiceDesignConfig().design_text]
+    assert len(rest) == 3
 
 
 def test_the_corpus_version_names_the_manifests_bytes_s10_2() -> None:

@@ -1,11 +1,11 @@
 """Support for the ``measure_voice`` tests: a store with a pinned engine and an unmeasured voice, fake workers,
 the job engine with the ``measure`` handler registered, and a calibration corpus the tests control.
 
-The corpus is the service's own (``material/calibration/narration-en.v1``), copied into the test's folder with
-a ``design_text`` paragraph added (the service's DC-13 design text, which gate H1's freeze adds to the real
-set), and a manifest that names its bytes. No text here comes from a caller's script. Nothing needs a GPU or a
-model: every worker is ``narration_worker``'s ``fake`` role, which hears back what it rendered and, through
-its spec's ``transcripts``, the clip the tests clone from.
+The corpus is the service's own (``material/calibration/narration-en.v1``, frozen after gate H1 with its
+``design_text`` paragraph, the service's DC-13 design text), copied into the test's folder, optionally without
+the design text or with fewer calibration paragraphs, and with a manifest that names its bytes. No text here
+comes from a caller's script. Nothing needs a GPU or a model: every worker is ``narration_worker``'s ``fake``
+role, which hears back what it rendered and, through its spec's ``transcripts``, the clip the tests clone from.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from narration import keys
-from narration.config import Config, MeasurementConfig, VoiceDesignConfig
+from narration.config import Config, MeasurementConfig
 from narration.contracts.models import JobRecord, Progress, ProvenanceEntry
 from narration.contracts.names import CORPUS, Priority
 from narration.jobs.core import EngineParts
@@ -70,9 +70,8 @@ def corpus_data(*, design: bool = True, calibration: Sequence[str] | None = None
     data: dict[str, Any] = json.loads(source.read_text(encoding="utf-8"))
     if calibration is not None:
         data["calibration"] = [p for p in data["calibration"] if p["segment_id"] in calibration]
-    if design:
-        text = VoiceDesignConfig().design_text
-        data[DESIGN_TEXT] = {"segment_id": DESIGN_SEGMENT, "spoken_chars": len(text), "cues": [{"text": text}]}
+    if not design:
+        data.pop(DESIGN_TEXT, None)
     return data
 
 

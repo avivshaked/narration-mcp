@@ -6,7 +6,7 @@
   "language": "en",
   "description": "Text fixtures for the text pipeline (WP10, design section 9.3): named cases for canonical form, the join, text versus join, hints, every text warning and its exclusions, passing punctuation, exact spans, and refused markup; plus cases for the positive-only lint (design section 3.5). These fixtures hold digits and symbols on purpose.",
   "design": "docs/design.md revision 5.2, sections 3.5, 7.2, 9.1, 9.3 and 14",
-  "freeze": "Draft. Frozen as version 1 only after gate H1 (plan.md section 5), when the owner has listened to sample renders. Until then the texts may change, and their hashes with them.",
+  "freeze": "Draft: a test fixture, not part of gate H1. No key, engine pin or published number names it, so it changes with the tests that use it.",
   "licence": "PolyForm Noncommercial 1.0.0 (LICENSE at the repository root)",
   "files": [
     {"path": "cases.json", "bytes": 40649, "sha256": "120d0805b2f8fc97b56745428d0602665818e5fa3c4a128335ab20f5c6fceb24"},

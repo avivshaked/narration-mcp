@@ -31,6 +31,7 @@ from narration.contracts import codes, names, schemas
 from narration.contracts.models import Hint, SegmentIn, SegmentText
 from narration.contracts.serial import from_json, to_json
 from narration.lint import lint
+from narration.measure.corpus import DESIGN_TEXT
 from narration.qa.profile import QaProfile
 from narration.text import TextPipeline, canonical_form, spoken_length, words
 
@@ -98,8 +99,19 @@ def design_config() -> dict[str, Any]:
     return tomllib.loads(section[start : section.index("```", start)])
 
 
+def design_paragraph() -> dict[str, Any] | None:
+    """The corpus's design text paragraph (``design_text``): section 3.2's calibration set renders it first."""
+    return load(CALIBRATION, "paragraphs.json").get(DESIGN_TEXT)
+
+
 def calibration() -> list[dict[str, Any]]:
     return load(CALIBRATION, "paragraphs.json").get("calibration", [])
+
+
+def corpus_paragraphs() -> list[dict[str, Any]]:
+    """Every paragraph of the calibration corpus: the design text, the calibration paragraphs and the ladder."""
+    design = design_paragraph()
+    return ([design] if design is not None else []) + calibration() + ladder()
 
 
 def ladder() -> list[dict[str, Any]]:
@@ -128,7 +140,7 @@ def lint_cases() -> list[dict[str, Any]]:
 
 def spoken_segments() -> list[tuple[str, dict[str, Any]]]:
     """Every segment in a spoken-form set, as (id, segment); the text fixtures are the only exception."""
-    out = [(f"{names.CORPUS}/{p['segment_id']}", p) for p in calibration() + ladder()]
+    out = [(f"{names.CORPUS}/{p['segment_id']}", p) for p in corpus_paragraphs()]
     out += [(f"{names.BENCHMARK}/{p['segment_id']}", p) for p in alignment()]
     out += [(f"demo-en.v1/{p['segment_id']}", p) for p in demo()]
     out += [(f"qa-faults-v1/{s['name']}", s["segment"]) for s in qa_specs()]
@@ -208,7 +220,7 @@ def test_manifest_describes_its_set_s15(manifest: Path) -> None:
     assert m["set"] == manifest.parent.name
     assert m["kind"] == manifest.parent.parent.name
     assert isinstance(m["version"], int) and m["version"] >= 1
-    # Draft until the owner has listened to sample renders (gate H1, plan.md section 5).
+    # The spoken sets were frozen after gate H1 (plan.md section 5); see test_a_frozen_set_never_changes_s15.
     assert m["status"] in get_args(names.MaterialStatus)
     assert m["language"] == "en"
     assert m["description"].strip()
@@ -227,6 +239,29 @@ def test_manifest_hashes_match_the_files_s15(manifest: Path) -> None:
         actual = hashlib.sha256(data).hexdigest()
         assert entry["sha256"] == actual, f"{entry['path']}: the manifest says {entry['sha256']}, the file is {actual}"
         assert entry["bytes"] == len(data), f"{entry['path']}: the manifest says {entry['bytes']} bytes"
+
+
+FROZEN_MANIFESTS = {
+    CALIBRATION: "3dc10f17bc441d7d60448badb1f0c51e1c7520ef051834f763f87aad307479ca",
+    ALIGNMENT: "c8c6c761b160909c615378bf82bab0c3e0736a4fd8ef679d6a75809e8e208417",
+    CANARY: "e8388a5bb21a7ddef665cb842a33c337ea38838214cda6bc95b618d0355def1e",
+    DEMO: "641f8c7b54a574e840968cb3feea251b9d809ad54bb501ceab6280a2de3b972a",
+}
+"""The sha256 of each frozen set's manifest, frozen as version 1 after gate H1 (2026-09-27). A manifest lists
+every file's sha256, so this pins the set's exact content. The corpus version, the benchmark's id and the canary's
+material id are all made from it, so a frozen set never changes: a changed text is a new set (``…v2``)."""
+
+
+@pytest.mark.parametrize("key", sorted(EXPECTED_SETS), ids=lambda k: k[1])
+def test_a_frozen_set_never_changes_s15(key: tuple[str, str]) -> None:
+    manifest = set_dir(key) / "manifest.json"
+    status = read_json(manifest)["status"]
+    if key in FROZEN_MANIFESTS:
+        assert status == "frozen"
+        actual = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        assert actual == FROZEN_MANIFESTS[key], "a frozen set never changes: make a new set (…v2) for a new text"
+    else:
+        assert status == "draft", "a set frozen later pins its manifest's sha256 in FROZEN_MANIFESTS"
 
 
 @pytest.mark.parametrize("path", material_files(), ids=lambda p: f"{p.parent.name}/{p.name}")
@@ -296,13 +331,25 @@ def test_ladder_paragraph_hits_its_target_within_five_per_cent_s3_2(paragraph: d
     assert abs(spoken - target) <= 0.05 * target, f"{spoken} spoken characters for a target of {target}"
 
 
+def test_the_corpus_carries_the_services_design_text_s3_2() -> None:
+    """Section 3.2's calibration set is "the design text plus three corpus paragraphs". The design text is the
+    service's default (DC-13: section 16's and the canary's), carried as a corpus paragraph of its own so that
+    the corpus version, and with it the measurement key, covers the text the calibration renders."""
+    design = design_paragraph()
+    assert design is not None, "the frozen corpus has its design text (a frozen set without one is refused)"
+    assert design["segment_id"] == "cal-design"
+    assert [c["text"] for c in design["cues"]] == [load(CANARY, "canary.json")["voice"]["design_text"]]
+    assert design["segment_id"] not in {p["segment_id"] for p in calibration() + ladder()}
+    assert "target_spoken_chars" not in design, "it is not a ladder rung"
+
+
 def test_calibration_has_three_paragraphs_of_150_to_300_spoken_characters_s3_2() -> None:
     lengths = [plan(p).spoken_chars for p in calibration()]
     assert len(lengths) == 3
     assert all(150 <= n <= 300 for n in lengths), lengths
 
 
-@pytest.mark.parametrize("paragraph", calibration() + ladder(), ids=lambda p: p["segment_id"])
+@pytest.mark.parametrize("paragraph", corpus_paragraphs(), ids=lambda p: p["segment_id"])
 def test_calibration_number_words_are_marked_exact_s3_2(paragraph: dict[str, Any]) -> None:
     """Spans hold only number words, and every number word but "one" (so often not a count) is in a span."""
     for cue in paragraph["cues"]:

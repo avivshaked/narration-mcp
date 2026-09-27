@@ -30,7 +30,8 @@ def _load(relative: str) -> Any:
 def _segments() -> list[tuple[str, dict[str, Any]]]:
     out: list[tuple[str, dict[str, Any]]] = []
     calibration = _load("calibration/narration-en.v1/paragraphs.json") or {}
-    out += [("narration-en.v1", p) for p in calibration.get("calibration", []) + calibration.get("ladder", [])]
+    design = [calibration["design_text"]] if "design_text" in calibration else []
+    out += [("narration-en.v1", p) for p in design + calibration.get("calibration", []) + calibration.get("ladder", [])]
     for name, relative in (
         ("alignment-en.v1", "alignment/alignment-en.v1/paragraphs.json"),
         ("demo-en.v1", "demo/demo-en.v1/paragraphs.json"),
