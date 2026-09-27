@@ -16,6 +16,7 @@ import pytest
 from narration.config import Config, EnginesConfig, QwenBaseConfig
 from narration.contracts import names
 from narration.contracts.models import CanaryMaterial, EngineProfile
+from narration.engine import profile as profile_module
 from narration.engine.canary import CALIBRATION_SEEDS, CANARY_MARGIN, THRESHOLD_FLOOR, find_canary, material_id
 from narration.engine.drift import DriftCheck
 from narration.engine.models import QWEN_BASE, QWEN_DESIGN
@@ -236,6 +237,30 @@ def test_a_moved_models_root_is_recorded_on_the_next_pin_s10_1(pinned: Pinned, t
     )
     assert pinned.starter.started == []  # nothing rendered
     assert DriftCheck().weights(after) == []  # the fingerprint check finds the files where they are now
+
+
+def test_a_new_vram_estimate_is_recorded_on_the_next_pin_without_a_new_pin_s6(
+    pinned: Pinned, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DC-16: a build that estimates Qwen's VRAM need anew records it in the profiles in use, in place. The ids,
+    hashes and canaries stay, so every cached take and measurement stays valid, and nothing is rendered."""
+    pinned.pin()
+    before = {k: pinned.current(k) for k in ("design", "base")}
+    refined = before["base"].vram_need_mb + 1500
+    monkeypatch.setattr(profile_module, "QWEN_VRAM_MB", refined)
+    pinned.starter.started.clear()
+
+    reports = {r.kind: r for r in pinned.pin()}
+    assert {k: (r.action, r.updated) for k, r in reports.items()} == {
+        "design": ("keep", ("vram_need_mb",)),
+        "base": ("keep", ("vram_need_mb",)),
+    }
+    assert pinned.starter.started == []
+    for kind, old in before.items():
+        now = pinned.current(kind)
+        assert now.vram_need_mb == refined  # what the job engine's residency waits for
+        assert (now.engine_profile_id, now.hash, now.canary) == (old.engine_profile_id, old.hash, old.canary)
+    assert [r.updated for r in pinned.pin()] == [(), ()]  # recorded: nothing more to update
 
 
 def test_a_changed_canary_text_needs_a_repin_dc3(pinned: Pinned) -> None:

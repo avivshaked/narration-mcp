@@ -109,8 +109,9 @@ UV_LOCK: Final = "uv.lock"
 PARTIAL_SUFFIX: Final = ".partial"
 """How ``narration-admin install`` names a file it has not finished downloading (``.<name>.partial``)."""
 PROFILE_ID: Final = re.compile(r"(?P<family>[a-z0-9][a-z0-9.-]*)\.p(?P<n>[1-9][0-9]*)")
-UNHASHED: Final = frozenset({"hash", "snapshot_dir", "observed", "tier", "canary"})
-"""The ``EngineProfile`` fields its hash leaves out (the contract's docstring; the store keeps the same list)."""
+UNHASHED: Final = frozenset({"hash", "snapshot_dir", "observed", "tier", "canary", "vram_need_mb"})
+"""The ``EngineProfile`` fields its hash leaves out (the contract's docstring; the store keeps the same list).
+``vram_need_mb`` since DC-16: it only tells the GPU scheduler what to wait for, and changes no audio."""
 INSTALL_HINT: Final = "Ask the operator to run narration-admin install, then narration-admin engine pin."
 _CHUNK: Final = 8 << 20
 
@@ -382,7 +383,6 @@ def hashed_object(profile: EngineProfile) -> dict[str, Any]:
         "settings": dict(profile.settings),
         "capabilities": dict(profile.capabilities),
         "licence": profile.licence,
-        "vram_need_mb": profile.vram_need_mb,
     }
 
 

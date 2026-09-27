@@ -33,6 +33,7 @@ from narration.engine.profile import (
 )
 from narration.jobs.pins import call_cap, qwen_load_payload
 from narration.store import NarrationStore, StoreIntegrityError
+from narration.store import store as store_module
 from tests.store.standin import StandInPlatform
 
 from .support import GENERATION, VERSIONS, Install, make_install, make_snapshot, write_lock
@@ -107,16 +108,32 @@ def test_the_job_engine_can_load_and_cap_a_built_profile_dc4(install: Install) -
 # ------------------------------------------------------------------ the hash
 
 
-def test_the_hash_covers_every_field_but_the_five_the_contract_leaves_out_s6() -> None:
+def test_the_hash_covers_every_field_but_the_six_the_contract_leaves_out_s6() -> None:
     fields = {f.name for f in dataclasses.fields(EngineProfile)}
     assert set(hashed_object(_any_profile())) == fields - UNHASHED
-    assert frozenset({"hash", "snapshot_dir", "observed", "tier", "canary"}) == UNHASHED
+    assert frozenset({"hash", "snapshot_dir", "observed", "tier", "canary", "vram_need_mb"}) == UNHASHED
+    assert UNHASHED == store_module._ENGINE_UNHASHED  # pyright: ignore[reportPrivateUsage]  # the store's list
+
+
+def test_a_new_vram_estimate_keeps_the_hash_and_a_new_sampling_value_changes_it_s6(install: Install) -> None:
+    """DC-16: ``vram_need_mb`` only tells the GPU scheduler what to wait for, so a refined estimate keeps
+    every render key; a sampling value changes the audio, so it changes the hash."""
+    profile = build_profile(install.config, "base", engine_profile_id=BASE_ID)
+    assert profile_hash(dataclasses.replace(profile, vram_need_mb=profile.vram_need_mb + 1500)) == profile.hash
+    generation = {**profile.settings["generation"], "temperature": 0.7}
+    resampled = dataclasses.replace(profile, settings={**profile.settings, "generation": generation})
+    assert profile_hash(resampled) != profile.hash
 
 
 def test_the_unhashed_fields_change_no_hash_s6(install: Install) -> None:
     profile = build_profile(install.config, "base", engine_profile_id=BASE_ID)
     moved = dataclasses.replace(
-        profile, snapshot_dir="elsewhere", observed={"gpu": "another"}, tier="similar", hash="sha256:" + "0" * 64
+        profile,
+        snapshot_dir="elsewhere",
+        observed={"gpu": "another"},
+        tier="similar",
+        vram_need_mb=12_000,
+        hash="sha256:" + "0" * 64,
     )
     assert profile_hash(moved) == profile.hash
 

@@ -53,8 +53,9 @@ are tracked here but no version is tagged; nothing described below is installabl
   determinism tier (`bit_exact` or `similar`), and calibrates the canary's similarity threshold with
   three more seeds, never below 0.10. A pinned canary embedding that cannot be compared (empty, all zero,
   or of another length than the render's) fails the job with `ENGINE_DRIFT`, saying why. `pin` keeps
-  what is pinned and refuses an installation that has changed; after the models root moves, it records
-  the snapshots' new folder. `repin` makes a new profile the one in use (new render keys; voices are
+  what is pinned and refuses an installation that has changed. In a profile it keeps, it records the
+  snapshots' new folder after the models root moves, and a new estimate of the VRAM Qwen needs; neither
+  changes the profile's hash (DC-16). `repin` makes a new profile the one in use (new render keys; voices are
   measured again) for each engine whose installation changed, or whose machine did (GPU, driver, CUDA or
   cuDNN, as the worker reports them); `repin --force` does it for both engines whatever changed. `show`
   prints each profile's tier and canary threshold (and whether it is the floor); `pin` and `repin` print

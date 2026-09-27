@@ -20,8 +20,9 @@ The worker is checked against the profile before anything is rendered: a venv th
 
 **pin** changes nothing that is already pinned. A profile whose installation still matches is kept; one that
 differs (weights, lock, settings, the canary's text) is refused, with the fields that differ. A kept profile
-whose snapshot folder moved (a new ``[server] models_root``, same files) gets its ``snapshot_dir`` updated in
-place: it is a local path, outside the hash.
+is updated in place where an unhashed field differs from what this build would record, so no render key changes:
+its ``snapshot_dir`` when the snapshot folder moved (a new ``[server] models_root``, same files), and its
+``vram_need_mb`` when this build estimates Qwen's VRAM need anew (DC-16).
 
 **repin** makes a new profile (the next id) for each engine whose installation differs, and makes it current:
 its hash differs, so every render key differs, measurements are made again, and a caller that sends
@@ -106,6 +107,9 @@ Action = Literal["keep", "new", "canary"]
 WorkerRoleName = Literal["qwen3", "qa"]
 SCRATCH: Final = "pin"
 CLOSE_TIMEOUT_S: Final = 30.0
+KEPT_UPDATES: Final = ("snapshot_dir", "vram_need_mb")
+"""The unhashed fields a kept profile takes from what this build would record, in place: where its snapshot
+folder is now, and the VRAM Qwen needs by this build's estimate (DC-16). Neither changes a render key."""
 
 
 class PinRefused(Exception):
@@ -178,7 +182,7 @@ class Plan:
     current: EngineProfile | None
     changed: tuple[str, ...] = ()
     updated: tuple[str, ...] = ()
-    """For ``keep``: the unhashed fields of the current profile to update in place (``snapshot_dir``)."""
+    """For ``keep``: the unhashed fields of the current profile to update in place (``KEPT_UPDATES``)."""
 
 
 def plan(
@@ -228,9 +232,8 @@ def plan(
             if current.canary is None:
                 plans[kind] = Plan(kind=kind, action="canary", profile=built, current=current)
                 continue
-            kept, updated = current, ()
-            if built.snapshot_dir != current.snapshot_dir:  # the models root moved; the files are the same
-                kept, updated = dataclasses.replace(current, snapshot_dir=built.snapshot_dir), ("snapshot_dir",)
+            updated = tuple(f for f in KEPT_UPDATES if getattr(built, f) != getattr(current, f))
+            kept = dataclasses.replace(current, **{f: getattr(built, f) for f in updated})
             plans[kind] = Plan(kind=kind, action="keep", profile=kept, current=current, updated=updated)
             continue
         if mode == "pin":
@@ -673,6 +676,7 @@ def _compare(
 
 
 __all__ = [
+    "KEPT_UPDATES",
     "KINDS",
     "BridgeItem",
     "BridgeReport",
