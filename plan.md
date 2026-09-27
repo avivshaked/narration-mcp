@@ -660,7 +660,7 @@ Updated by the lead on `main` only.
 | WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
 | WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19, #24 | 2026-09-27; second follow-ups merged (PR #24): one Qwen settings parser, one WAV writer, contracts 1.6.3, design 5.10; Low follow-ups in HANDOFF.md |
 | WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
-| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-26; H1: 8 of 10 approved; for `ladder-080` and `align-03` the lead recommends approving as written (the fault is the seed's; 2026-09-27), awaiting the owner; then the freeze adds the calibration's design text |
+| WP18 | Service material | 1 | WP01 | – | `merged (draft)` | PRs #3, #21 | 2026-09-27: **gate H1 approved by the owner** (all 10 texts, `ladder-080` and `align-03` as written); the freeze (status `frozen`, the calibration's design text) is next, paused on a tool-permission question to the owner |
 | WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
 | WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
 | WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
@@ -1012,3 +1012,6 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     under way.
   - **WP36 merged (PR #32):** the MCP tools over the daemon and the job engine, and `narration-admin
     render`. The daemon runs no job until WP32's `installed_engine` merges; that is M1's last package.
+  - **The owner approved gate H1** (all ten texts, `ladder-080` and `align-03` as written) **and DC-16.**
+    DC-16 merged (PR #33): contracts 1.6.6, design revision 5.14. The freeze is paused: the session's
+    permission classifier refused a read in the lead's freeze worktree, and the lead asked the owner.

@@ -12,8 +12,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **Merged into `main` and pushed:** Waves 0 and 1 (WP00–WP03, WP10, WP12–WP20 with their follow-ups),
   WP16's second follow-ups (PR #24), WP30 the daemon (PR #25) and its test fix (PR #26), one
   configuration rule (PR #27, `narration.config.find_config`), WP31 the job engine (PR #28), WP22 the QA
-  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), WP36 the MCP tools and `narration-admin render` (PR #32), contracts 1.1–1.6.5, the private-text guard. Design
-  revision 5.13.
+  worker (PR #29), WP37 `narration-admin` (PR #30), WP33 `measure_voice` (PR #31), WP36 the MCP tools and `narration-admin render` (PR #32), DC-16 (PR #33), contracts 1.1–1.6.6, the private-text guard. Design
+  revision 5.14.
 - **In flight.** Agent ids resume with SendMessage. WP31 merged (PR #28), so the branches stacked on
   its old head `2cb9905` rebase with `git rebase --onto main 2cb9905`.
 
@@ -58,8 +58,10 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **Gate H1:** 8 of 10 approved; for the last two the lead recommends approving as written (see
-  `OWNER-ACTIONS.md` §1, with two files to listen to if the owner wants).
+- **Gate H1 is approved** (2026-09-27, all ten texts as written), and so is **DC-16** (merged, PR #33).
+  **The freeze is paused:** the auto-mode permission classifier refused a plain read of
+  `tests/material/test_material.py` in the lead's freeze worktree ("Modify Shared Resources"). The lead
+  did not route around it and asked the owner to allow it, or to say to go ahead.
 - **DC-14 and DC-15** (plan.md §1.5): lead gap-fills the owner may overrule.
 - **4a in the owner's list:** cross-job grouping (§4 item 3); the lead recommends leaving it out of v1.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
