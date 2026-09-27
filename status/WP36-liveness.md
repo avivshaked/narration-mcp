@@ -1,7 +1,7 @@
 # WP36-liveness A dead daemon, a mistyped transcript, and cached analyses in the plan
-State: active        Updated: 2026-09-27T21:00Z
+State: review        Updated: 2026-09-27T21:35 local
 
-Branch `wp/36-liveness`, from `main` 10270ba. Fixes three readiness-audit findings in WP36's area (the
+Branch `wp/36-liveness`, rebased onto `main` 78b2fae (docs only since 10270ba). Fixes three readiness-audit findings in WP36's area (the
 front-end's backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13/mcp-12/triage-5.
 
 ## Done
@@ -83,9 +83,14 @@ front-end's backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13
   `test_transcripts.py` 12. Ran three times in a row after the grace fix: 131 passed each
   time.
 - `uv run python -m pytest tests/engine/test_daemon_backend.py` → 1 passed (about 15 s).
-- `uv run python -m pytest` (the full default suite) → see the review update below.
-- `ruff check`, `ruff format --check`, `basedpyright` (whole project): clean.
-- `tools/check_private.py --commits main..HEAD --base main` → exit 0; `tools/check_tracked.py` → exit 0.
+- `uv run python -m pytest` (the full default suite) on the rebased branch (fe36871, code as reviewed) →
+  3737 passed, 15 skipped (Windows symlinks need Developer Mode; POSIX-only checks), 19 deselected, in 8.5 min.
+  It ran 21:21–21:29 local, under the lead's "after 21:20, run everything" message. The later message (owner
+  narrating: targeted tests only) arrived after it had finished, and nothing heavy has run since. The same
+  suite also passed before the rebase (3737 passed, finished about 21:09).
+- `ruff check`, `ruff format --check`, `basedpyright` (whole project, same run): clean, 0 errors.
+- `tools/check_private.py --commits main..HEAD --base main` → exit 0; `tools/check_tracked.py` → exit 0 (after
+  the rebase).
 
 ## Decisions made (and why)
 - **The note on `get_job` goes in `message`, not a new field.** get_job's success reply has no `details`,
@@ -142,4 +147,5 @@ front-end's backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13
   a design decision.
 
 ## Next
-- Rebase onto `main` 78b2fae (docs only), re-run the suite, and set the state to `review`.
+- Review. On a merge: the lead's calls on the contract change requests and questions above. The guidance
+  branch could describe get_job's restart.
