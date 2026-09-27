@@ -9,8 +9,10 @@ of silently falling back to a default. ``allow_sha256`` ships empty: no clip is 
 from __future__ import annotations
 
 import dataclasses
+import os
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, get_args, get_origin, get_type_hints
@@ -229,6 +231,49 @@ _RANGES: dict[tuple[str, str], tuple[float, float]] = {
     ("engines.qwen3_design", "max_new_tokens_per_char"): (0.1, 100),
     ("engines.qwen3_design", "max_new_tokens_floor"): (2, 8192),
 }
+
+
+CONFIG_FILE_NAME = "narration.toml"
+"""The configuration's file name in the service's folder (``<service_root>``, design section 16)."""
+
+CONFIG_ENV = "NARRATION_CONFIG"
+"""An environment variable that names the configuration file, when no path is given."""
+
+
+def service_root() -> Path | None:
+    """The service's folder when this package runs from a source checkout (the v1 distribution: a git clone
+    plus uv): the folder holding ``pyproject.toml`` above ``src/narration``. None when installed elsewhere."""
+    root = Path(__file__).resolve().parents[2]
+    return root if (root / "pyproject.toml").is_file() and (root / "src" / "narration").is_dir() else None
+
+
+def find_config(explicit: str | Path | None = None, *, environ: Mapping[str, str] | None = None) -> Path:
+    """The configuration file the server and the operator CLI both use, found by one rule:
+
+    1. ``explicit`` (``--config``), when given;
+    2. else the file ``NARRATION_CONFIG`` names, when set;
+    3. else ``narration.toml`` in the service's folder (``service_root``).
+
+    Raises ``ConfigError`` saying what to do when the file is not there. The path is returned absolute; it is
+    read by ``load_config``.
+    """
+    env = os.environ if environ is None else environ
+    if explicit is not None and str(explicit) != "":
+        candidate, source = Path(explicit), "--config"
+    elif env.get(CONFIG_ENV):
+        candidate, source = Path(env[CONFIG_ENV]), CONFIG_ENV
+    else:
+        root = service_root()
+        if root is None:
+            raise ConfigError(f"no configuration given: pass --config <path to {CONFIG_FILE_NAME}> or set {CONFIG_ENV}")
+        candidate, source = root / CONFIG_FILE_NAME, "the service's folder"
+    candidate = candidate.expanduser().resolve()
+    if not candidate.is_file():
+        raise ConfigError(
+            f"no configuration file at {candidate} (from {source}); copy narration.example.toml to "
+            f"{CONFIG_FILE_NAME} and edit it, or pass --config <path>"
+        )
+    return candidate
 
 
 def load_config(path: Path) -> Config:
