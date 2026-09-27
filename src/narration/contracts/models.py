@@ -792,8 +792,9 @@ class EngineProfile:
 
     ``hash`` covers every field except ``hash``, ``snapshot_dir`` (a local path), ``observed`` (GPU,
     driver, CUDA, cuDNN: recorded, not hashed), ``tier`` (the outcome of the repeat test on this machine,
-    section 10.1: an observation, set after the pin) and ``canary`` (made on the installing machine, DC-3).
-    Setting ``tier`` or ``canary`` after the pin therefore changes no render key.
+    section 10.1: an observation, set after the pin), ``canary`` (made on the installing machine, DC-3) and
+    ``vram_need_mb`` (what the GPU scheduler waits for, which changes no audio: DC-16). Setting ``tier``,
+    ``canary`` or ``vram_need_mb`` after the pin therefore changes no render key.
 
     ``settings`` holds every audio-changing setting, passed explicitly (section 10.1): for Qwen,
     ``non_streaming_mode``, the effective ``generation`` values (``max_new_tokens`` is the ceiling), and the

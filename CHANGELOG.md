@@ -228,6 +228,9 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- An engine profile's `vram_need_mb` is recorded but no longer part of its hash (DC-16): it only tells the
+  GPU scheduler how much free memory to wait for, so a refined estimate keeps every cached take and
+  voice measurement.
 - A worker that runs out of GPU memory while CUDA creates its context or cuBLAS its handle ("CUDA error:
   out of memory", `CUBLAS_STATUS_ALLOC_FAILED`) now reports `GPU_OOM`, as for any other allocation, so the
   daemon unloads, waits and retries once instead of failing with `INTERNAL`.
