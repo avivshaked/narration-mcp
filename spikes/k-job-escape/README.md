@@ -23,10 +23,10 @@ inside the client's, and a breakaway from the innermost job leaves the daemon in
 |---|---|
 | `job_escape.py` | The script. With no arguments (`--label <name>`) it runs every scenario and writes `results/<name>.json` and `results/<name>.md`; `--role server \| client \| sdk-client \| nest` are its stand-ins |
 | `node_client.js` | A Node.js client stand-in (`child_process.spawn`, which is libuv's `uv_spawn`) |
-| `results/before-fix.*` | Every scenario on the code as merged (main at 7a717dd) |
-| `results/after-fix.*` | The same scenarios with the fix in `narration.platform._windows.spawn_detached` |
+| `results/before-fix.*` | Every scenario on the code as merged: this script as committed, run with `narration/platform/_windows.py` from `main` (10270ba, before the fix) in place |
+| `results/after-fix.*` | The same scenarios with the fix in `narration.platform._windows.spawn_detached`, on the branch as committed |
 
-Reproduce (about 40 s; the stores go under `<repo>/.dev/spike-k/`):
+Reproduce (about 50 s; the stores go under `<repo>/.dev/spike-k/`):
 
 ```
 uv run python spikes/k-job-escape/job_escape.py --label <name>
@@ -42,8 +42,10 @@ its own job facts (`IsProcessInJob`, and the innermost job's limit flags and mem
 `QueryInformationJobObject`), then calls the real `narration.daemon.start.start_detached` for the real daemon,
 waits until `run/daemon.json` says `idle`, and proves the daemon its own (`capture_daemon`). While the
 client's job still exists, the client asks Windows whether the daemon's launcher and the daemon are in it
-(`IsProcessInJob` with the job's handle; for the SDK, the handle the SDK itself holds). Then the client
-ends, and the orchestrator checks 1.5 s later whether the daemon is alive, and stops it through the store.
+(`IsProcessInJob` with the job's handle; for the SDK, the handle the SDK itself holds; `n/a` for a client that
+made no job, and for the Node client, which cannot ask). Then the client ends, and the orchestrator checks
+1.5 s later whether the daemon is alive, asks from outside whether the daemon's launcher (the process
+`spawn_detached` created) is in any job at all, and stops the daemon through the store.
 
 | Client | How the server is put in the job | Job flags |
 |---|---|---|
@@ -99,9 +101,11 @@ job's ancestors; only when that first job is the innermost does the call fail. T
 - **KNOW** `sdk` + `base`: the server runs directly in the SDK's job (innermost `KILL_ON_JOB_CLOSE`), so
   `CreateProcess` refused, `start_detached` raised `DAEMON_UNAVAILABLE` (`breakaway_refused`, winerror 5),
   and no `run/daemon.json` was written. This is what section 4.1 describes; the launcher is what changes it.
-- **KNOW** `job:libuv-like` (both interpreters), `node` (both) and `none` (both): the daemon's launcher and
-  the daemon were in no job of the client's (for `node`, the daemon's own launcher was in no job at all),
-  the daemon was alive after the client, answered `stop`, and its final status was `stopped`.
+- **KNOW** `job:libuv-like` (both interpreters): the daemon's launcher and the daemon were in no job of the
+  client's. `job:libuv-like`, `node` and `none` (both interpreters each): once the client was gone, the
+  daemon's launcher was in no job at all (asked from outside), the daemon was alive, answered `stop`, and
+  its final status was `stopped`. (The daemon interpreter itself sits in its own launcher's kill-on-close
+  job, the launcher's, not the client's; see `spawn_detached`, "What is checked".)
 - **KNOW** Under real Node.js v22.22.2, a child's innermost job has libuv's flags
   `KILL_ON_JOB_CLOSE | BREAKAWAY_OK | SILENT_BREAKAWAY_OK | DIE_ON_UNHANDLED_EXCEPTION`, and Node's own pid
   is a member too. That matches libuv's `uv__init_global_job_handle` (`src/win/process.c`) as read; the
@@ -120,9 +124,17 @@ still in a job is ended before its first instruction and `DAEMON_UNAVAILABLE` is
 - **KNOW** `job:libuv-like`, `node` and `none`, both interpreters: unchanged; the daemon is in no job of
   the client's, survives it, and `stop` ends it (`stopped`).
 - The regression is pinned in the default suite on Windows: `tests/platform/test_windows_processes.py`
-  (`…would_stay_in_a_clients_job_is_refused…`, both inner-job kinds; `…leaves_nested_jobs_that_allow_breakaway…`)
-  and `tests/daemon/test_process.py` (`…in_a_clients_job_around_a_launchers_starts_no_daemon…`, the real
-  daemon). With the check disabled, all three fail with a `spawned_pid` inside the client's job.
+  (`…would_stay_in_a_clients_job_is_refused…`, both inner-job kinds) and `tests/daemon/test_process.py`
+  (`…in_a_clients_job_around_a_launchers_starts_no_daemon…`, the real daemon). With the check disabled,
+  those three fail with a `spawned_pid` inside the client's job. `…leaves_nested_jobs_that_allow_breakaway…`
+  guards the other side, against over-refusal: with libuv's flags around the launcher's job the daemon must
+  be let run (it passes with or without the check). On a host whose own jobs forbid breakaway, every
+  survival test asserts the refusal instead (`tests/platform/_support.host_lets_a_child_leave_every_job`).
+- **The rule is "in no Job Object at all"** (lead decision, PR #37's review): any enclosing job that forbids
+  breakaway refuses the detached start, even one that would not end the daemon. KNOW (PR #37's Windows CI,
+  runs 36343289680 and 36343292032): GitHub's hosted Windows runner puts its steps in such a job, so the
+  daemon is refused there with `left_in_job`; on `main` it ran inside the runner's job. The supported route
+  on such a host is `narration-admin daemon start --foreground`, or a host whose jobs allow breakaway.
 
 ### Claude Code
 
@@ -132,7 +144,9 @@ still in a job is ended before its first instruction and `DAEMON_UNAVAILABLE` is
   silently, as libuv's does.
 - **BELIEVE** Claude Code starts its MCP servers through libuv's `uv_spawn` with libuv's global job, like
   Node does. The daemon then leaves every job and survives the client, before and after the fix
-  (`job:libuv-like` and `node` above are that topology). Not measured with Claude Code itself as the client.
+  (`job:libuv-like` and `node` above are that topology). Not measured with Claude Code itself as the
+  client. A reviewer's probe adds support (KNOW for its shell, not for its MCP spawn): from Claude Code's
+  Bash-tool chain, 25 of 25 `spawn_detached` children left every job.
 
 ### What was not tested
 

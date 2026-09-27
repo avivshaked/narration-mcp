@@ -262,6 +262,9 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- `DAEMON_UNAVAILABLE`'s `retry_after_s` is 60 s at every level when the daemon could not be detached (it
+  was 30 s at the MCP tool level and 60 s in the platform's own error): the fix needs a person to run
+  `narration-admin daemon start`, and a retry sooner than that fails the same way.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
@@ -335,8 +338,16 @@ are tracked here but no version is tagged; nothing described below is installabl
   client runs the server in a Job Object that forbids breakaway (the MCP Python SDK does) and the server is
   the venv's `python.exe`, a launcher that puts the interpreter in a nested job of its own, Windows accepted
   the daemon's breakaway from the inner job but left it in the client's; the client's exit then killed it.
-  The daemon is now created suspended and runs only once Windows confirms it is in no Job Object. One left
-  in a job is ended before it runs, and the caller gets `DAEMON_UNAVAILABLE` (retryable; its `details.reason`
-  is `left_in_job`, `breakaway_refused` or `job_check_failed`) with the hint to run
-  `narration-admin daemon start` in a terminal. Under Node.js clients, Claude Code among them, whose jobs
-  allow breakaway, the daemon leaves every job and keeps running, as before (spike k).
+  The daemon is now created suspended and runs only once Windows confirms it is in no Job Object at all.
+  One left in a job is ended before it runs, and the caller gets `DAEMON_UNAVAILABLE` (retryable; its
+  `details.reason` is `left_in_job`, `breakaway_refused` or `job_check_failed`) with the hint to run
+  `narration-admin daemon start` in a terminal. The rule is deliberate: any enclosing job that forbids
+  breakaway refuses the detached start, even one that would not end the daemon, since the service cannot
+  read such a job's limits or know who will close it. A CI runner is the known case (measured on GitHub's
+  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, run
+  `narration-admin daemon start --foreground` as its own process, or use a host whose jobs allow breakaway.
+  Under clients that spawn through libuv, whose job allows breakaway, the daemon leaves every job and keeps
+  running (Node.js, measured with Node v22; Claude Code, we believe, since it spawns through libuv too;
+  spike k). `narration-admin daemon start` now names only the cause Windows established, and says when the
+  daemon exits for want of work (`[daemon] idle_exit_min`), so a client that cannot start the daemon itself
+  knows to start it again.
