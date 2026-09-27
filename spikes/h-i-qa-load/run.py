@@ -13,10 +13,11 @@ What it does, in one process, with the GPU lock held (AGENTS.md section 5):
    (``narration_worker_qa.asr.WhisperAsr``, ``narration_worker_qa.sv.WavLmSv``) on ``cuda:0``;
 3. transcribes (word times, long-form) and embeds a 40 s slice and the whole of one of the bakeoff's clone takes
    (d2, seed 1, about 119 s), recording the allocator's peaks; embeds both again on the CPU (the canary's path)
-   and compares the embeddings. ``embed`` is the worker's: audio over 30 s is embedded in equal windows (DC-15);
+   and compares the embeddings. ``embed`` is the worker's: audio over ``WINDOW_S`` is embedded in equal windows
+   (DC-15);
 4. measures the peaks' growth with length (10 to 119 s from the start of the take): transcription with and
-   without word times, and embedding, both as the worker embeds (DC-15's windows) and in one pass over the whole
-   clip (what the worker did before DC-15), with the cosine of the two;
+   without word times; embedding as the worker embeds, in one pass over the whole clip, and in windows of each
+   of ``WINDOW_LENGTHS_S``, with each windowed embedding's cosine to the one-pass one;
 5. unloads, loads each model a second time (warm file cache), and re-hashes the weights against the manifest.
 
 Run from the checkout, in the QA worker's venv, with the GPU lock held::
@@ -47,6 +48,8 @@ TAKE = "outputs/qwen3-tts-1.7b-clone-d2-late-night_take1-seed1/r48_names_probe.w
 SLICE_S = 40.0
 LENGTHS_S = (10.0, 20.0, 30.0, 60.0, 90.0, 119.0)
 """The lengths the peaks are measured at, cut from the start of the take."""
+WINDOW_LENGTHS_S = (30, 60)
+"""The window lengths DC-15 was measured with: 30 s as first approved, 60 s as amended (the worker's ``WINDOW_S``)."""
 
 
 def main() -> int:
@@ -63,7 +66,7 @@ def main() -> int:
     from narration_worker.determinism import apply_determinism
     from narration_worker_qa.align import read_audio, to_mono_16k
     from narration_worker_qa.asr import WhisperAsr
-    from narration_worker_qa.sv import WavLmSv, windows
+    from narration_worker_qa.sv import WINDOW_S, WavLmSv, windows
     from narration_worker_qa.worker import QA_DETERMINISM
 
     common.cap_torch_threads(torch)
@@ -160,6 +163,16 @@ def main() -> int:
         }
 
     # ---------------------------------------------------------------- by length: what the peaks grow with
+    def embed_in_windows(clip: Any, length_s: int) -> Any:
+        """DC-15's rule with windows of ``length_s`` (0: one pass), through the worker's own one-pass code."""
+        parts = [clip] if length_s == 0 else windows(clip, length_s * 16_000)
+        model, where = sv._model_for("cuda")  # pyright: ignore[reportPrivateUsage]
+        vectors = [sv._one_pass(model, where, part) for part in parts]  # pyright: ignore[reportPrivateUsage]
+        if len(vectors) == 1:
+            return vectors[0]
+        mean = np.mean(np.stack(vectors), axis=0)
+        return mean / np.linalg.norm(mean)
+
     resident = common.gpu_memory(torch, DEVICE)["allocated_mb"]
     by_length: dict[str, Any] = {"resident_allocated_mb": resident, "transcribe": [], "embed": []}
     for seconds in LENGTHS_S:
@@ -178,26 +191,35 @@ def main() -> int:
                 }
             )
         torch.cuda.empty_cache()
-        windowed, facts = measured(lambda c=clip: sv.embed(c, "cuda"))
+        built, facts = measured(lambda c=clip: sv.embed(c, "cuda"))
         torch.cuda.empty_cache()
-        # One pass over the whole clip, which the worker runs only for audio of up to 30 s (DC-15). No reference
-        # to the model outlives the call, so the memory after unload below is the worker's own.
-        one_pass, one_facts = measured(
-            lambda c=clip: sv._one_pass(*sv._model_for("cuda"), c)  # pyright: ignore[reportPrivateUsage]
-        )
-        by_length["embed"].append(
-            {
-                "seconds": seconds,
-                "windows": len(windows(clip)),
-                "windowed_peak_above_resident_mb": facts["peak_max_allocated_mb"] - resident,
-                "windowed_peak_reserved_mb": facts["peak_max_reserved_mb"],
-                "windowed_seconds_taken": facts["seconds"],
-                "one_pass_peak_above_resident_mb": one_facts["peak_max_allocated_mb"] - resident,
-                "one_pass_peak_reserved_mb": one_facts["peak_max_reserved_mb"],
-                "one_pass_seconds_taken": one_facts["seconds"],
-                "cosine_windowed_to_one_pass": round(float(np.dot(windowed["embedding"], one_pass)), 6),
+        # One pass over the whole clip, which the worker runs only for audio of up to WINDOW_S (DC-15). No
+        # reference to the model outlives the call, so the memory after unload below is the worker's own.
+        one_pass, one_facts = measured(lambda c=clip: embed_in_windows(c, 0))
+        entry: dict[str, Any] = {
+            "seconds": seconds,
+            "as_built_window_s": WINDOW_S,
+            "as_built_windows": len(windows(clip)),
+            "as_built_peak_above_resident_mb": facts["peak_max_allocated_mb"] - resident,
+            "as_built_peak_reserved_mb": facts["peak_max_reserved_mb"],
+            "as_built_seconds_taken": facts["seconds"],
+            "as_built_cosine_to_one_pass": round(float(np.dot(built["embedding"], one_pass)), 6),
+            "one_pass_peak_above_resident_mb": one_facts["peak_max_allocated_mb"] - resident,
+            "one_pass_peak_reserved_mb": one_facts["peak_max_reserved_mb"],
+            "one_pass_seconds_taken": one_facts["seconds"],
+        }
+        for length_s in WINDOW_LENGTHS_S:
+            torch.cuda.empty_cache()
+            vector, window_facts = measured(lambda c=clip, n=length_s: embed_in_windows(c, n))
+            entry[f"windows_{length_s}s"] = {
+                "windows": len(windows(clip, length_s * 16_000)),
+                "peak_above_resident_mb": window_facts["peak_max_allocated_mb"] - resident,
+                "cosine_to_one_pass": round(float(np.dot(vector, one_pass)), 6),
+                "equals_embed": bool(np.array_equal(vector, np.asarray(built["embedding"])))
+                if length_s == WINDOW_S
+                else None,
             }
-        )
+        by_length["embed"].append(entry)
     results["by_length"] = by_length
     asr.unload()
     sv.unload()

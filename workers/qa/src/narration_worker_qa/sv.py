@@ -20,17 +20,18 @@ reproduces every similarity of ``refs/auditions/voicelock.csv`` (52 rows) and th
 (``config.json``, ``preprocessor_config.json``); ``refs/pr/8`` holds only the weights. The ``.bin`` is a pickle,
 so it loads with ``weights_only=True``, which refuses anything but tensors.
 
-**Windows (DC-15).** Audio of up to 30 s is embedded in one pass, exactly as above. Longer audio is cut into
-``ceil(length / 30 s)`` consecutive windows of equal length (differing by at most one sample), each is embedded
-in one pass, and the result is the mean of the windows' L2-normalised embeddings, normalised again. Why: WavLM
-attends over the whole clip, so one pass's memory grows with the square of its length (KNOW, ``spikes/h-i-qa-load``:
-0.6 GB above the resident models at 30 s, 2.2 GB at 60 s, 8.4 GB at 119 s); windows keep it at the 30 s figure
-for any length. The cost is a slightly different vector for long audio: the windowed embedding's cosine to the
-one-pass one is 0.999 at 60 s and 0.994 at 119 s on a real take (the same spike). The bake-off's take segments
-are all shorter than 30 s, so its ``spk_to_ref`` and ``spk_consist`` do not change; but ``voicelock.csv`` compares
-clips of up to 37 s, and with 30 s windows 3 of its 52 rows move by more than the acceptance's 0.002 (at most
-0.0057), while windows of 40 s or 60 s reproduce every row (KNOW, ``spikes/acceptance-wp22/windows.json``). The
-window length is open for the lead (``WINDOW_S``).
+**Windows (DC-15, amended to 60 s).** Audio of up to 60 s is embedded in one pass, exactly as above. Longer
+audio is cut into ``ceil(length / 60 s)`` consecutive windows of equal length (differing by at most one sample),
+each is embedded in one pass, and the result is the mean of the windows' L2-normalised embeddings, normalised
+again. Why: WavLM attends over the whole clip, so one pass's memory grows with the square of its length (KNOW,
+``spikes/h-i-qa-load``: 0.6 GB above the resident models at 30 s, 2.2 GB at 60 s, 8.4 GB at 119 s); windows keep
+it at the 60 s figure for any length, below transcription's peak. The cost is a slightly different vector for
+audio over 60 s; the same spike measures its cosine to the one-pass embedding on a real take.
+
+Why 60 s and not 30 s (KNOW, ``spikes/acceptance-wp22/windows.json``): the bake-off's ``voicelock.csv`` compares
+clips of up to 37 s, embedded in one pass. With 30 s windows 3 of its 52 rows moved by more than the acceptance's
+0.002 (at most 0.0057); with 60 s windows every clip is embedded in one pass and every row is reproduced (largest
+difference 0.0001). The take segments of the evidence are all shorter than 30 s.
 """
 
 from __future__ import annotations
@@ -49,8 +50,9 @@ ARCHITECTURE: Final = "WavLMForXVector"
 MODEL_TYPE: Final = "wavlm"
 DEVICES: Final = ("cuda", "cpu")
 """The devices an ``embed`` may name."""
-WINDOW_S: Final = 30
-"""The longest audio embedded in one pass (DC-15); longer audio is embedded in equal windows of at most this."""
+WINDOW_S: Final = 60
+"""The longest audio embedded in one pass, in seconds (DC-15, amended by the lead from 30 s to 60 s); longer audio
+is embedded in equal windows of at most this."""
 WINDOW_SAMPLES: Final = WINDOW_S * SAMPLE_RATE
 
 
@@ -153,7 +155,7 @@ class WavLmSv:
         return self._models[self.device], self.device
 
     def embed(self, audio_16k: npt.NDArray[np.float32], device: str) -> dict[str, Any]:
-        """The ``EmbedReply`` members other than ``id`` and ``ok`` for mono 16 kHz audio: one pass for up to 30 s,
+        """The ``EmbedReply`` members other than ``id`` and ``ok`` for mono 16 kHz audio: one pass for up to 60 s,
         else the re-normalised mean of equal windows' embeddings (DC-15; module docstring).
 
         ``InvalidRequest`` (``device``) for a device other than ``DEVICES``, or ``cuda`` with the model on the CPU;

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from narration_worker_qa import align as qa
-from narration_worker_qa.sv import WINDOW_SAMPLES, WavLmSv, min_samples, windows
+from narration_worker_qa.sv import WINDOW_S, WINDOW_SAMPLES, WavLmSv, min_samples, windows
 
 torch = pytest.importorskip("torch", reason="needs torch and transformers: the QA worker's full venv")
 pytest.importorskip("transformers", reason="needs torch and transformers: the QA worker's full venv")
@@ -86,11 +86,18 @@ def test_embed_before_load_is_not_loaded_s11_1() -> None:
 # ---------------------------------------------------------------------- windows (DC-15)
 
 
+def test_the_window_is_60_s_dc15() -> None:
+    """DC-15 as amended by the lead: 60 s, so every clip of the bake-off's voicelock evidence (up to 37 s) is
+    embedded in one pass, as the evidence was (``spikes/acceptance-wp22/windows.json``)."""
+    assert WINDOW_S == 60
+    assert WINDOW_SAMPLES == 60 * 16_000
+
+
 @pytest.mark.parametrize(
     ("seconds", "count"),
-    [(1.0, 1), (30.0, 1), (30.0 + 1 / 16_000, 2), (60.0, 2), (61.0, 3), (119.0, 4), (150.0, 5)],
+    [(1.0, 1), (60.0, 1), (60.0 + 1 / 16_000, 2), (119.0, 2), (120.0, 2), (121.0, 3), (240.0, 4), (241.0, 5)],
 )
-def test_long_audio_is_cut_into_equal_windows_of_at_most_30_s_dc15(seconds: float, count: int) -> None:
+def test_long_audio_is_cut_into_equal_windows_of_at_most_60_s_dc15(seconds: float, count: int) -> None:
     audio = np.arange(round(seconds * 16_000), dtype=np.float32)
     parts = windows(audio)
     assert len(parts) == count
@@ -108,14 +115,14 @@ def _one_pass(sv: WavLmSv, audio: np.ndarray) -> np.ndarray:
     return vector.numpy().astype(np.float64)
 
 
-def test_audio_of_30_s_or_less_is_embedded_in_exactly_one_pass_dc15(sv: WavLmSv) -> None:
-    for seconds in (1.0, 30.0):
+def test_audio_of_60_s_or_less_is_embedded_in_exactly_one_pass_dc15(sv: WavLmSv) -> None:
+    for seconds in (1.0, 37.0, 60.0):
         audio = _audio(seconds, seed=5)
         assert sv.embed(audio, "cpu")["embedding"] == _one_pass(sv, audio).tolist()
 
 
 def test_longer_audio_is_the_renormalised_mean_of_its_windows_dc15(sv: WavLmSv) -> None:
-    audio = _audio(61.0, seed=6)
+    audio = _audio(121.0, seed=6)
     parts = windows(audio)
     assert len(parts) == 3
     mean = np.mean([_one_pass(sv, part) for part in parts], axis=0)

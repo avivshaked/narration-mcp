@@ -17,8 +17,8 @@ embeddings, pitch tracks, token spans and profile numbers, and never a verdict.
   CUDA memory torch has reserved after the load, and null when no model went to a GPU.
 - ``transcribe`` (``asr``): Whisper-large-v3 as ``asr`` pins it. ``language`` is a name or code (``"English"``).
 - ``embed`` (``sv``): an L2-normalised x-vector, on ``cuda`` (the GPU the model was loaded on) or ``cpu`` (a CPU
-  copy made on first use, so the canary check never swaps models; section 10.1). Audio of up to 30 s is embedded
-  in one pass; longer audio in equal windows of at most 30 s, whose embeddings' mean is normalised again (DC-15).
+  copy made on first use, so the canary check never swaps models; section 10.1). Audio of up to 60 s is embedded
+  in one pass; longer audio in equal windows of at most 60 s, whose embeddings' mean is normalised again (DC-15).
 - ``f0``: a ``librosa.pyin`` track between ``fmin_hz`` and ``fmax_hz``, every 10 ms at 16 kHz.
 - ``align`` (``aligner``): WP15's CTC alignment (``align.AlignOp``).
 - ``profile``: the voice profile's numbers (``models.ProfileMeasurements``) and two PNG pictures written to
