@@ -250,6 +250,9 @@ are tracked here but no version is tagged; nothing described below is installabl
   out of memory", `CUBLAS_STATUS_ALLOC_FAILED`) now reports `GPU_OOM`, as for any other allocation, so the
   daemon unloads, waits and retries once instead of failing with `INTERNAL`.
 
+- The daemon opens its store with the configured aligner's method id, so every take's alignment reports the
+  measured error of that aligner's published benchmark (design section 11.2); an aligner the service cannot
+  run is logged at start, and each job then fails with `BACKEND_NOT_INSTALLED`.
 - The default design text (`[voice_design] design_text`, also the canary's design text in
   `material/canary/canary.v1`) is a new text written for the service: "Good bread asks for patience: the
   dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp,
