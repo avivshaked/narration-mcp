@@ -94,19 +94,49 @@ def _fields(exc: NarrationError) -> dict[str, Any]:
     }
 
 
-def client(daemon_marker: str, go: str, out: str, cwd: str, mark: str, how: str) -> None:
-    """An MCP client stand-in: run inside a kill-on-close Job Object that allows breakaway, start a daemon,
-    report its pid, and exit at once, which kills everything left in the job.
-
-    ``how`` is ``platform`` (``spawn_detached``) or ``plain`` (a detached start without breakaway, the control).
-    """
+def _join_inner_job(kind: str) -> None:
+    """Put this process in a job of its own, nested in whatever job the test put it in: ``silent`` is like a
+    venv launcher's job (children leave it silently), ``breakaway`` allows an explicit breakaway."""
     from narration.platform._windows import _JobObject
 
-    job = _JobObject(kill_on_close=True, allow_breakaway=True)
+    job = _JobObject(kill_on_close=True, allow_breakaway=kind == "breakaway", silent_breakaway=kind == "silent")
     job.add(os.getpid())
+
+
+def nested(out: str, inner: str) -> None:
+    """From inside an inner job (``_join_inner_job``) nested in the job the test started this process in, try
+    to start a daemon detached; report the refusal, or the pid it got."""
+    from narration.platform._windows import _in_job
+
+    _join_inner_job(inner)
+    platform = get_platform()
+    try:
+        pid = platform.spawn_detached([sys.executable, "-c", "pass"], cwd=Path(out).parent, env=dict(os.environ))
+    except NarrationError as exc:
+        write_json(out, _fields(exc))
+    else:
+        write_json(out, {"spawned_pid": pid, "spawned_in_any_job": _in_job(pid, None)})
+    os._exit(0)  # this process is in its jobs for good; leaving the block would close an inner one
+
+
+def client(daemon_marker: str, go: str, out: str, cwd: str, mark: str, how: str) -> None:
+    """An MCP client stand-in: run inside a kill-on-close Job Object, start a daemon, report its pid, and exit
+    at once, which kills everything left in the job.
+
+    ``how`` is ``platform`` (a job that allows breakaway, made here; ``spawn_detached``), ``plain`` (the same
+    job; a detached start without breakaway, the control), or ``nested`` (a silent-breakaway job made here,
+    like a venv launcher's, nested in the job the test started this process in; ``spawn_detached``).
+    """
+    from narration.platform._windows import _in_job, _JobObject
+
+    if how == "nested":
+        _join_inner_job("silent")
+    else:
+        job = _JobObject(kill_on_close=True, allow_breakaway=True)
+        job.add(os.getpid())
     argv = [sys.executable, __file__, "daemon", daemon_marker, go]
     env = dict(os.environ, NARRATION_TEST_MARK=mark)
-    if how == "platform":
+    if how in ("platform", "nested"):
         try:
             pid = get_platform().spawn_detached(argv, cwd=Path(cwd), env=env)
         except NarrationError as exc:
@@ -116,7 +146,7 @@ def client(daemon_marker: str, go: str, out: str, cwd: str, mark: str, how: str)
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
         proc = subprocess.Popen(argv, cwd=cwd, env=env, creationflags=flags, stdin=subprocess.DEVNULL)
         pid = proc.pid
-    write_json(out, {"daemon_pid": pid})
+    write_json(out, {"daemon_pid": pid, "daemon_in_any_job": _in_job(pid, None)})
     os._exit(0)
 
 
@@ -150,6 +180,7 @@ MODES = {
     "singleton": singleton,
     "hold": hold,
     "refused": refused,
+    "nested": nested,
     "client": client,
     "daemon": daemon,
     "supervisor": supervisor,

@@ -41,7 +41,8 @@ if sys.platform != "win32":
         "the daemon's process mechanisms are implemented for Windows only in v1 (plan.md Q2)", allow_module_level=True
     )
 
-from narration.platform import get_platform
+from narration.platform import _windows, get_platform
+from tests.platform._support import start_in_job
 
 pytestmark = pytest.mark.timeout(180)
 
@@ -338,7 +339,34 @@ def test_a_session_whose_job_forbids_breakaway_starts_no_daemon_s4_1(
     assert session.returncode == 0, session.stderr
     result = json.loads(out.read_text(encoding="utf-8"))
     assert result["code"] == "DAEMON_UNAVAILABLE"
-    assert result["details"]["reason"] == "breakaway_refused"
+    assert result["details"]["reason"] == _windows.BREAKAWAY_REFUSED
     assert result["retry_after_s"] == 60.0
     time.sleep(1.0)
     assert read_status(real_store) is None, "no daemon was started, detached or not"
+
+
+def test_a_session_in_a_clients_job_around_a_launchers_starts_no_daemon_s4_1(
+    service: Path, real_store: NarrationStore, tmp_path: Path
+) -> None:
+    # The lead's case (spike k, KNOW): the MCP Python SDK's kill-on-close job, which forbids breakaway, around
+    # the venv launcher's job, which allows it silently. Windows accepts the breakaway from the inner job and
+    # leaves the daemon in the client's, where it died with the client. Now it is ended before it runs.
+    out = tmp_path / "session.json"
+    client_job = _windows._JobObject(kill_on_close=True)  # pyright: ignore[reportPrivateUsage]
+    try:
+        session = start_in_job(
+            client_job,
+            [sys.executable, str(SESSION), str(service / "store"), str(service / "narration.toml"), str(out), "nested"],
+        )
+        assert session.wait(timeout=60) == 0
+        assert out.exists(), "the session wrote its result"
+        result = json.loads(out.read_text(encoding="utf-8"))
+    finally:
+        client_job.close()
+    assert "spawned_pid" not in result, "a daemon was let run inside the client's job"
+    assert result["code"] == "DAEMON_UNAVAILABLE"
+    assert result["details"]["reason"] == _windows.LEFT_IN_JOB
+    assert result["retry_after_s"] == 60.0
+    time.sleep(1.0)
+    assert read_status(real_store) is None, "the daemon was ended before it wrote anything"
+    assert not (real_store.layout.logs_dir() / "daemon.log").exists(), "it never ran"

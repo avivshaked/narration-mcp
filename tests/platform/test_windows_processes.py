@@ -21,7 +21,18 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.platform import get_platform
 
-from ._support import WINDOWS_ONLY, heartbeat_stopped, is_beating, read_json, run_child, started, wait_for_file
+from ._support import (
+    WINDOWS_ONLY,
+    child_argv,
+    heartbeat_stopped,
+    is_beating,
+    read_json,
+    run_child,
+    run_in_job,
+    start_in_job,
+    started,
+    wait_for_file,
+)
 
 if sys.platform != "win32":
     raise pytest.skip.Exception(WINDOWS_ONLY, allow_module_level=True)
@@ -32,6 +43,27 @@ pytestmark = pytest.mark.timeout(120)
 
 NO_SUCH_PID = 0xFFFFFFFC
 """A pid no process has (Windows pids are small multiples of 4)."""
+
+SUSPENDED_DETACHED = 0x01000000 | 0x00000008 | 0x00000200 | 0x00000004
+"""``CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED``."""
+
+
+class FakeSuspended:
+    """A ``Popen`` stand-in for ``spawn_detached``'s child: records what was asked, and whether it was ended."""
+
+    def __init__(self, argv: list[str], **kwargs: object) -> None:
+        self.argv, self.kwargs = argv, kwargs
+        self.pid = 4242
+        self.killed = False
+        self.returncode: int | None = None
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = 1
+
+    def wait(self, timeout: float | None = None) -> int:
+        assert self.killed, "waited on a child that was not ended"
+        return 1
 
 
 @pytest.fixture
@@ -149,29 +181,88 @@ def test_singleton_name_sees_through_a_junction_s4(store: Path, tmp_path: Path) 
 
 # ---------------------------------------------------------------- detached start (section 4.1)
 def test_detached_start_uses_the_flags_and_handles_of_s4_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, object] = {}
-
-    class FakePopen:
-        def __init__(self, argv: list[str], **kwargs: object) -> None:
-            seen.update(kwargs, argv=argv)
-            self.pid = 4242
-
-    monkeypatch.setattr(_windows, "_DetachedPopen", FakePopen)
+    made: list[FakeSuspended] = []
+    resumed: list[int] = []
+    monkeypatch.setattr(
+        _windows, "_DetachedPopen", lambda argv, **kwargs: made.append(FakeSuspended(argv, **kwargs)) or made[-1]
+    )
+    monkeypatch.setattr(_windows, "_in_job", lambda pid, job: False)
+    monkeypatch.setattr(_windows, "_resume", resumed.append)
     pid = get_platform().spawn_detached(("python", "-m", "narration.daemon"), cwd=tmp_path, env={"A": "1"})
     assert pid == 4242
-    assert seen == {
-        "argv": ["python", "-m", "narration.daemon"],
+    (child,) = made
+    assert child.argv == ["python", "-m", "narration.daemon"]
+    assert child.kwargs == {
         "cwd": tmp_path,
         "env": {"A": "1"},
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
         "close_fds": True,
-        "creationflags": 0x01000000 | 0x00000008 | 0x00000200,
+        "creationflags": SUSPENDED_DETACHED,
     }
     assert _windows.DETACHED_CREATION_FLAGS == (
         subprocess.CREATE_BREAKAWAY_FROM_JOB | subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     )
+    assert resumed == [4242], "a daemon in no job is let run"
+    assert not child.killed
+
+
+def test_a_daemon_left_in_a_job_is_ended_before_it_runs_s4_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    made: list[FakeSuspended] = []
+    monkeypatch.setattr(
+        _windows, "_DetachedPopen", lambda argv, **kwargs: made.append(FakeSuspended(argv, **kwargs)) or made[-1]
+    )
+    monkeypatch.setattr(_windows, "_in_job", lambda pid, job: pid == 4242 and job is None)
+    monkeypatch.setattr(_windows, "_resume", lambda pid: pytest.fail("a daemon still in a job was let run"))
+    with pytest.raises(NarrationError) as info:
+        get_platform().spawn_detached(["python"], cwd=tmp_path, env={})
+    error = info.value
+    assert error.code == codes.DAEMON_UNAVAILABLE
+    assert error.retryable is True
+    assert error.retry_after_s == _windows.DAEMON_RETRY_AFTER_S
+    assert "narration-admin daemon start" in error.hint
+    assert error.details is not None and error.details["reason"] == _windows.LEFT_IN_JOB
+    assert set(error.details) == {"reason", "in_job", "job_allows_breakaway"}
+    (child,) = made
+    assert child.killed, "the suspended daemon was ended, so nothing ran inside the job"
+
+
+def test_a_job_check_that_fails_ends_the_daemon_s4_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    made: list[FakeSuspended] = []
+
+    def cannot_tell(pid: int, job: object) -> bool:
+        raise OSError(None, "The parameter is incorrect", None, 87)
+
+    monkeypatch.setattr(
+        _windows, "_DetachedPopen", lambda argv, **kwargs: made.append(FakeSuspended(argv, **kwargs)) or made[-1]
+    )
+    monkeypatch.setattr(_windows, "_in_job", cannot_tell)
+    monkeypatch.setattr(_windows, "_resume", lambda pid: pytest.fail("a daemon of unknown membership was let run"))
+    with pytest.raises(NarrationError) as info:
+        get_platform().spawn_detached(["python"], cwd=tmp_path, env={})
+    error = info.value
+    assert error.code == codes.DAEMON_UNAVAILABLE and error.retryable is True
+    assert error.details is not None
+    assert (error.details["reason"], error.details["winerror"]) == (_windows.JOB_CHECK_FAILED, 87)
+    assert isinstance(error.__cause__, OSError)
+    assert made[0].killed
+
+
+def test_a_daemon_that_cannot_be_resumed_is_ended_s4_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    made: list[FakeSuspended] = []
+
+    def cannot_resume(pid: int) -> None:
+        raise OSError(f"cannot resume process {pid}")
+
+    monkeypatch.setattr(
+        _windows, "_DetachedPopen", lambda argv, **kwargs: made.append(FakeSuspended(argv, **kwargs)) or made[-1]
+    )
+    monkeypatch.setattr(_windows, "_in_job", lambda pid, job: False)
+    monkeypatch.setattr(_windows, "_resume", cannot_resume)
+    with pytest.raises(OSError, match="cannot resume process 4242"):
+        get_platform().spawn_detached(["python"], cwd=tmp_path, env={})
+    assert made[0].killed, "a daemon that stays suspended is not left behind"
 
 
 def test_breakaway_refused_is_daemon_unavailable_s4_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -213,11 +304,57 @@ def test_a_job_that_forbids_breakaway_gives_daemon_unavailable_s4_1(tmp_path: Pa
     assert result["retryable"] is True
     assert result["retry_after_s"] == _windows.DAEMON_RETRY_AFTER_S
     assert result["details"] == {
-        "reason": "breakaway_refused",
+        "reason": _windows.BREAKAWAY_REFUSED,
         "winerror": 5,
         "in_job": True,
         "job_allows_breakaway": False,
     }
+
+
+@pytest.mark.parametrize("inner", ["silent", "breakaway"])
+def test_a_daemon_that_would_stay_in_a_clients_job_is_refused_s4_1(tmp_path: Path, inner: str) -> None:
+    # The topology the lead saw a daemon die in (spike k, KNOW): a client's kill-on-close job that forbids
+    # breakaway (the MCP Python SDK's) around a job that allows it (the venv launcher's, silently). Windows
+    # then accepts CREATE_BREAKAWAY_FROM_JOB, takes the child out of the inner job only, and leaves it in the
+    # client's; before the fix it ran there and died with the client.
+    out = tmp_path / "nested.json"
+    client_job = _windows._JobObject(kill_on_close=True)  # pyright: ignore[reportPrivateUsage]
+    try:
+        run_in_job(client_job, "nested", out, inner)
+        result = read_json(out)
+    finally:
+        client_job.close()
+    assert "spawned_pid" not in result, "a daemon was let run inside the client's job"
+    assert result["code"] == codes.DAEMON_UNAVAILABLE
+    assert result["retryable"] is True
+    assert result["retry_after_s"] == _windows.DAEMON_RETRY_AFTER_S
+    assert result["details"] == {
+        "reason": _windows.LEFT_IN_JOB,
+        "in_job": True,
+        "job_allows_breakaway": True,  # the innermost job's answer, which is why CreateProcess did not refuse
+    }
+
+
+def test_a_daemon_leaves_nested_jobs_that_allow_breakaway_s4_1(tmp_path: Path) -> None:
+    # libuv's job (Node's, so Claude Code's: kill-on-close, breakaway and silent breakaway) around the venv
+    # launcher's: the daemon must end up in no job, and outlive both the client and the client's job.
+    marker, go, out, cwd = tmp_path / "daemon.json", tmp_path / "go", tmp_path / "client.json", tmp_path / "cwd"
+    cwd.mkdir()
+    client_job = _windows._JobObject(kill_on_close=True, allow_breakaway=True, silent_breakaway=True)  # pyright: ignore[reportPrivateUsage]
+    try:
+        run_in_job(client_job, "client", marker, go, out, cwd, "mark-k", "nested")
+        client = read_json(out)
+        assert "refused" not in client, client
+        assert client["daemon_in_any_job"] is False, "the daemon's first process left every job"
+        assert client_job.contains(client["daemon_pid"]) is False
+    finally:
+        client_job.close()  # the client's job closes, as when the client exits
+    time.sleep(0.5)
+    go.touch()
+    assert wait_for_file(marker), "the daemon died with its client's job"
+    seen = read_json(marker)
+    assert client["daemon_pid"] in (seen["pid"], seen["ppid"])
+    assert seen["mark"] == "mark-k"
 
 
 def _client(tmp_path: Path, how: str) -> tuple[dict[str, object], Path, Path]:
@@ -280,6 +417,48 @@ def test_a_closed_group_refuses_new_processes_s4_1() -> None:
         pass
     with pytest.raises(ValueError, match="closed"):
         add(NO_SUCH_PID)
+
+
+def test_a_job_says_which_processes_are_in_it_s4_1(tmp_path: Path) -> None:
+    marker = tmp_path / "worker.json"
+    job = _windows._JobObject(kill_on_close=True)  # pyright: ignore[reportPrivateUsage]
+    try:
+        worker = start_in_job(job, child_argv("sleep", marker, 15))
+        try:
+            assert wait_for_file(marker)
+            interpreter = read_json(marker)["pid"]
+            assert job.contains(worker.pid) is True
+            assert job.contains(interpreter) is True, "a launcher's child is born into its jobs"
+            assert job.contains(os.getpid()) is False
+            with pytest.raises(OSError):
+                job.contains(NO_SUCH_PID)
+        finally:
+            worker.kill()
+            worker.wait(timeout=30)
+    finally:
+        job.close()
+    with pytest.raises(ValueError, match="closed"):
+        job.contains(os.getpid())
+
+
+def test_a_silent_breakaway_job_keeps_the_members_children_out_s4_1(tmp_path: Path) -> None:
+    # Like a venv launcher's own job, or libuv's: a member's child is born outside it, whether it asks or not.
+    marker = tmp_path / "worker.json"
+    job = _windows._JobObject(kill_on_close=True, silent_breakaway=True)  # pyright: ignore[reportPrivateUsage]
+    try:
+        worker = start_in_job(job, child_argv("sleep", marker, 15))
+        try:
+            assert wait_for_file(marker)
+            interpreter = read_json(marker)["pid"]
+            assert job.contains(worker.pid) is True
+            if interpreter == worker.pid:
+                pytest.skip("sys.executable is not a venv launcher, so the child started no process of its own")
+            assert job.contains(interpreter) is False, "a child of a member breaks away silently"
+        finally:
+            worker.kill()
+            worker.wait(timeout=30)
+    finally:
+        job.close()
 
 
 def test_adding_a_missing_process_raises_os_error_s4_1() -> None:

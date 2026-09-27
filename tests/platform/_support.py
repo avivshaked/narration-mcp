@@ -40,6 +40,36 @@ def started(*args: object) -> Iterator[subprocess.Popen[bytes]]:
         process.wait(timeout=30)
 
 
+def start_in_job(job: Any, argv: list[str]) -> subprocess.Popen[bytes]:
+    """Start ``argv`` inside the Job Object ``job`` (a ``narration.platform._windows._JobObject``) from its
+    first instruction: created suspended, assigned, then resumed. This is how a client that wants every
+    descendant in its job should start a server; the MCP Python SDK and libuv assign after the start instead,
+    so a child the server starts in the meantime lands outside. Windows only."""
+    from narration.platform import _windows  # pyright: ignore[reportPrivateUsage]
+
+    process = subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=_windows.CREATE_SUSPENDED,
+    )
+    try:
+        job.add(process.pid)
+        _windows._resume(process.pid)  # pyright: ignore[reportPrivateUsage]
+    except BaseException:
+        process.kill()
+        process.wait(timeout=30)
+        raise
+    return process
+
+
+def run_in_job(job: Any, *args: object, timeout_s: float = 60.0) -> None:
+    """Run a child mode to completion inside ``job`` (``start_in_job``); fail if it fails."""
+    process = start_in_job(job, child_argv(*args))
+    assert process.wait(timeout=timeout_s) == 0, f"the child in the job exited with {process.returncode}"
+
+
 def wait_for_file(path: Path, timeout_s: float = 30.0) -> bool:
     """Whether ``path`` appears within ``timeout_s``."""
     deadline = time.monotonic() + timeout_s
