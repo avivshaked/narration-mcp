@@ -25,19 +25,20 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Final, Protocol
 
 from narration.config import Config
 from narration.contracts.errors import WorkerCrashed, WorkerFailure, WorkerTimeout
-from narration.contracts.interfaces import Platform
 from narration.contracts.serial import to_json
 from narration.jobs.gpu import VramProbe
+from narration.platform import ProcessPlatform
 from narration.store import NarrationStore
 
 from .canary import gate_facts
 from .installed import probe_for
-from .pinning import BridgeReport, EngineReport, Mode, PinRefused, Starter, SubprocessStarter, bridge, pin
+from .pinning import BridgeReport, EngineReport, Mode, PinRefused, Starter, SupervisedStarter, bridge, pin
 from .profile import FAMILIES, QWEN_PACKAGES, QWEN_VRAM_MB
 
 PROGRAM: Final = "narration-admin"
@@ -62,7 +63,7 @@ class AdminContext(Protocol):
         """The configuration (the dispatcher's error, with what to do, when there is none)."""
         ...
 
-    def platform(self) -> Platform:
+    def platform(self) -> ProcessPlatform:
         """This OS's ``Platform``."""
         ...
 
@@ -85,9 +86,10 @@ class AdminContext(Protocol):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Environment:
-    """What the commands use of the machine beyond ``admin``; tests replace it (fake workers, no NVML)."""
+    """What the commands use of the machine beyond ``admin``; tests replace it (fake workers, no NVML).
+    ``starter`` makes the pin's worker starter, a context manager that stops its workers on leaving."""
 
-    starter: Callable[[Config], Starter] = SubprocessStarter
+    starter: Callable[[Config, ProcessPlatform], AbstractContextManager[Starter]] = SupervisedStarter
     probe: Callable[[Config], VramProbe] = field(default=lambda config: probe_for(config.gpu.device))
     packages: Sequence[str] = QWEN_PACKAGES
 
@@ -154,15 +156,16 @@ def _bridge_handler(env: Environment) -> Handler:
 def run_pin(admin: AdminContext, args: argparse.Namespace, *, mode: Mode, env: Environment) -> int:
     """``engine pin`` or ``engine repin``: see the module docstring."""
     name = f"engine {mode}"
-    config = admin.config()
-    with admin.platform().singleton(config.server.store_root) as held:
+    config, platform = admin.config(), admin.platform()
+    with platform.singleton(config.server.store_root) as held:
         if not held:
             return _daemon_running(admin, name)
         short = _short_of_vram(config, env)
         if short is not None:
             return _fail(admin, name, short, "Wait until the GPU has room (or free it), then run this again.")
         try:
-            reports = pin(config, admin.store(), mode=mode, starter=env.starter(config), packages=env.packages)
+            with env.starter(config, platform) as starter:
+                reports = pin(config, admin.store(), mode=mode, starter=starter, packages=env.packages)
         except PinRefused as exc:
             return _fail(admin, name, exc.message, exc.hint)
         except (WorkerFailure, WorkerCrashed, WorkerTimeout) as exc:
@@ -174,15 +177,16 @@ def run_pin(admin: AdminContext, args: argparse.Namespace, *, mode: Mode, env: E
 def run_bridge(admin: AdminContext, args: argparse.Namespace, *, env: Environment) -> int:
     """``engine bridge <old> <new>``: see the module docstring."""
     name = "engine bridge"
-    config = admin.config()
-    with admin.platform().singleton(config.server.store_root) as held:
+    config, platform = admin.config(), admin.platform()
+    with platform.singleton(config.server.store_root) as held:
         if not held:
             return _daemon_running(admin, name)
         short = _short_of_vram(config, env)
         if short is not None:
             return _fail(admin, name, short, "Wait until the GPU has room (or free it), then run this again.")
         try:
-            report = bridge(config, admin.store(), args.old, args.new, starter=env.starter(config))
+            with env.starter(config, platform) as starter:
+                report = bridge(config, admin.store(), args.old, args.new, starter=starter)
         except PinRefused as exc:
             return _fail(admin, name, exc.message, exc.hint)
         except (WorkerFailure, WorkerCrashed, WorkerTimeout) as exc:

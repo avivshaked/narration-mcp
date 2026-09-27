@@ -20,7 +20,7 @@ import pytest
 from narration.config import Config, GpuConfig
 from narration.engine.admin import EXIT_FAILED, EXIT_OK, Environment, register
 from narration.engine.models import QWEN_BASE
-from narration.engine.pinning import SubprocessStarter
+from narration.engine.pinning import SupervisedStarter
 from narration.jobs.gpu import NoProbe, VramProbe, VramReading
 from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
@@ -190,7 +190,7 @@ def test_bridge_of_an_unknown_profile_says_how_to_list_them_s10_1(config: Config
 
 def test_a_worker_that_is_not_installed_says_to_run_doctor(config: Config) -> None:
     env = Environment(
-        starter=SubprocessStarter,  # the real qwen3 and QA workers, whose venvs this installation lacks
+        starter=SupervisedStarter,  # the real qwen3 and QA workers, whose venvs this installation lacks
         probe=lambda config: NoProbe(),
         packages=FAKE_WORKER_PACKAGES,
     )

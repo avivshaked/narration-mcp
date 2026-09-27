@@ -50,11 +50,12 @@ from narration.contracts import names
 from narration.contracts.errors import WorkerCrashed, WorkerFailure, WorkerTimeout
 from narration.contracts.interfaces import Store, WorkerClient
 from narration.contracts.models import AudioRef, CanaryMaterial, EngineProfile
-from narration.contracts.names import DeterminismTier, EngineKind
+from narration.contracts.names import DeterminismTier, EngineKind, GpuHolder
+from narration.daemon.supervisor import FAKE_ROLES, WorkerSupervisor
 from narration.jobs.gpu import LOAD_TIMEOUT_S, UNLOAD_TIMEOUT_S
 from narration.jobs.pins import qwen_load_payload
+from narration.platform import ProcessPlatform
 from narration.store.store import utc_iso
-from narration.workers import SubprocessWorkerClient, worker_command
 
 from .canary import (
     calibrate,
@@ -116,25 +117,41 @@ class Starter(Protocol):
         ...
 
 
-@dataclass(frozen=True, slots=True)
-class SubprocessStarter:
-    """Starts the real workers, as the daemon does (``narration.workers.worker_command``), in the store root.
-    With ``role`` set, every worker is started as that role instead (``fake`` in tests)."""
+class SupervisedStarter:
+    """Starts the pin's workers as the daemon starts its own, through the daemon's ``WorkerSupervisor``: the
+    worker venv's Python with ``-P``, run in the worker project's folder (never the store root, section 17),
+    with the offline environment, the thread cap, NVML's GPU order and this OS's hardening, at the configured
+    priority and in a kill-on-close group. So the canary is rendered as the daemon will render it, on the same
+    GPU. Every ``start`` is a fresh process. Use it as a context manager: leaving stops every worker. With
+    ``fake``, the fake worker serves every role (tests)."""
 
-    config: Config
-    role: Literal["fake"] | None = None
-    base_env: Mapping[str, str] | None = None
+    def __init__(
+        self,
+        config: Config,
+        platform: ProcessPlatform,
+        *,
+        fake: bool = False,
+        base_env: Mapping[str, str] | None = None,
+    ) -> None:
+        self._pool = WorkerSupervisor(
+            config,
+            platform,
+            roles=FAKE_ROLES if fake else None,
+            below_normal=config.workers.priority == "below_normal",
+            base_env=base_env,
+        )
+
+    def __enter__(self) -> SupervisedStarter:
+        self._pool.__enter__()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._pool.close()
 
     def start(self, role: WorkerRoleName, *, cublas_workspace_config: str | None = None) -> WorkerClient:
-        command = worker_command(
-            self.config,
-            self.role or role,
-            base_env=self.base_env,
-            cublas_workspace_config=cublas_workspace_config,
-        )
-        client = SubprocessWorkerClient(command, cwd=self.config.server.store_root)
-        client.start()
-        return client
+        group: GpuHolder = "qwen" if role == "qwen3" else "qa"
+        self._pool.stop(group)  # a fresh process: the repeat test's second process must be a new one
+        return self._pool.client(group, cublas_workspace_config=cublas_workspace_config)
 
 
 # ======================================================================== what to pin
@@ -612,7 +629,7 @@ __all__ = [
     "PinRefused",
     "Plan",
     "Starter",
-    "SubprocessStarter",
+    "SupervisedStarter",
     "bridge",
     "corpus_texts",
     "pin",

@@ -18,8 +18,10 @@ from typing import Any, Final
 from narration.config import Config, WorkerProject
 from narration.contracts.interfaces import WorkerClient
 from narration.engine.models import CTC_ALIGNER, QWEN_BASE, QWEN_DESIGN, WAVLM_SV, WHISPER, PinnedModel
-from narration.engine.pinning import SubprocessStarter
+from narration.engine.pinning import SupervisedStarter
 from narration.engine.profile import QWEN_PACKAGES
+from narration.platform import ProcessPlatform
+from narration.platform.testing import StandInPlatform
 
 GENERATION: Final[dict[str, Any]] = {
     "do_sample": True,
@@ -103,12 +105,21 @@ def fake_install(root: Path) -> Install:
 
 
 class CountingStarter:
-    """Starts fake workers in place of the real ones (``engine pin``'s ``Starter``), and counts them."""
+    """Starts fake workers in place of the real ones, through the daemon's supervisor as ``engine pin`` does
+    (``SupervisedStarter``), and counts them. A context manager: leaving stops every worker."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, platform: ProcessPlatform | None = None) -> None:
         base = {k: v for k, v in os.environ.items() if k != "NARRATION_FAKE_SPEC"}
-        self.inner = SubprocessStarter(config, role="fake", base_env=base)
+        self.platform = platform if platform is not None else StandInPlatform()
+        self.inner = SupervisedStarter(config, self.platform, fake=True, base_env=base)
         self.started: list[str] = []
+
+    def __enter__(self) -> CountingStarter:
+        self.inner.__enter__()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.inner.__exit__(*exc)
 
     def start(self, role: Any, *, cublas_workspace_config: str | None = None) -> WorkerClient:
         self.started.append(role)

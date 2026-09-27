@@ -95,8 +95,8 @@ def gate(tmp_path: Path) -> Iterator[Gate]:
     jobs.write_spec(spec)
     pool = jobs.FakePool(install.config, spec)
     try:
-        starter = CountingStarter(install.config)
-        pin(install.config, store, mode="pin", starter=starter, packages=FAKE_WORKER_PACKAGES, device="cpu")
+        with CountingStarter(install.config) as starter:
+            pin(install.config, store, mode="pin", starter=starter, packages=FAKE_WORKER_PACKAGES, device="cpu")
         host = jobs.Host(store=store, config=install.config, workers=pool, clock=jobs.MonotonicClock())
         yield Gate(
             install=install,

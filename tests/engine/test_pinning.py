@@ -53,7 +53,8 @@ def pinned(tmp_path: Path) -> Iterator[Pinned]:
     install = fake_install(tmp_path)
     store = NarrationStore(install.store_root, StandInPlatform())
     try:
-        yield Pinned(install=install, store=store, starter=CountingStarter(install.config), material=find_canary())
+        with CountingStarter(install.config) as starter:
+            yield Pinned(install=install, store=store, starter=starter, material=find_canary())
     finally:
         store.close()
 
@@ -214,3 +215,13 @@ def test_bridge_refuses_unknown_or_mismatched_profiles_s10_1(pinned: Pinned) -> 
 def test_the_first_ids_are_the_designs_s6(pinned: Pinned) -> None:
     ids = {r.engine_profile_id for r in pinned.pin()}
     assert ids == {names.ENGINE_PROFILE_BASE, names.ENGINE_PROFILE_DESIGN}
+
+
+def test_the_pin_starts_its_workers_as_the_daemon_does_s17(pinned: Pinned) -> None:
+    """Through the daemon's own supervisor (which also sets the worker's folder and environment, section 17):
+    each worker joins the kill-on-close group before its hello, at the configured priority."""
+    pinned.pin()
+    platform = pinned.starter.platform
+    assert len(platform.added) == len(pinned.starter.started) == 3  # QA, then the first and the fresh Qwen
+    assert platform.groups_opened == 1
+    assert platform.lowered == platform.added  # [workers] priority is below_normal by default
