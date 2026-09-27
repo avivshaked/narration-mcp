@@ -42,6 +42,7 @@ from typing import Any, Final, Literal
 
 from narration.config import Config
 from narration.contracts.errors import UnsupportedPlatform
+from narration.contracts.names import WorkerRole
 from narration.platform import ProcessPlatform, is_supported
 from narration.workers.launch import WORKER_PROJECT_DIRS, venv_python, worker_project
 
@@ -50,7 +51,7 @@ from .models import check_files, pinned_revisions, read_manifest, snapshot_dir
 
 Level = Literal["ok", "info", "warn", "fail"]
 ENGINE_MODULE: Final = "narration.engine.admin"
-WORKER_ROLES: Final = ("qwen3", "qa")
+WORKER_ROLES: Final[tuple[WorkerRole, ...]] = ("qwen3", "qa")
 UV_CHECK_TIMEOUT_S: Final = 120.0
 GIB: Final = 1024**3
 

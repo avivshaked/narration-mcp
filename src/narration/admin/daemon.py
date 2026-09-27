@@ -180,6 +180,22 @@ def _run_in_foreground(admin: Admin, store: NarrationStore) -> int:
 
 
 # ---------------------------------------------------------------- stop
+def post_stop(store: NarrationStore, *, now: bool) -> tuple[DaemonStatus, DaemonCommand] | None:
+    """Post ``stop`` (or ``stop_now``) **only when a daemon runs** (``running_daemon``), and return its status
+    and the command; None, posting nothing, when none runs. A daemon honours only the stops posted after it
+    was launched, so a stop posted with none running would stop nothing (module docstring)."""
+    status = running_daemon(store)
+    if status is None:
+        return None
+    return status, store.post_command("stop_now" if now else "stop")
+
+
+def request_stop(store: NarrationStore, *, now: bool) -> DaemonStatus | None:
+    """``post_stop`` without waiting: the status of the daemon asked to stop, or None when none runs."""
+    posted = post_stop(store, now=now)
+    return posted[0] if posted is not None else None
+
+
 def stop_daemon(admin: Admin, args: argparse.Namespace) -> int:
     """``daemon stop``: see the module docstring."""
     root = admin.config().server.store_root
@@ -187,12 +203,11 @@ def stop_daemon(admin: Admin, args: argparse.Namespace) -> int:
         admin.say(f"No daemon runs for {root} (no store there yet); nothing to stop.")
         return EXIT_OK
     store = admin.store()
-    status = running_daemon(store)
-    if status is None:
+    posted = post_stop(store, now=args.now)
+    if posted is None:
         admin.say(f"No daemon runs for {root}; nothing to stop, so no stop was posted.")
         return EXIT_OK
-    kind = "stop_now" if args.now else "stop"
-    command = store.post_command(kind)
+    status, command = posted
     how = (
         "now: the work in flight is ended and goes back to the queue"
         if args.now

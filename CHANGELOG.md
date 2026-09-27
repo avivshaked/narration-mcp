@@ -173,6 +173,12 @@ are tracked here but no version is tagged; nothing described below is installabl
 - `narration-admin gc [--apply] [--json]`: a dry run by default that lists what retention no longer keeps;
   `--apply` removes it. `narration-admin verify [--json]`: hashes the store's immutable files and the
   installed model files again, and runs the database's integrity check; it changes nothing.
+- `narration-admin install [--dry-run] [--from-cache <dir>] [--models-only | --workers-only]`: puts each
+  pinned model in its snapshot folder, every file checked against the hash Hugging Face publishes for its
+  revision before it is renamed into place, and records them in `<models_root>/manifest.json`; syncs each
+  worker venv from its `uv.lock` when it is out of date; and asks a running daemon to stop when it
+  repaired something the daemon uses. Certificates are always verified (`SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE` and `UV_NATIVE_TLS=1` are honoured; design section 17.8).
 
 ### Changed
 
