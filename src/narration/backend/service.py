@@ -338,6 +338,37 @@ class NarrationBackend:
                 retry_after_s=exc.retry_after_s if exc.retryable else None,
             ) from exc
 
+    # ================================================================ an active job with no daemon (sections 4, 4.1)
+    def _revive(self, job: JobRecord) -> str | None:
+        """Make sure a daemon serves an active job that ``get_job`` or ``cancel_job`` reads; a note for the reply
+        when none was running, or None when one runs (or the job has finished).
+
+        A job stays ``queued``, ``running`` or ``cancelling`` in the store after its daemon has gone (a crash, a
+        machine restart, a daemon killed with its client), and nothing but a daemon moves it on. So when the
+        launcher says no daemon runs, this asks it for one (``ensure``: idempotent; with ``[daemon] autostart``
+        off it starts nothing). The new daemon's start-up sweep (``narration.daemon.sweep``) puts a job left
+        ``running`` back on the queue, keeping its items (the job engine then takes it again and finds what it
+        finished in the cache), and finishes a job left ``cancelling`` as ``cancelled``; a ``queued`` job is
+        simply run in its turn. A daemon that is ``stopping`` still runs, and is left alone: one exiting for
+        being idle looks for work once more, and one asked to stop by the operator is let stop (the next call
+        after it has gone starts another).
+
+        Raises ``DAEMON_UNAVAILABLE`` (with the job, its status and what to do) when no daemon could be started.
+        """
+        if job.status in TERMINAL_JOB_STATUSES:
+            return None
+        daemon = self.launcher.running(self.store)
+        if daemon is not None and daemon.state != "stopped":
+            return None
+        try:
+            self.launcher.ensure(self.store)
+        except NarrationError as exc:
+            if exc.code != codes.DAEMON_UNAVAILABLE:
+                raise
+            raise _no_daemon_for(job, exc) from exc
+        log.info("job %s is %s and no daemon was running; asked for one", job.job_id, job.status)
+        return _revived_note(job.status, autostart=self.config.daemon.autostart)
+
     # ================================================================ text (sections 3.2, 7.2, 9.1)
     def _text_json(self, text: SegmentText, measurement: MeasurementRecord | None) -> dict[str, Any]:
         """One segment's text echo and length check (``check_text``, ``submit_job``'s dry run; R7, R8)."""
@@ -469,14 +500,21 @@ class NarrationBackend:
     # ================================================================ get_job (section 7.4)
     async def get_job(self, args: Mapping[str, Any], progress: ProgressCallback | None) -> dict[str, Any]:
         """``get_job``: the job now, or after a long-poll of up to ``wait_s`` that ends when its status
-        changes; progress notifications while it waits."""
+        changes; progress notifications while it waits.
+
+        An active job whose daemon has gone would read the same forever, so when no daemon runs, a daemon is
+        asked for first (``_revive``), within ``wait_s``, and the reply's ``message`` says so. When none can be
+        started, the call is ``DAEMON_UNAVAILABLE`` (retryable), naming the job and what to do."""
         job_id = str(args["job_id"])
         wait_s = float(args.get("wait_s", 0) or 0)
         include = bool(args.get("include_segments", False))
+        deadline = anyio.current_time() + wait_s
         job = await self._thread(self._job, job_id)
+        note = await self._thread(self._revive, job)
+        if note is not None:
+            job = await self._thread(self._job, job_id)  # a daemon started meanwhile may have moved it on
         if progress is not None and job.status not in TERMINAL_JOB_STATUSES:
             await _report(progress, job)
-        deadline = anyio.current_time() + wait_s
         while job.status not in TERMINAL_JOB_STATUSES:
             remaining = deadline - anyio.current_time()
             if remaining <= 0:
@@ -491,7 +529,10 @@ class NarrationBackend:
             if status_changed:
                 break
         queued = await self._thread(self.store.queued_jobs)
-        return views.job_json(job, queued, include_segments=include)
+        out = views.job_json(job, queued, include_segments=include)
+        if note is not None and job.status not in TERMINAL_JOB_STATUSES:
+            out["message"] = f"{job.message}. {note}" if job.message else note
+        return out
 
     # ================================================================ get_results (section 7.5)
     def get_results_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
@@ -619,7 +660,11 @@ class NarrationBackend:
     # ================================================================ cancel_job (sections 7.6, 8)
     def cancel_job_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
         """``cancel_job``: a queued job is cancelled at once; a running one is ``cancelling`` until the daemon
-        stops it between two pieces of work. Finished renders, takes and analyses stay in the cache."""
+        stops it between two pieces of work. Finished renders, takes and analyses stay in the cache.
+
+        Only a daemon finishes a cancel, so when none runs, one is asked for (``_revive``): its start-up sweep
+        finishes the cancel. The cancel is recorded either way; if no daemon can be started, the answer is still
+        ``cancelling``, and ``get_job`` says why and what to do."""
         job_id = str(args["job_id"])
         reason = args.get("reason")
         message = f"cancelled: {reason}" if reason else "cancelled"
@@ -633,14 +678,28 @@ class NarrationBackend:
                     details={"status": job.status},
                 )
             if job.status == "cancelling":
-                return {"status": "cancelling", "completed": False}
+                return self._cancelling(job)
             if job.status == "queued":
                 if self.store.update_job(job_id, expect_status="queued", status="cancelled", message=message):
                     return {"status": "cancelled", "completed": True}
-            elif self.store.update_job(job_id, expect_status="running", status="cancelling", message=message):
-                return {"status": "cancelling", "completed": False}
+            else:
+                changed = self.store.update_job(job_id, expect_status="running", status="cancelling", message=message)
+                if changed is not None:
+                    return self._cancelling(changed)
         job = self._job(job_id)
+        if job.status == "cancelling":
+            return self._cancelling(job)
         return {"status": job.status, "completed": job.status == "cancelled"}
+
+    def _cancelling(self, job: JobRecord) -> dict[str, Any]:
+        """``cancel_job``'s answer for a job left ``cancelling``, once a daemon is asked for if none runs."""
+        try:
+            self._revive(job)
+        except NarrationError as exc:
+            if exc.code != codes.DAEMON_UNAVAILABLE:
+                raise
+            log.warning("job %s is cancelling, but no daemon could be started to finish it: %s", job.job_id, exc)
+        return {"status": "cancelling", "completed": False}
 
     async def cancel_job(self, args: Mapping[str, Any]) -> dict[str, Any]:
         """``cancel_job`` (section 7.6)."""
@@ -927,6 +986,53 @@ def backend_for(
     if launcher is None:
         launcher = DetachedLauncher(config.path, autostart=config.daemon.autostart)
     return NarrationBackend(config, store, platform, launcher=launcher)
+
+
+RESUMES: Final[dict[str, str]] = {
+    "queued": "the job is kept in the queue and runs once a daemon serves it",
+    "running": "the job is kept, and the new daemon puts it back on the queue, reusing what it finished from the cache",
+    "cancelling": "the cancel is kept, and the new daemon finishes it as it starts",
+}
+"""What happens to an active job once a daemon starts again, by the status it was left in (``_revive``)."""
+
+
+def _no_daemon_for(job: JobRecord, exc: NarrationError) -> NarrationError:
+    """``DAEMON_UNAVAILABLE`` for an active job that no daemon serves and none could be started for: the
+    launcher's reason, the job, its status and the daemon's state, and what to do. A retryable start (the
+    client's Job Object kept the daemon in) needs a person to start the daemon in a terminal; one that can
+    never work here (``UnsupportedPlatform``) keeps its own hint."""
+    what = "finish its cancel" if job.status == "cancelling" else "run it"
+    hint = (
+        f"Run 'narration-admin daemon start' in a terminal, then call get_job again: {RESUMES[job.status]}."
+        if exc.retryable
+        else exc.hint
+    )
+    return NarrationError(
+        codes.DAEMON_UNAVAILABLE,
+        f"job {job.job_id} is {job.status}, but no daemon is running to {what}, and none could be started: "
+        f"{exc.message}",
+        hint=hint,
+        details={**(exc.details or {}), "job_id": job.job_id, "job_status": job.status, "daemon_state": "stopped"},
+        retryable=exc.retryable,
+        retry_after_s=exc.retry_after_s if exc.retryable else None,
+    )
+
+
+def _revived_note(status: str, *, autostart: bool) -> str:
+    """``get_job``'s note on an active job that no daemon was serving (``_revive``): the daemon's state, what
+    was done, and what happens to the job."""
+    if not autostart:
+        waits = "finishes this cancel" if status == "cancelling" else "runs this job"
+        return (
+            "No daemon is running (daemon state: stopped), and [daemon] autostart is off, so nothing "
+            f"{waits} until someone runs 'narration-admin daemon start' in a terminal."
+        )
+    if status == "queued":
+        return (
+            "No daemon was serving the queue (daemon state: stopped), so get_job asked for one to start; "
+            f"{RESUMES[status]}."
+        )
+    return f"No daemon was running this job (daemon state: stopped), so get_job started one; {RESUMES[status]}."
 
 
 async def _report(progress: ProgressCallback, job: JobRecord) -> None:

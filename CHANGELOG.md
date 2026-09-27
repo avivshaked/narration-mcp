@@ -262,6 +262,12 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- `get_job` and `cancel_job` notice a job whose daemon has gone (a crash, a restart, a daemon that ended
+  with its client), which before read `running` or `cancelling` forever. When no daemon runs, they start one
+  (as `submit_job` does, following `[daemon] autostart`); its start-up puts a job left `running` back on the
+  queue, reusing what it finished from the cache, and finishes a cancel. `get_job`'s `message` then says the
+  daemon was stopped and what happens next. When no daemon can be started, `get_job` answers
+  `DAEMON_UNAVAILABLE` (retryable) with the job and the hint to run `narration-admin daemon start`.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
