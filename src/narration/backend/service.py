@@ -83,9 +83,6 @@ POLL_S: Final = 0.5
 """How often ``get_job``'s long-poll reads the job again."""
 RELEASE_WAIT_S: Final = 10.0
 """How long ``release_gpu`` waits for the daemon to answer its command (well inside the write deadline)."""
-CANCELLING_WAIT_S: Final = 10.0
-"""How long a submission identical to a job being cancelled waits for that cancel to end."""
-CANCELLING_RETRY_S: Final = 5.0
 GIB: Final = 1024**3
 REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
@@ -190,8 +187,13 @@ class NarrationBackend:
             )
 
     # ================================================================ jobs: admission and the queue (DC-2)
-    def _identical(self, queued: Sequence[JobRecord], kind: JobKind, sha: str) -> JobRecord | None:
-        return next((j for j in queued if j.kind == kind and j.request_sha256 == sha), None)
+    @staticmethod
+    def _identical(queued: Sequence[JobRecord], kind: JobKind, sha: str) -> JobRecord | None:
+        """The queued or running job of the same request (the store's ``create_job`` rule)."""
+        return next(
+            (j for j in queued if j.kind == kind and j.request_sha256 == sha and j.status in ("queued", "running")),
+            None,
+        )
 
     def _check_admission(self, queued: Sequence[JobRecord], daemon_drain: float | None) -> None:
         """``RATE_LIMITED`` and ``QUEUE_FULL`` (DC-2), each with ``retry_after_s``."""
@@ -267,45 +269,31 @@ class NarrationBackend:
         segments_total: int = 0,
         result: dict[str, Any] | None = None,
     ) -> JobRecord:
-        """Queue a job, or return the active job of the same request (section 7.3); then make sure a daemon
-        serves the store, after the job is committed (``launch``). A job identical to one being cancelled
-        waits a moment for that cancel to end, then is queued anew."""
+        """Queue a job, or return the queued or running job of the same request (section 7.3), which is not
+        held to the rate cap or the queue's length; then make sure a daemon serves the store, after the job is
+        committed (``launch``). A job being cancelled is ending, so the same request again is a new job."""
         sha = request_sha256(kind, stored)
-        deadline = time.monotonic() + CANCELLING_WAIT_S
-        while True:
-            queued = self.store.queued_jobs()
-            job = self._identical(queued, kind, sha)
-            if job is None:
-                daemon = self.launcher.running(self.store)
-                self._check_admission(queued, daemon.est_drain_s if daemon is not None else None)
-                record = self._new_record(
-                    kind,
-                    stored,
-                    sha,
-                    label=label,
-                    priority=priority,
-                    idempotency_key=idempotency_key,
-                    segments_total=segments_total,
-                    result=result,
-                )
-                try:
-                    job, _ = self.store.create_job(record)
-                except NarrationError as exc:
-                    if exc.field == "idempotency_key":  # the argument's own path (DC-6)
-                        raise refield(exc, "options.idempotency_key") from exc
-                    raise
-            if job.status != "cancelling":
-                break
-            if time.monotonic() >= deadline:
-                raise NarrationError(
-                    codes.INTERNAL,
-                    f"an identical job ({job.job_id}) is being cancelled; the new one cannot be queued until it is",
-                    retryable=True,
-                    retry_after_s=CANCELLING_RETRY_S,
-                    hint="Wait at least retry_after_s, then send the identical request again.",
-                    details={"job_id": job.job_id, "status": job.status},
-                )
-            time.sleep(0.25)
+        queued = self.store.queued_jobs()
+        job = self._identical(queued, kind, sha)
+        if job is None:
+            daemon = self.launcher.running(self.store)
+            self._check_admission(queued, daemon.est_drain_s if daemon is not None else None)
+            record = self._new_record(
+                kind,
+                stored,
+                sha,
+                label=label,
+                priority=priority,
+                idempotency_key=idempotency_key,
+                segments_total=segments_total,
+                result=result,
+            )
+            try:
+                job, _ = self.store.create_job(record)
+            except NarrationError as exc:
+                if exc.field == "idempotency_key":  # the argument's own path (DC-6)
+                    raise refield(exc, "options.idempotency_key") from exc
+                raise
         if job.status not in TERMINAL_JOB_STATUSES:
             self._ensure_daemon(job)
         return job

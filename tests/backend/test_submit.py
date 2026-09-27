@@ -68,6 +68,17 @@ def test_request_is_kept_with_the_services_defaults_s7_3(service: Service) -> No
     assert len(job.request_sha256) == 64
 
 
+def test_the_same_request_after_a_cancel_is_a_new_job_s7_3(service: Service) -> None:
+    first = service.backend.submit_job_sync(service.request(LAMPS))
+    assert service.world.store.claim_job(first["job_id"], "a-daemon") is not None
+    cancelled = service.backend.cancel_job_sync({"job_id": first["job_id"]})
+    assert cancelled["status"] == "cancelling"
+    again = service.backend.submit_job_sync(service.request(LAMPS))
+    assert again["job_id"] != first["job_id"], "a job being cancelled will make nothing more"
+    assert again["status"] == "queued"
+    assert service.world.job(first["job_id"]).status == "cancelling"
+
+
 def test_idempotency_key_on_a_different_request_is_refused_dc6(service: Service) -> None:
     key = {"idempotency_key": "chapter-one-take"}
     first = service.backend.submit_job_sync(service.request(LAMPS, **{"options": key}))
