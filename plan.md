@@ -670,7 +670,7 @@ Updated by the lead on `main` only.
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `done` | PRs #34, #36 | 2026-09-27; review, re-verification workflow and a check of its fixes (all hold); DC-16 in; its five Low follow-ups merged (PR #36) |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
-| WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `todo` | – | |
+| WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `active` | `wp/34-design` | 2026-09-27; started after M1; must not change the engine's identity while the owner narrates |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
 | WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `done` | PR #32 | 2026-09-27; Fable review and re-verification (merge with follow-ups; all fixed); `narration-admin render` included; follow-ups: `AnalysisPins` in `backend_for`, §7.3's all-cached submit |
 | WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `done` | PR #30 | 2026-09-27; daemon, doctor, gc, verify, install (review fixes incl. a path-traversal hole); `engine` from WP32, `render` after WP36, `bench` after WP38 |
@@ -681,7 +681,7 @@ Updated by the lead on `main` only.
 | WP42 | Acceptance: Phase 5 | 3 | WP41 | yes | `todo` | – | |
 | WP43 | Docs | 3 | WP36, WP37 | – | `todo` | – | |
 | WP44 | Release readiness | 3 | WP41–WP43 | – | `todo` | – | a release itself needs the owner |
-| WP45 | `narration-admin voices allow` | 3 | WP37 | – | `todo` | – | the owner asked (DC-17); any time after M1 |
+| WP45 | `narration-admin voices allow` | 3 | WP37 | – | `review` | PR #38 | 2026-09-27; a careful text edit (tomlkit rejected: it broke one-line arrays and CRLF files); adversarial review running |
 
 **Phase 0 spikes → where they live:** (a) WP38 · (b) WP15 · (c) WP39 · (d) (e) (f) (h) (i) WP20, with the
 QA half of (h) in WP22 · (g) WP30 · (j) WP17.
@@ -1066,3 +1066,25 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     voice across texts (design §1).
   - The owner listens and picks. The pick is allowlisted in the owner's local configuration, pinned in
     the real store and measured.
+
+- 2026-09-27, night: **the first real voice is measured** (d2 re-designed, seed 2006; the lead picked the
+  highest similarity at the owner's request, the owner listens later). The real store is pinned (the same
+  profile hashes as the smoke store) and holds the measurement: reliable up to 301 spoken characters, pace
+  trend 147 wpm + 13.5 per 100 characters, tolerance 0.155, anchor p5 0.990; 12.75 min on the GPU. The ladder
+  stopped at 300 because `tools/gpu_lock.py` refuses holds over 30 min and has no override; the pace trend
+  uses the rungs up to 300 either way. KNOW from the local run (`.dev/service-setup/`).
+  - **Rendering slows under CPU load** (KNOW, same run): about 5 s of GPU per second of audio while agents ran
+    test suites, against 2.1 in the smoke run. Autoregressive decoding is launch-bound.
+- 2026-09-27, night: **a readiness audit of `main` for real work** (a workflow: five lenses, each with an
+  adversarial verifier; 52 findings, none refuted outright, 21 lowered). Nothing new blocks real use. Acted on
+  at once: the caller's guidance in the tool texts (`wp/36-guidance`: hints for every invented name, result
+  size, suggested takes), `get_job` noticing a dead daemon plus two backend fixes (`wp/36-liveness`), and a
+  local brief for the owner's narrating session (`.dev/narration-brief.md`). **spec_revision is not stale**:
+  it is the MCP protocol revision (§5); that follow-up is closed. The decisions it raises for the owner are
+  in HANDOFF.md.
+- 2026-09-27, night: **the daemon-detach fix** (Fable, `wp/30-escape`, PR #37). Spike k measured Windows'
+  rule for breakaway from nested jobs; the daemon now starts suspended and runs only in no Job Object.
+  Its review (a workflow, three lenses with skeptics) found Windows CI red (GitHub's runner is in a job that
+  forbids breakaway) and an orphan on an async exception; being fixed. **Lead decision:** the daemon runs
+  only in no Job Object at all, even where an enclosing job would not end it.
+- 2026-09-27, night: **WP45 built** (PR #38): `narration-admin voices allow` and `voices list`.

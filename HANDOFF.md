@@ -19,7 +19,11 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | The daemon dies when the MCP client exits (WP30's area) | `wp/30-escape` | a9adeef63f4026ccc (Fable) | investigating; the lead reviews, verifies adversarially, then PR |
+  | The daemon-detach fix (WP30's area) | `wp/30-escape`, PR #37 | a9adeef63f4026ccc (Fable) | fixing its review (Windows CI red, an orphan on an async exception, wording) |
+  | WP34 design and profile | `wp/34-design` | aee097b972cdb073f | building; must not change the engine's identity |
+  | WP45 `voices allow` / `list` | `wp/45-voices`, PR #38 | a8b585cae285db8e6 | done; adversarial review running |
+  | The caller's guidance in the tool texts | `wp/36-guidance` | aa82ffe101d84906f | building (audit item 1.1) |
+  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness` | afe8baa2a8d6e61fb | building (audit 1.3, cf-3, cf-13) |
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -56,6 +60,18 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Waiting on the owner
 
+- **The readiness audit's decisions** (`.dev/lead/readiness_synthesis.md`, local; section 4):
+  - D1: a full ladder for the first voice, or keep the stop at 300 (some of the consumer's paragraphs are
+    longer); needs a GPU hold over 30 min, which the lock tool refuses without an override;
+  - D2: judge pace in characters per second rather than words per minute (§3.2, §11.1): the ladder texts'
+    word lengths differ, which the wpm trend reads as pace;
+  - D3: a compact `get_results` (a segment filter; words off by default) (§7.5);
+  - D4: run the service from a pinned checkout, or freeze merges that touch the engine while narrating;
+  - D5: whether dev GPU work pauses while the owner narrates;
+  - D6: the canary on every Qwen load (12–19 s each) or once per worker process;
+  - D7: QA rule changes (a probable-name warning in `check_text`; insertion runs; a length-aware speaker
+    margin);
+  - D8: loudness: deliveries are at -23 LUFS; confirm what the consumer expects.
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
 - **Listen to the first voice** (the owner asked the lead to pick one and measure it, to save time): seed
@@ -82,12 +98,22 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
    **The owner's `.mcp.json`** should start the server through the venv's interpreter
    (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not
    `uv run … narration-mcp`, whose launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
-2. **The daemon fix (`wp/30-escape`):** review the Fable agent's report, verify it adversarially (a
-   workflow), then PR, CI and merge.
+2. **Merge in this order once each is green and verified:** PR #37 (the daemon fix), PR #38 (WP45),
+   `wp/36-liveness`, `wp/36-guidance`; then WP34 (it removes the "not in this build" marks for its tools).
 3. **After M1:** WP34, WP35, WP38, WP39 and WP45, then Wave 3 (WP40–WP44), with the follow-ups below.
 4. **WP37 follow-ups:** `doctor` checks the material manifests (WP33's corpus loader is on `main`); a
    single-item evict in the store for what `verify` finds damaged (the store's area); `reset_workers`
    stays a proposal.
+
+## While the owner narrates (lead rules, from the readiness audit)
+
+- **Hold any merge that changes the engine's identity**: `workers/qwen3tts/` (code or lock), `workers/common`'s
+  version or lock, `material/canary/`, `src/narration/engine/profile.py`, or anything feeding the render,
+  delivery or analysis keys. Each forces a repin or re-QA and orphans the owner's measurement or cached work.
+  Other merges change what a newly started server or daemon runs, since the service runs from the main
+  checkout (D4); restart the daemon only deliberately.
+- **Dev GPU work waits** while `.dev/stores/service/run/daemon.json` shows a job or a loaded worker.
+- **Never edit `narration.toml`'s `[measurement]`**; after any other edit, stop the daemon and reconnect.
 
 ## Follow-ups to fold into the packages
 
@@ -142,7 +168,6 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
 - **Pace on short segments (WP40, from the M1 smoke run):** two takes of a short segment failed
   PACE_FAST against a two-rung ladder's trend; check the trend's slope on a real measurement and plant
   short-segment pace cases.
-- **`get_server_status`'s `spec_revision`** reads "2026-07-28"; check it against design revision 5.14.
 
 - **QA blind spots found by gate H1's investigation (for WP14's area and WP40's planted faults):**
   - §11.1 step 7's acoustic head check (speech before the first word that matches the voice's
