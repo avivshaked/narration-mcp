@@ -10,6 +10,18 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- The job engine (`narration.jobs`), which the daemon runs: each round renders on Qwen, post-processes,
+  then scores on the QA models, and retakes the takes that fail QA on the next attempt numbers, up to
+  `max_retakes`. Work is looked up in the cache first and made once, even by overlapping jobs; the same
+  request twice completes from the cache and is never retaken again. It loads one model group at a
+  time, waits for free GPU memory (then `GPU_UNAVAILABLE` after `[gpu] wait_timeout_min`), retries an
+  out-of-memory error once, lets interactive jobs go first, and reports `poll_after_s`, `retry_after_s`
+  and the queue's drain estimate. A clip the worker cannot prepare fails the job with
+  `UNSUPPORTED_AUDIO`; a caller's clip is read only through the daemon's path check, and only up to 20 MB.
+  A job is `needs_attention` only when a segment's best take failed QA or a segment has no take. The
+  daemon runs the job engine by default; until the aligner and the QA models are installed, each job it
+  takes fails with `BACKEND_NOT_INSTALLED` and nothing is rendered. An `INTERNAL` error names the
+  daemon's log file.
 - `tools/check_private.py`, run by the git hooks and by a new pre-push hook on every pushed commit: it
   refuses a commit that copies a passage, a name or a distinctive number from private text the
   developer lists locally (`.dev/private-text.txt`). It does nothing when no private text is listed.
@@ -193,4 +205,6 @@ are tracked here but no version is tagged; nothing described below is installabl
   taken as a daemon that died. A job queued just as the daemon turns to exit for want of work is still
   run. The daemon and its workers start with `-P` and without `PYTHONPATH`, `PYTHONHOME` or
   `PYTHONSTARTUP`, so nothing in their working folder or the caller's environment is imported in their
-  place; a daemon started by hand without `-P` logs a warning saying so.
+  place; a daemon started by hand without `-P` logs a warning saying so. Its workers start with
+  `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so on a machine with two GPUs `[gpu] device` names the same GPU for the
+  free-memory check and for the models.

@@ -16,6 +16,10 @@ from narration.config import Config
 
 DEFAULT_POLL_S: Final = 0.5
 """How often the daemon looks for commands, and for work when it has none."""
+LOG_NAME: Final = "daemon.log"
+"""The daemon's log file, in the store's ``logs`` folder: ``<store_root>/logs/daemon.log`` (rotated). The daemon
+writes it, and the job engine names it in an ``INTERNAL`` error's ``details.log`` (section 14); this is the one
+place the name is set."""
 
 SAFE_PATH_FLAG: Final = "-P"
 """Python's ``-P``: do not put the working directory (for ``-m``) first on ``sys.path``. The daemon runs in the

@@ -905,9 +905,15 @@ class JobRecord:
     schema (``schemas.TOOLS_BY_NAME[tool].input_schema``: ``submit_job`` for ``generate`` and ``analyse``,
     ``design_voice``, ``measure_voice``, ``profile_voice``, ``audition_pronunciation``). There is no typed
     record for it: the input schema fixes its layout, and it is read as a dict. ``items`` is the per-segment
-    state the job engine writes and ``get_job``/``get_results`` read. ``result`` is the handle of a
-    non-generate job's result (e.g. ``design_id``; the measurement key; the audition's take ids), and
-    ``message`` the human-readable progress line of section 7.4.
+    state the job engine writes and ``get_job``/``get_results`` read. ``message`` is the human-readable
+    progress line of section 7.4.
+
+    ``result`` is what the job made beyond ``items``. For ``generate`` and ``analyse`` it is the job's advice
+    (section 8), written when the job completes: ``suggestions``, one per segment in request order, each
+    ``{segment_id, take_id, suggestion}`` (the suggested take, or null when the segment has none, and the
+    ``Suggestion`` as JSON); and ``consistency``, the request's consistency report (section 11.1, a
+    ``Consistency`` as JSON, or null). Advice only: the caller chooses. For another kind it is the handle of
+    the job's result (e.g. ``design_id``; the measurement key; the audition's take ids).
     """
 
     schema: str = JOB_SCHEMA

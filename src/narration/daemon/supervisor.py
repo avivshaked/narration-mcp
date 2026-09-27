@@ -27,6 +27,12 @@ kept: it is the operator's, and a scrubbed ``PATH`` can break DLL loading. Its c
 ``ProcessPlatform.worker_creationflags`` (on Windows no console window, and below-normal priority). Its
 command line carries ``-P`` (its working folder is not put on ``sys.path``), and its environment has none of
 the ``PYTHON*`` variables that change imports (``settings.IMPORT_ENV_VARS``).
+
+**Which GPU a worker means (``GPU_ORDER_ENV``).** ``[gpu] device`` (``cuda:1``) names one GPU for two readers:
+the job engine's free-VRAM check, which asks NVML in the daemon, and the worker's load, which asks CUDA. NVML
+numbers GPUs by PCI bus; CUDA by default numbers them fastest first. So every worker starts with
+``CUDA_DEVICE_ORDER=PCI_BUS_ID``, replacing any value the operator's environment had, and on a machine with
+two GPUs the check reads the GPU the models go on.
 """
 
 from __future__ import annotations
@@ -62,6 +68,8 @@ CRASH_LIMIT: Final = 3
 CRASH_WINDOW_S: Final = 300.0
 FAKE_ROLES: Final[dict[GpuHolder, WorkerRole]] = {"qwen": "fake", "qa": "fake"}
 """Every group served by the fake worker (``DaemonSettings.fake_workers``)."""
+GPU_ORDER_ENV: Final[dict[str, str]] = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
+"""Set in every worker's environment, so CUDA numbers GPUs as NVML does (see the module docstring)."""
 
 
 def worker_cwd(config: Config, group: GpuHolder, role: WorkerRole, python: Path) -> Path:
@@ -382,7 +390,7 @@ class WorkerSupervisor:
         command = dataclasses.replace(
             command,
             argv=isolated(command.argv),
-            env=scrub_python_env({**command.env, **self._platform.hardening_env()}),
+            env=scrub_python_env({**command.env, **GPU_ORDER_ENV, **self._platform.hardening_env()}),
         )
         client = self._client_factory(
             command,

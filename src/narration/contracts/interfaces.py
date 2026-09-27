@@ -674,6 +674,11 @@ class WorkerClient(Protocol):
     @property
     def pid(self) -> int | None: ...
 
+    @property
+    def hello(self) -> HelloReply | None:
+        """The worker's ``hello`` reply (its role, backend and fingerprint) once started, else None."""
+        ...
+
     def start(self) -> HelloReply:
         """Start the process and exchange ``hello``."""
         ...

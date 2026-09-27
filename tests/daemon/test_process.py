@@ -26,6 +26,7 @@ from pathlib import Path
 import psutil
 import pytest
 
+from narration.contracts import codes
 from narration.contracts.models import DaemonStatus
 from narration.daemon import start
 from narration.daemon.sweep import read_status
@@ -46,6 +47,7 @@ pytestmark = pytest.mark.timeout(180)
 
 SESSION = Path(__file__).with_name("_session.py")
 FAKE = ["--fake-workers", "--runner", "narration.daemon.testing:FakeWorkerRunner"]
+NULL_RUNNER = ["--runner", "narration.daemon.seam:NullRunner"]
 TEMP_MARKS = (".tmp-", ".staging-", ".trash-")
 
 
@@ -203,11 +205,24 @@ def test_workers_die_with_the_daemon_even_when_it_is_killed_s4(
         child.wait(timeout=30)
     left = real_store.get_job(job.job_id)
     assert left is not None and left.status == "running", "a killed daemon gives nothing back itself"
-    # The next daemon sweeps up: the job goes back to the queue.
-    with daemon_child(service, "--idle-exit-s", "0.5") as nxt:
+    # The next daemon sweeps up: the job goes back to the queue. It runs no job engine (NULL_RUNNER), so what the
+    # sweep did is what is left; the default runner would take the job again at once.
+    with daemon_child(service, *NULL_RUNNER, "--idle-exit-s", "0.5") as nxt:
         assert nxt.wait(timeout=60) == 0
     after = real_store.get_job(job.job_id)
     assert after is not None and after.status == "queued"
+
+
+def test_the_daemon_drives_the_job_engine_by_default_s4(service: Path, real_store: NarrationStore) -> None:
+    # No --runner: the entry point loads the job engine (WP31). This installation has no QA models, so the
+    # engine fails the job it takes with BACKEND_NOT_INSTALLED rather than render takes it cannot check.
+    job = make_job(real_store, "The first line.")
+    with daemon_child(service, "--idle-exit-s", "0.5") as child:
+        assert child.wait(timeout=60) == 0
+    after = real_store.get_job(job.job_id)
+    assert after is not None and after.status == "failed" and after.error is not None
+    assert after.error.code == codes.BACKEND_NOT_INSTALLED and after.error.hint
+    assert rendered(real_store) == 0
 
 
 def test_stop_now_ends_the_workers_and_leaves_no_partial_file_s4_1(

@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.11 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.12 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -75,6 +75,9 @@ applied here, each listed in the revision history below.*
     `PYTHONPATH`, `PYTHONHOME` or `PYTHONSTARTUP`; a worker starts in its own project folder.
   - A daemon honours every stop posted after it was launched, and only those.
   - A daemon about to exit checks once more for work, so no job is stranded.*
+- *Revision 5.12 (the same day) states when a job's `outcome` is `needs_attention` (sections 7.4 and 8):
+  only when some segment's suggestion is a verdict fail, or some segment has no take; warnings alone
+  leave `all_passed`.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -1013,7 +1016,9 @@ The exact span is "three thousand two hundred".
   - `status`: queued\|running\|cancelling\|completed\|failed\|cancelled;
   - **`phase`**: waiting_for_gpu \| loading_model \| canary \| rendering \| postprocessing \| scoring
     (ASR, similarity, alignment) \| retaking \| suggesting;
-  - `round`, `outcome` (all_passed\|needs_attention), `progress` {done_s, total_s, fraction,
+  - `round`, `outcome` (all_passed\|needs_attention; `needs_attention` only when some segment's suggestion
+    is a verdict fail (tier 4 in section 8) or some segment has no take at all; warnings alone leave
+    `all_passed`), `progress` {done_s, total_s, fraction,
     segments_done, segments_total}, `eta_s`, `queue_position`, **`poll_after_s`** (revision 5.2,
     DC-2: the earliest poll worth making, longer while `waiting_for_gpu`), `message`, optional
     `segments[]` {segment_id, state, takes_ok, retakes_used}, `error`, `updated_at`.
@@ -1213,7 +1218,8 @@ for round r in 1..max_retakes:
     for each slot whose current take is a retake trigger (any fail flag, CUE_UNALIGNED, HEAD_INSERTION):
         attempt = next attempt number above every attempt so far (in slot order)   # from the request alone
         render → postprocess → score
-suggest (V2), the first tier that has a take, lowest attempt within it:
+suggest (V2), the first tier that has a take, lowest attempt within it
+(the job's outcome is needs_attention only when some segment lands in tier 4 or has no take at all):
     1. verdict pass                                   (a pass has every cue placed)
     2. verdict warn, every cue placed
     3. verdict warn, some cue unplaced (CUE_UNALIGNED)
