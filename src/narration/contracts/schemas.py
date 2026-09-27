@@ -866,7 +866,13 @@ def _build() -> tuple[ToolSchema, ...]:
                         "description": "positive-only: name the qualities wanted, not those unwanted",
                     },
                     "takes": {"type": "integer", "minimum": 1, "maximum": 4, "default": 3},
-                    "design_text": {"type": "string", "minLength": 1, "maxLength": 400},
+                    "design_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 400,
+                        "description": "optional: what each candidate says (default: the service's own text). A long "
+                        "text can make a clip longer than measure_voice takes (flag CLIP_TOO_LONG)",
+                    },
                 },
                 required=["name", "description"],
             ),

@@ -740,6 +740,10 @@ class Candidate:
     engine_profile: EngineRef
     lint: LintResult
     profile: ProfileRecord | None
+    flags: tuple[Flag, ...] = ()
+    """What the design job found in this candidate (``CANARY_MISMATCH`` info; ``TOKEN_CAP_HIT``, ``WER_HIGH`` and
+    ``CLIP_TOO_LONG`` fail), published with it so they survive the job (contracts 1.6.7). A candidate published
+    before 1.6.7 reads back with none."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

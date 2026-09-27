@@ -277,6 +277,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
   never changes; a new text is a new set. A voice measured on the draft corpus is measured again by
   `measure_voice`; its old measurement still serves generation.
+- Contracts 1.6.7: a design candidate carries its `flags` in `candidate.json`, so the design resource
+  shows them and they survive a crash or a restart of the job. A new fail flag, `CLIP_TOO_LONG`, marks a
+  candidate longer than `[limits] max_clip_seconds`, which `measure_voice` would refuse. The design
+  seed's scheme id is now in the shared names.
 - An engine profile's `vram_need_mb` is recorded but no longer part of its hash (DC-16): it only tells the
   GPU scheduler how much free memory to wait for, so a refined estimate keeps every cached take and
   voice measurement.

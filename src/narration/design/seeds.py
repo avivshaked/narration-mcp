@@ -28,9 +28,8 @@ import re
 from typing import Final
 
 from narration import keys
+from narration.contracts.names import DESIGN_SEED_SCHEME
 
-DESIGN_SEED_SCHEME: Final = "narration-design-seed/v1"
-"""The seed scheme of a design's candidates (not named by the design; chosen here, like ``names.SEED_SCHEME``)."""
 MAX_INDEX: Final = 999
 """The highest candidate index the store's layout takes (``designs/<design_id>/<index>/``)."""
 _HEX64: Final = re.compile(r"[0-9a-f]{64}")

@@ -72,6 +72,10 @@ MEASUREMENT_KEY_SCHEMA: Final = "narration.measurement-key/v1"
 DELIVERY_KEY_SCHEMA: Final = "narration.delivery-key/v1"
 ANALYSIS_KEY_SCHEMA: Final = "narration.analysis-key/v1"
 SEED_SCHEME: Final = "narration-seed/v1"
+DESIGN_SEED_SCHEME: Final = "narration-design-seed/v1"
+"""The scheme of a designed voice candidate's seed (``design_voice``, section 10.3): sha256 over this id, the
+description's sha256, the spoken design text's sha256 and the candidate's index (``narration.design.seeds``).
+Changing it designs other voices from every request, so it changes only with a new version."""
 
 # ---------------------------------------------------------------- versions of the service's rules
 TEXT_CHECKS_VERSION: Final = "text-1.1.0"
