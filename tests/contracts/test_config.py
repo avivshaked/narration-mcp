@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from narration.config import Config, load_config, parse_config
+from narration.config import CONFIG_ENV, CONFIG_FILE_NAME, Config, find_config, load_config, parse_config, service_root
 from narration.contracts.errors import ConfigError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -102,3 +102,34 @@ def test_config_defaults_are_the_contract_names() -> None:
     assert config.qa.profile == names.QA_PROFILE
     assert config.measurement.corpus == names.CORPUS
     assert (config.alignment.model, config.alignment.benchmark) == (names.MODEL_ALIGNER, names.BENCHMARK)
+
+
+def test_find_config_takes_the_explicit_path_first_s16(tmp_path: Path) -> None:
+    given = tmp_path / "given.toml"
+    given.write_text("", encoding="utf-8")
+    other = tmp_path / "other.toml"
+    other.write_text("", encoding="utf-8")
+    assert find_config(given, environ={CONFIG_ENV: str(other)}) == given.resolve()
+
+
+def test_find_config_takes_the_environment_variable_next_s16(tmp_path: Path) -> None:
+    named = tmp_path / "named.toml"
+    named.write_text("", encoding="utf-8")
+    assert find_config(None, environ={CONFIG_ENV: str(named)}) == named.resolve()
+
+
+def test_find_config_falls_back_to_the_service_folder_s16() -> None:
+    root = service_root()
+    assert root is not None, "the tests run from a source checkout"
+    if (root / CONFIG_FILE_NAME).is_file():
+        assert find_config(None, environ={}) == (root / CONFIG_FILE_NAME).resolve()
+    else:
+        with pytest.raises(ConfigError, match=r"copy narration.example.toml"):
+            find_config(None, environ={})
+
+
+def test_find_config_says_what_to_do_when_the_file_is_missing_s16(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"--config <path>"):
+        find_config(tmp_path / "absent.toml", environ={})
+    with pytest.raises(ConfigError, match=CONFIG_ENV):
+        find_config(None, environ={CONFIG_ENV: str(tmp_path / "absent.toml")})
