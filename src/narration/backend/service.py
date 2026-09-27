@@ -64,7 +64,7 @@ from narration.text import TextPipeline, segment_too_long
 from . import views
 from .assemble import assemble, consistency_of, measured_error
 from .clips import ClipRef, admit_clip, check_synthetic, refield
-from .launch import DaemonLauncher
+from .launch import DAEMON_RETRY_S, DaemonLauncher
 from .measures import Measurements, StoreMeasurements
 from .planning import AnalysisPins, plan_request
 from .requests import (
@@ -149,8 +149,15 @@ class NarrationBackend:
     # ================================================================ plumbing
     @staticmethod
     async def _thread(fn: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
-        """Run a blocking call (the store's) in a worker thread; it is not cut off by a cancellation."""
-        return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+        """Run a blocking call (the store's) in a worker thread; it is not cut off by a cancellation. A
+        retryable error raised below without ``retry_after_s`` is given its code's (DC-2)."""
+        try:
+            return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+        except NarrationError as exc:
+            with_wait = with_retry_after(exc)
+            if with_wait is exc:
+                raise
+            raise with_wait from exc
 
     def _created_since(self, unix_s: float) -> int:
         """Jobs created since a time (Unix seconds), across every front-end: the submit rate cap's count."""
@@ -898,6 +905,33 @@ class NarrationBackend:
         from .resources import read_resource
 
         return await self._thread(read_resource, self, uri)
+
+
+RETRY_AFTER_S: Final[dict[str, float]] = {
+    codes.DAEMON_UNAVAILABLE: DAEMON_RETRY_S,
+    codes.GPU_UNAVAILABLE: admission.GPU_UNAVAILABLE_RETRY_S,
+    codes.STORE_FULL: admission.STORE_FULL_RETRY_S,
+    codes.QUEUE_FULL: admission.QUEUE_FULL_DEFAULT_S,
+    codes.RATE_LIMITED: admission.RATE_WINDOW_S,
+}
+"""DC-2's wait for a retryable error that came without one (the backend sets its own; this covers the
+errors of the layers below it)."""
+
+
+def with_retry_after(exc: NarrationError) -> NarrationError:
+    """``exc``, or a copy of it with ``retry_after_s`` when it is retryable and has none (DC-2: set on every
+    retryable error)."""
+    if not exc.retryable or exc.retry_after_s is not None:
+        return exc
+    return NarrationError(
+        exc.code,
+        exc.message,
+        field=exc.field,
+        hint=exc.hint,
+        details=exc.details,
+        retryable=True,
+        retry_after_s=RETRY_AFTER_S.get(exc.code, admission.RETRY_MIN_S),
+    )
 
 
 def measurement_handle(measurement: MeasurementRecord, folder: Path) -> dict[str, Any]:

@@ -19,7 +19,7 @@ from jsonschema import Draft202012Validator
 
 from narration.backend.assemble import restamp_exact, restamp_flag
 from narration.backend.measures import StoreMeasurements
-from narration.backend.service import NarrationBackend
+from narration.backend.service import NarrationBackend, with_retry_after
 from narration.config import VoicesConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
@@ -380,3 +380,24 @@ def test_the_default_measurements_hash_a_voice_as_the_job_engine_does_s10_2(serv
     with pytest.raises(NarrationError) as caught:
         measurements.require("vh_" + "0" * 16, profile)
     assert (caught.value.code, caught.value.field) == (codes.VOICE_NOT_MEASURED, "voice")
+
+
+# ======================================================================== DC-2 on every tool
+
+
+def test_a_retryable_error_from_below_gets_a_retry_after_dc2(service: Service, monkeypatch: pytest.MonkeyPatch) -> None:
+    def full(*args: Any, **kwargs: Any) -> Any:
+        raise NarrationError(codes.STORE_FULL, "the disk is full")
+
+    monkeypatch.setattr(service.world.store, "queued_jobs", full)
+    with pytest.raises(NarrationError) as caught:
+        run(lambda: service.backend.get_server_status({}))
+    assert (caught.value.code, caught.value.retryable) == (codes.STORE_FULL, True)
+    assert caught.value.retry_after_s is not None and caught.value.retry_after_s > 0
+
+
+def test_a_final_error_gets_no_retry_after_dc2() -> None:
+    final = NarrationError(codes.NOT_FOUND, "no such job")
+    assert with_retry_after(final) is final
+    given = NarrationError(codes.QUEUE_FULL, "full", retry_after_s=7.0)
+    assert with_retry_after(given) is given
