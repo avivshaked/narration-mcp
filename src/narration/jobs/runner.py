@@ -55,6 +55,7 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import AlignerCore
 from narration.contracts.models import JobRecord
+from narration.daemon.settings import LOG_NAME
 from narration.post import DeliveryPipeline
 from narration.qa import Scorer
 from narration.store.layout import LOGS
@@ -72,8 +73,6 @@ from .voice import PathCheck
 
 log = logging.getLogger(__name__)
 
-DAEMON_LOG: Final = "daemon.log"
-"""The daemon's log file under ``<store_root>/logs/`` (WP30 writes it; its name is WP30's ``LOG_NAME``)."""
 PREEMPTING: Final = "interactive"
 """The priority that makes a held ``batch`` job give way between two pieces of its work."""
 
@@ -301,8 +300,9 @@ def _internal(exc: BaseException) -> NarrationError:
 
 
 def log_path(config: Config) -> Path:
-    """The daemon's log, which an ``INTERNAL`` error names (section 14): ``<store_root>/logs/daemon.log``."""
-    return config.server.store_root / LOGS / DAEMON_LOG
+    """The daemon's log, which an ``INTERNAL`` error names (section 14): ``<store_root>/logs/daemon.log``, the
+    file the daemon writes (``narration.daemon.settings.LOG_NAME``)."""
+    return config.server.store_root / LOGS / LOG_NAME
 
 
 def _with_log(error: NarrationError, path: Path) -> NarrationError:
@@ -374,7 +374,6 @@ def default_runner() -> EngineRunner:
 
 
 __all__ = [
-    "DAEMON_LOG",
     "PREEMPTING",
     "EngineFactory",
     "EngineRunner",

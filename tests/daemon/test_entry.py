@@ -3,6 +3,7 @@ waits for (each exits by itself within seconds)."""
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import os
@@ -14,9 +15,11 @@ from pathlib import Path
 import pytest
 from narration_worker.threads import THREAD_ENV_VARS
 
+from narration.config import load_config
 from narration.daemon.__main__ import DEFAULT_RUNNER, launch_time, warn_without_safe_path
-from narration.daemon.seam import NullRunner
+from narration.daemon.seam import JobRunner, NullRunner
 from narration.daemon.start import daemon_argv
+from narration.jobs.runner import EngineRunner, log_path
 
 pytestmark = pytest.mark.timeout(120)
 
@@ -161,10 +164,12 @@ def test_a_daemon_started_without_safe_path_says_so_once_s17(caplog: pytest.LogC
     assert "narration-admin daemon start" in message and "start_detached" in message
 
 
-def test_the_default_runner_is_the_null_runner_until_the_job_engine() -> None:
+def test_the_default_runner_is_the_job_engine_s4() -> None:
     module, _, attr = DEFAULT_RUNNER.partition(":")
-    assert (module, attr) == ("narration.daemon.seam", "NullRunner")
-    assert NullRunner.__name__ == attr
+    assert (module, attr) == ("narration.jobs.runner", "default_runner")
+    runner = getattr(importlib.import_module(module), attr)()  # as the entry point loads it
+    assert isinstance(runner, JobRunner) and isinstance(runner, EngineRunner)
+    assert isinstance(NullRunner(), JobRunner)  # still there, for --runner narration.daemon.seam:NullRunner
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the daemon runs on Windows only in v1 (plan.md Q2)")
@@ -186,7 +191,8 @@ def test_an_unknown_runner_is_a_usage_error_and_is_logged_s4(tmp_path: Path) -> 
         tmp_path,
     )
     assert done.returncode == 2
-    assert "no_such_module" in (store / "logs" / "daemon.log").read_text(encoding="utf-8")
+    # The file the daemon logs to is the one the job engine names in an INTERNAL error (section 14).
+    assert "no_such_module" in log_path(load_config(config)).read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="checks the behaviour off Windows")

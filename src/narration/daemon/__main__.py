@@ -32,11 +32,13 @@ from narration_worker.threads import cap_threads_env
 from narration.config import Config, load_config
 from narration.contracts.errors import ConfigError
 
+from .settings import LOG_NAME  # standard library and narration.config only: no numpy yet
+
 BEGAN: Final = time.time()
 """When this module began to run (Unix seconds): the daemon's launch time when no launcher gave one."""
-DEFAULT_RUNNER: Final = "narration.daemon.seam:NullRunner"
-"""The job runner the daemon drives unless ``--runner`` names another (the job engine, WP31, replaces it)."""
-LOG_NAME: Final = "daemon.log"
+DEFAULT_RUNNER: Final = "narration.jobs.runner:default_runner"
+"""The job runner the daemon drives unless ``--runner`` names another: the job engine (WP31).
+``--runner narration.daemon.seam:NullRunner`` runs the daemon without it (it never finds work)."""
 LOG_MAX_BYTES: Final = 5 * 1024 * 1024
 LOG_BACKUPS: Final = 3
 
