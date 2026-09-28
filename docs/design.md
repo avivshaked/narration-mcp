@@ -88,8 +88,9 @@ applied here, each listed in the revision history below.*
   - **DC-17**: `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices]
     allow_sha256` once the operator confirms that it is synthetic, and `voices list` shows the list. It is
     an operator command, never an MCP tool (sections 7.1, 16, and 17 items 4 and 10).
-  - **DC-19**: `PACE_FAST` warns only; it never fails and never triggers a retake. The QA profile becomes
-    `default.v4` (sections 11.1, 14, 16 and Appendix B).
+  - **DC-19**: `PACE_FAST` and `PACE_SLOW` warn only (section 11.1 already had no slow fail); pace never
+    fails and never triggers a retake. The QA profile becomes `default.v4` (sections 11.1, 14, 16 and
+    Appendix B).
   - **The daemon runs only once it is in no Job Object at all** (the lead's rule, PR #37; spike k). It is
     created suspended and resumed only when Windows says it is in no job; otherwise the front-end
     returns `DAEMON_UNAVAILABLE`. On a host whose jobs forbid breakaway, the route is `[daemon] autostart
@@ -610,7 +611,8 @@ item, to add only if agents shortlist badly from the numbers.
 **Daemon (`narrationd`).**
 
 - A singleton, enforced by a named mutex keyed on the store path. It is started detached (section 4.1)
-  by the first submission, or by `narration-admin daemon start`.
+  by the first submission or by `narration-admin daemon start`, or run in a terminal with `daemon start
+  --foreground`.
 - It unloads models after 120 s idle and exits after 15 min idle.
 - Why a separate process: a stdio server dies with its client, and two sessions must never load two
   models.
@@ -704,12 +706,13 @@ provides:
     `CreateProcess` succeeds and leaves the daemon in the client's job, to die with the client (KNOW,
     spike k, `spikes/k-job-escape/`). So the front-end creates the daemon suspended, asks Windows
     (`IsProcessInJob`) whether it is in any job, and resumes it only if it is in none.
-  - Otherwise the daemon is ended before its first instruction. The front-end does **not** start a
-    non-detached daemon, because it would die with the client mid-job. The job stays queued, and the
-    front-end returns `DAEMON_UNAVAILABLE` (retryable, `retry_after_s` 60) with the hint *"run
-    `narration-admin daemon start` in a terminal"*. `details.reason` says why: `breakaway_refused`
-    (access denied), `left_in_job` (the daemon was left in an enclosing job), or `job_check_failed`
-    (Windows could not say, which is refused the same way).
+  - Otherwise no daemon runs: a refused `CreateProcess` starts none, and a daemon left in a job, or
+    whose job membership Windows cannot read, is ended before its first instruction. The front-end does
+    **not** start a non-detached daemon, because it would die with the client mid-job. The job stays
+    queued, and the front-end returns `DAEMON_UNAVAILABLE` (retryable, `retry_after_s` 60) with the
+    hint *"run `narration-admin daemon start` in a terminal"*. `details.reason` says why:
+    `breakaway_refused` (access denied), `left_in_job` (the daemon was left in an enclosing job), or
+    `job_check_failed` (Windows could not say, which is refused the same way).
   - The rule is deliberate: any enclosing job that forbids breakaway refuses the detached start, even
     one that would not end the daemon, because the front-end cannot read such a job's limits or know who
     will close it. The known case is a CI runner (KNOW: GitHub's hosted Windows runner).
@@ -727,7 +730,7 @@ provides:
 | Role | Image | Command-line marker |
 |---|---|---|
 | front-end | `python.exe` (child of the `narration-mcp.exe` uv launcher; BELIEVE) | `narration-mcp --config <path>` |
-| daemon | `pythonw.exe` on Windows, `python` elsewhere (server venv) | `-P -m narration.daemon --store <store_root>` |
+| daemon | `pythonw.exe` on Windows, `python` elsewhere (server venv); `python.exe` in the terminal's console, under `--foreground` | `-P -m narration.daemon --store <store_root>` |
 | Qwen worker | `python.exe` (worker venv) | `-P -m narration_worker --role qwen3 --store <store_root>` |
 | QA worker | `python.exe` (worker venv) | `-P -m narration_worker --role qa --store <store_root>` |
 
@@ -1645,7 +1648,8 @@ which made verdicts depend on render order and leak from one script to another.)
 `max_retakes` automatic retakes (section 8). The exception (DC-12): a `CUE_UNALIGNED` whose
 `details.reason` is `no_alignable_words` is not a trigger. That cue's text gives the aligner no word to
 place, so every retake would fail the same way; it stays in listen-first. Pace is never a trigger:
-`PACE_FAST` and `PACE_SLOW` only warn (DC-19), and a fast take goes to listen-first instead.
+`PACE_FAST` and `PACE_SLOW` only warn (DC-19); a suggested take's pace warning is listed in listen-first,
+and every take's is in `report.md`.
 
 **Report and listen-first.**
 
@@ -1928,7 +1932,7 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 | `TEXT_REFUSED` | no | markup characters, or `strict_text` with text warnings left; every offender listed |
 | `ENGINE_DRIFT` | no | fingerprint mismatch, or the canary similarity is below threshold |
 | `BACKEND_NOT_INSTALLED` | no | weights or worker env missing |
-| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1), or stopping; `retry_after_s` 60; hint: `narration-admin daemon start` |
+| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1); `retry_after_s` 60; hint: `narration-admin daemon start` |
 | `GPU_UNAVAILABLE` | yes | the VRAM wait timed out |
 | `STORE_FULL` | yes | free disk below the minimum |
 | `JOB_NOT_CANCELLABLE` | no | the job is already terminal |
