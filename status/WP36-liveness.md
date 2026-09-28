@@ -1,11 +1,20 @@
 # WP36-liveness A dead daemon, a mistyped transcript, and cached analyses in the plan
-State: active        Updated: 2026-09-28 (PR #41 review, round 3: L1 built; CI is the test runner)
+State: review        Updated: 2026-09-28 (PR #41 review, round 3 done; CI green at 732f254)
 
 ## PR #41 review, rounds 2 and 3
 
 The owner needs the machine, so no local pytest and no basedpyright ran in round 3 (the lead's instruction).
 Round 3 ran ruff check and ruff format --check on the changed files, check_private and check_tracked locally;
-the tests run on GitHub's CI (run ids in "Tests"). Round 2's numbers are from before the owner's pause.
+the tests run on GitHub's CI. Round 2's numbers are from before the owner's pause.
+
+**Tests (round 3, GitHub CI at 732f254, the merge of origin/main 1b05644):** push run 36413614355 and pull-request
+run 36413619558, both green in every job:
+- tests (windows-latest): 3909 passed, 11 skipped, 19 deselected;
+- tests (ubuntu-latest): 3827 passed, 16 skipped, 19 deselected;
+- types (basedpyright), lint (ruff), schemas, tracked, and worker qwen3tts on both OSes.
+
+No skip is in a file this branch touches. Locally: ruff check and ruff format --check on the changed files;
+`tools/check_private.py --commits main..HEAD --base main` and `tools/check_tracked.py` exit 0.
 
 Done:
 - **L1, option (b') as the lead approved it, with one adaptation.** A queued job under a `stopped` status starts
@@ -280,5 +289,8 @@ front-end's backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13
   a design decision.
 
 ## Next
+- Round 3: the lead's review. To decide: whether the 30 s reading of "the stop that daemon ended on" is
+  acceptable, or whether WP30 should keep the stopped daemon's launch time (or why it stopped) in
+  `run/daemon.json` (Contract change requests).
 - Review. On a merge: the lead's calls on the contract change requests and questions above. The guidance
   branch could describe get_job's restart.
