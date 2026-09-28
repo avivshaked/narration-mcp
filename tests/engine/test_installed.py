@@ -11,9 +11,11 @@ from typing import Any, cast
 import pytest
 
 from narration.align import CtcAligner
+from narration.backend.service import RUNNABLE_KINDS
 from narration.config import AlignmentConfig, Config, GpuConfig
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
+from narration.design import DESIGN_KIND, PROFILE_KIND, DesignHandler, ProfileHandler
 from narration.engine.canary import CanaryGuard
 from narration.engine.models import CTC_ALIGNER, WAVLM_SV, WHISPER
 from narration.engine.qa import QA_VRAM_NEED_MB, aligner_method_id, qa_pins
@@ -125,3 +127,16 @@ def test_measure_joins_the_registry_on_the_job_engine_s4(install: Install) -> No
     assert measure.engine is engine and measure.core is engine.core
     assert registry.residency is engine.residency and registry.throughput is engine.throughput
     assert {"generate", "analyse", MEASURE_KIND} <= set(registry.handlers)
+
+
+def test_design_and_profile_join_the_registry_on_the_job_engine_s4(install: Install) -> None:
+    """``design_voice``'s and ``profile_voice``'s handlers (WP34) are built on the daemon's job engine, as
+    ``measure`` is, and every kind the front-end queues has a handler (``RUNNABLE_KINDS``): a kind without one
+    would be queued and then fail in the daemon."""
+    registry = installed_engine(cast(RunnerHost, _Host(config=install.config)))
+    engine = _engine(registry)
+    design, profile = registry.handler(DESIGN_KIND), registry.handler(PROFILE_KIND)
+    assert isinstance(design, DesignHandler) and isinstance(profile, ProfileHandler)
+    assert design.engine is engine and design.core is engine.core
+    assert profile.engine is engine and profile.core is engine.core
+    assert set(RUNNABLE_KINDS) <= set(registry.handlers)

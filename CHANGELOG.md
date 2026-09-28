@@ -10,6 +10,21 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `design_voice` and `profile_voice` now run (`narration.design`). A design renders 1 to 4 candidates
+  with Qwen VoiceDesign, each from its own seed, which is derived from the description, the design text
+  and the candidate's number, so the same request designs the same voices. Each candidate's clip is
+  checked against its exact transcript by the speech recogniser (`WER_HIGH` if it does not say it),
+  profiled, and published with its seed, lint result and profile. Its sha256 goes on the provenance
+  list, so `measure_voice` and `submit_job` accept the clip with no `allow_sha256` edit. Each candidate
+  carries its flags: `TOKEN_CAP_HIT`, `WER_HIGH` and `CLIP_TOO_LONG` (longer than `measure_voice` takes:
+  use a shorter `design_text`) fail it, and the job then ends `needs_attention`; `CANARY_MISMATCH` is
+  information, when the design engine passed its canary on similarity rather than on the hash. A
+  description that holds the model's chat markup (`<|`, `|>`) or a control character is refused with
+  `TEXT_REFUSED`. `profile_voice` profiles any WAV you can read, by path and sha256, on the CPU (or on
+  the loaded QA worker as it is), answers the same bytes from the cache, and keeps no copy of the audio
+  once the job ends. Neither tool is marked "not in this build yet" any more, and the server's
+  instructions and prompts now start the flow with `design_voice`; only `audition_pronunciation` keeps
+  the mark.
 - `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices] allow_sha256`,
   instead of hashing it and editing `narration.toml` by hand.
   - It makes the clip's path absolute (so a relative path is taken from the working folder), checks it
@@ -316,6 +331,11 @@ are tracked here but no version is tagged; nothing described below is installabl
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
   never changes; a new text is a new set. A voice measured on the draft corpus is measured again by
   `measure_voice`; its old measurement still serves generation.
+- Contracts 1.6.8: a design candidate carries its `flags` in `candidate.json`, so the design resource
+  shows them and they survive a crash or a restart of the job. A new fail flag, `CLIP_TOO_LONG`, marks a
+  candidate longer than `[limits] max_clip_seconds`, which `measure_voice` would refuse. The design
+  seed's scheme id is now in the shared names. (Its first commit calls it 1.6.7; it became 1.6.8 when
+  the pace fix above was released as 1.6.7 first.)
 - An engine profile's `vram_need_mb` is recorded but no longer part of its hash (DC-16): it only tells the
   GPU scheduler how much free memory to wait for, so a refined estimate keeps every cached take and
   voice measurement.

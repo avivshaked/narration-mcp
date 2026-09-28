@@ -1003,7 +1003,8 @@ def _build() -> tuple[ToolSchema, ...]:
                         "minLength": 1,
                         "maxLength": 400,
                         "description": "optional: the words the candidates speak (default: the service's design "
-                        "text); they become each clip's transcript",
+                        "text); they become each clip's transcript. A long text can make a clip longer than "
+                        "measure_voice takes (flag CLIP_TOO_LONG)",
                     },
                 },
                 required=["name", "description"],
