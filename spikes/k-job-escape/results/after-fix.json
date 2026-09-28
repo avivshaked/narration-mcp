@@ -1,0 +1,837 @@
+{
+  "label": "after-fix",
+  "run_at": "2026-09-27T20:50:22",
+  "windows": "10.0.26200",
+  "python": "3.12.10",
+  "mcp": "2.2.0",
+  "psutil": "7.2.2",
+  "node": "v22.22.2",
+  "orchestrator": {
+    "pid": 45472,
+    "ppid": 52080,
+    "in_any_job": true,
+    "innermost_flags": [
+      "KILL_ON_JOB_CLOSE",
+      "SILENT_BREAKAWAY_OK"
+    ],
+    "innermost_pids": [
+      45472
+    ]
+  },
+  "nested_jobs": [
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": true,
+      "child_in_inner": false,
+      "child_in_any_job": true
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": false,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": true,
+      "child_in_inner": false,
+      "child_in_any_job": true
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": true,
+      "child_in_inner": false,
+      "child_in_any_job": true
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": false,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": true,
+      "child_in_inner": true,
+      "child_in_any_job": true
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK",
+        "SILENT_BREAKAWAY_OK",
+        "DIE_ON_UNHANDLED_EXCEPTION"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": false,
+      "child_in_inner": false,
+      "child_in_any_job": false
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK",
+        "SILENT_BREAKAWAY_OK",
+        "DIE_ON_UNHANDLED_EXCEPTION"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": false,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": false,
+      "child_in_inner": false,
+      "child_in_any_job": false
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": false,
+      "child_in_inner": false,
+      "child_in_any_job": false
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "inner": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "CREATE_BREAKAWAY_FROM_JOB": false,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": true,
+      "child_in_inner": false,
+      "child_in_any_job": true
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE"
+      ],
+      "inner": null,
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE"
+      ],
+      "create_process": {
+        "winerror": 5,
+        "strerror": "Access is denied"
+      },
+      "child_in_outer": null,
+      "child_in_inner": null,
+      "child_in_any_job": null
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "inner": null,
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": false,
+      "child_in_inner": null,
+      "child_in_any_job": false
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "inner": null,
+      "CREATE_BREAKAWAY_FROM_JOB": false,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "SILENT_BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": false,
+      "child_in_inner": null,
+      "child_in_any_job": false
+    },
+    {
+      "outer": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "inner": null,
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": [
+        "KILL_ON_JOB_CLOSE",
+        "BREAKAWAY_OK"
+      ],
+      "create_process": "ok",
+      "child_in_outer": false,
+      "child_in_inner": null,
+      "child_in_any_job": false
+    },
+    {
+      "outer": null,
+      "inner": null,
+      "CREATE_BREAKAWAY_FROM_JOB": true,
+      "process_in_any_job_before": false,
+      "process_innermost_after": null,
+      "create_process": "ok",
+      "child_in_outer": null,
+      "child_in_inner": null,
+      "child_in_any_job": false
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "sdk--post--launcher",
+      "client": "sdk",
+      "assign": "post",
+      "server_python": "launcher",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 56428,
+          "ppid": 17756,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            56428
+          ]
+        },
+        "sdk": "2.2.0",
+        "server_reported": true,
+        "sdk_made_a_job": true,
+        "spawned_server_pid": 55692,
+        "server_launcher_in_client_job": true,
+        "server_in_client_job": true,
+        "daemon_launcher_in_client_job": null,
+        "daemon_in_client_job": null,
+        "daemon_launcher_in_any_job": null
+      },
+      "server": {
+        "pid": 51272,
+        "ppid": 55692,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "SILENT_BREAKAWAY_OK"
+        ],
+        "innermost_pids": [
+          51272
+        ]
+      },
+      "start_error": {
+        "code": "DAEMON_UNAVAILABLE",
+        "retry_after_s": 60.0,
+        "details": {
+          "reason": "left_in_job",
+          "in_job": true,
+          "job_allows_breakaway": true
+        }
+      },
+      "daemon_served_before_client_exit": null,
+      "daemon_identity_proven": false,
+      "daemon_json_after": null,
+      "running_daemon_after": false
+    },
+    {
+      "scenario": "sdk--post--base",
+      "client": "sdk",
+      "assign": "post",
+      "server_python": "base",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 55120,
+          "ppid": 53008,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            55120
+          ]
+        },
+        "sdk": "2.2.0",
+        "server_reported": true,
+        "sdk_made_a_job": true,
+        "spawned_server_pid": 28308,
+        "server_launcher_in_client_job": true,
+        "server_in_client_job": true,
+        "daemon_launcher_in_client_job": null,
+        "daemon_in_client_job": null,
+        "daemon_launcher_in_any_job": null
+      },
+      "server": {
+        "pid": 28308,
+        "ppid": 55120,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE"
+        ],
+        "innermost_pids": [
+          28308,
+          21600
+        ]
+      },
+      "start_error": {
+        "code": "DAEMON_UNAVAILABLE",
+        "retry_after_s": 60.0,
+        "details": {
+          "reason": "breakaway_refused",
+          "winerror": 5,
+          "in_job": true,
+          "job_allows_breakaway": false
+        }
+      },
+      "daemon_served_before_client_exit": null,
+      "daemon_identity_proven": false,
+      "daemon_json_after": null,
+      "running_daemon_after": false
+    },
+    {
+      "scenario": "job-sdk-like--suspended--launcher",
+      "client": "job:sdk-like",
+      "assign": "suspended",
+      "server_python": "launcher",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 58648,
+          "ppid": 8108,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            58648
+          ]
+        },
+        "spawned_server_pid": 55788,
+        "job_flags": [
+          "KILL_ON_JOB_CLOSE"
+        ],
+        "server_reported": true,
+        "server_launcher_in_client_job": true,
+        "server_in_client_job": true,
+        "daemon_launcher_in_client_job": null,
+        "daemon_in_client_job": null,
+        "daemon_launcher_in_any_job": null,
+        "server_exit_code": 0
+      },
+      "server": {
+        "pid": 52936,
+        "ppid": 55788,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "SILENT_BREAKAWAY_OK"
+        ],
+        "innermost_pids": [
+          52936
+        ]
+      },
+      "start_error": {
+        "code": "DAEMON_UNAVAILABLE",
+        "retry_after_s": 60.0,
+        "details": {
+          "reason": "left_in_job",
+          "in_job": true,
+          "job_allows_breakaway": true
+        }
+      },
+      "daemon_served_before_client_exit": null,
+      "daemon_identity_proven": false,
+      "daemon_json_after": null,
+      "running_daemon_after": false
+    },
+    {
+      "scenario": "job-sdk-like--suspended--base",
+      "client": "job:sdk-like",
+      "assign": "suspended",
+      "server_python": "base",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 47328,
+          "ppid": 36804,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            47328
+          ]
+        },
+        "spawned_server_pid": 724,
+        "job_flags": [
+          "KILL_ON_JOB_CLOSE"
+        ],
+        "server_reported": true,
+        "server_launcher_in_client_job": true,
+        "server_in_client_job": true,
+        "daemon_launcher_in_client_job": null,
+        "daemon_in_client_job": null,
+        "daemon_launcher_in_any_job": null,
+        "server_exit_code": 0
+      },
+      "server": {
+        "pid": 724,
+        "ppid": 47328,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE"
+        ],
+        "innermost_pids": [
+          724
+        ]
+      },
+      "start_error": {
+        "code": "DAEMON_UNAVAILABLE",
+        "retry_after_s": 60.0,
+        "details": {
+          "reason": "breakaway_refused",
+          "winerror": 5,
+          "in_job": true,
+          "job_allows_breakaway": false
+        }
+      },
+      "daemon_served_before_client_exit": null,
+      "daemon_identity_proven": false,
+      "daemon_json_after": null,
+      "running_daemon_after": false
+    },
+    {
+      "scenario": "job-sdk-like--post--launcher",
+      "client": "job:sdk-like",
+      "assign": "post",
+      "server_python": "launcher",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 47428,
+          "ppid": 59080,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            47428
+          ]
+        },
+        "spawned_server_pid": 55432,
+        "job_flags": [
+          "KILL_ON_JOB_CLOSE"
+        ],
+        "server_reported": true,
+        "server_launcher_in_client_job": true,
+        "server_in_client_job": true,
+        "daemon_launcher_in_client_job": null,
+        "daemon_in_client_job": null,
+        "daemon_launcher_in_any_job": null,
+        "server_exit_code": 0
+      },
+      "server": {
+        "pid": 57404,
+        "ppid": 55432,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "SILENT_BREAKAWAY_OK"
+        ],
+        "innermost_pids": [
+          57404
+        ]
+      },
+      "start_error": {
+        "code": "DAEMON_UNAVAILABLE",
+        "retry_after_s": 60.0,
+        "details": {
+          "reason": "left_in_job",
+          "in_job": true,
+          "job_allows_breakaway": true
+        }
+      },
+      "daemon_served_before_client_exit": null,
+      "daemon_identity_proven": false,
+      "daemon_json_after": null,
+      "running_daemon_after": false
+    },
+    {
+      "scenario": "job-libuv-like--suspended--launcher",
+      "client": "job:libuv-like",
+      "assign": "suspended",
+      "server_python": "launcher",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 58620,
+          "ppid": 56324,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            58620
+          ]
+        },
+        "spawned_server_pid": 51652,
+        "job_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "BREAKAWAY_OK",
+          "SILENT_BREAKAWAY_OK",
+          "DIE_ON_UNHANDLED_EXCEPTION"
+        ],
+        "server_reported": true,
+        "server_launcher_in_client_job": true,
+        "server_in_client_job": false,
+        "daemon_launcher_in_client_job": false,
+        "daemon_in_client_job": false,
+        "daemon_launcher_in_any_job": false,
+        "server_exit_code": 0
+      },
+      "server": {
+        "pid": 53188,
+        "ppid": 51652,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "SILENT_BREAKAWAY_OK"
+        ],
+        "innermost_pids": [
+          53188
+        ]
+      },
+      "start_error": null,
+      "daemon_served_before_client_exit": true,
+      "daemon_identity_proven": true,
+      "daemon_json_after": "idle",
+      "daemon_alive_after_client": true,
+      "daemon_launcher_alive_after_client": true,
+      "running_daemon_after": true,
+      "daemon_launcher_in_any_job_after_client": false,
+      "stop_answered": true,
+      "exited_after_stop": true,
+      "final_state": "stopped"
+    },
+    {
+      "scenario": "job-libuv-like--suspended--base",
+      "client": "job:libuv-like",
+      "assign": "suspended",
+      "server_python": "base",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 56088,
+          "ppid": 48636,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            56088
+          ]
+        },
+        "spawned_server_pid": 56648,
+        "job_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "BREAKAWAY_OK",
+          "SILENT_BREAKAWAY_OK",
+          "DIE_ON_UNHANDLED_EXCEPTION"
+        ],
+        "server_reported": true,
+        "server_launcher_in_client_job": true,
+        "server_in_client_job": true,
+        "daemon_launcher_in_client_job": false,
+        "daemon_in_client_job": false,
+        "daemon_launcher_in_any_job": false,
+        "server_exit_code": 0
+      },
+      "server": {
+        "pid": 56648,
+        "ppid": 56088,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "BREAKAWAY_OK",
+          "SILENT_BREAKAWAY_OK",
+          "DIE_ON_UNHANDLED_EXCEPTION"
+        ],
+        "innermost_pids": [
+          56648
+        ]
+      },
+      "start_error": null,
+      "daemon_served_before_client_exit": true,
+      "daemon_identity_proven": true,
+      "daemon_json_after": "idle",
+      "daemon_alive_after_client": true,
+      "daemon_launcher_alive_after_client": true,
+      "running_daemon_after": true,
+      "daemon_launcher_in_any_job_after_client": false,
+      "stop_answered": true,
+      "exited_after_stop": true,
+      "final_state": "stopped"
+    },
+    {
+      "scenario": "node--post--launcher",
+      "client": "node",
+      "assign": "post",
+      "server_python": "launcher",
+      "client_exit_code": 0,
+      "client_said": {
+        "node": "v22.22.2",
+        "spawned_server_pid": 47428,
+        "server_reported": true,
+        "waited_ms": 1485
+      },
+      "server": {
+        "pid": 48280,
+        "ppid": 47428,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "SILENT_BREAKAWAY_OK"
+        ],
+        "innermost_pids": [
+          48280
+        ]
+      },
+      "start_error": null,
+      "daemon_served_before_client_exit": true,
+      "daemon_identity_proven": true,
+      "daemon_json_after": "idle",
+      "daemon_alive_after_client": true,
+      "daemon_launcher_alive_after_client": true,
+      "running_daemon_after": true,
+      "daemon_launcher_in_any_job_after_client": false,
+      "stop_answered": true,
+      "exited_after_stop": true,
+      "final_state": "stopped"
+    },
+    {
+      "scenario": "node--post--base",
+      "client": "node",
+      "assign": "post",
+      "server_python": "base",
+      "client_exit_code": 0,
+      "client_said": {
+        "node": "v22.22.2",
+        "spawned_server_pid": 42808,
+        "server_reported": true,
+        "waited_ms": 1474
+      },
+      "server": {
+        "pid": 42808,
+        "ppid": 56240,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "BREAKAWAY_OK",
+          "SILENT_BREAKAWAY_OK",
+          "DIE_ON_UNHANDLED_EXCEPTION"
+        ],
+        "innermost_pids": [
+          56240,
+          42808
+        ]
+      },
+      "start_error": null,
+      "daemon_served_before_client_exit": true,
+      "daemon_identity_proven": true,
+      "daemon_json_after": "idle",
+      "daemon_alive_after_client": true,
+      "daemon_launcher_alive_after_client": true,
+      "running_daemon_after": true,
+      "daemon_launcher_in_any_job_after_client": false,
+      "stop_answered": true,
+      "exited_after_stop": true,
+      "final_state": "stopped"
+    },
+    {
+      "scenario": "none-----launcher",
+      "client": "none",
+      "assign": "-",
+      "server_python": "launcher",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 55264,
+          "ppid": 54744,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            55264
+          ]
+        },
+        "spawned_server_pid": 50188,
+        "server_reported": true,
+        "server_launcher_in_client_job": null,
+        "server_in_client_job": null,
+        "daemon_launcher_in_client_job": null,
+        "daemon_in_client_job": null,
+        "daemon_launcher_in_any_job": false,
+        "server_exit_code": 0
+      },
+      "server": {
+        "pid": 21464,
+        "ppid": 50188,
+        "in_any_job": true,
+        "innermost_flags": [
+          "KILL_ON_JOB_CLOSE",
+          "SILENT_BREAKAWAY_OK"
+        ],
+        "innermost_pids": [
+          21464
+        ]
+      },
+      "start_error": null,
+      "daemon_served_before_client_exit": true,
+      "daemon_identity_proven": true,
+      "daemon_json_after": "idle",
+      "daemon_alive_after_client": true,
+      "daemon_launcher_alive_after_client": true,
+      "running_daemon_after": true,
+      "daemon_launcher_in_any_job_after_client": false,
+      "stop_answered": true,
+      "exited_after_stop": true,
+      "final_state": "stopped"
+    },
+    {
+      "scenario": "none-----base",
+      "client": "none",
+      "assign": "-",
+      "server_python": "base",
+      "client_exit_code": 0,
+      "client_said": {
+        "client": {
+          "pid": 52864,
+          "ppid": 54924,
+          "in_any_job": true,
+          "innermost_flags": [
+            "KILL_ON_JOB_CLOSE",
+            "SILENT_BREAKAWAY_OK"
+          ],
+          "innermost_pids": [
+            52864
+          ]
+        },
+        "spawned_server_pid": 33756,
+        "server_reported": true,
+        "server_launcher_in_client_job": null,
+        "server_in_client_job": null,
+        "daemon_launcher_in_client_job": null,
+        "daemon_in_client_job": null,
+        "daemon_launcher_in_any_job": false,
+        "server_exit_code": 0
+      },
+      "server": {
+        "pid": 33756,
+        "ppid": 52864,
+        "in_any_job": false
+      },
+      "start_error": null,
+      "daemon_served_before_client_exit": true,
+      "daemon_identity_proven": true,
+      "daemon_json_after": "idle",
+      "daemon_alive_after_client": true,
+      "daemon_launcher_alive_after_client": true,
+      "running_daemon_after": true,
+      "daemon_launcher_in_any_job_after_client": false,
+      "stop_answered": true,
+      "exited_after_stop": true,
+      "final_state": "stopped"
+    }
+  ]
+}
