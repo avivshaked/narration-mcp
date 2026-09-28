@@ -80,6 +80,19 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   5.17). Made by a claude.ai/code cloud session from `.dev/scratch/cloud-task-1.md`; the lead read it, CI green.
   Cloud sessions are listed by ListAgents and can be messaged, but cannot message back: follow them on GitHub.
   They open PRs as drafts (`gh pr ready` before merging).
+- **Cloud round 2 (claude.ai/code, 2026-09-28; about $6 a medium task on the owner's cloud credit):** PR #51,
+  WP46's plan (merged); PR #52, WP44's licence audit and security review (merged); PR #53, WP35
+  `audition_pronunciation` (contracts 1.6.12, design 5.18; merging once CI is green). Briefs:
+  `.dev/scratch/cloud-briefs-2.md`. Cloud PRs open as drafts; cloud sessions cannot run `check_private`, so the
+  lead runs it before each merge.
+- **New flake (KNOW, CI run 36470360457, Windows):** WP50's regression test
+  `test_a_poll_during_a_failed_start_leaves_it_backend_not_installed_s14` got `psutil.NoSuchProcess` from the
+  start instead of `WorkerFailure`. Some psutil call on the start path does not catch a worker that has already
+  exited (not `_windows.set_below_normal`, which does). Find it and convert it to the worker's failure.
+- **Female voice, try 1 (job f-deep-a, design 01M3MJ9F1VHZWGAY8XR9PH2YRW):** energetic, but median pitch
+  223–288 Hz, so not deep. Try 2's prompt (contralto, almost baritone, late fifties) is in
+  `.dev/scratch/female-voice-try1.md`, not generated yet (the owner's call). Local script:
+  `.dev/lead/design_batch.py`.
 - **Follow-ups:** WP47's F2 and F4 (both wait for the re-measure); `codes.py` lists PACE_FAST/PACE_SLOW with a fail
   severity while §14 says warn only (a profile can still set a fail factor; reconcile the text).
 - **Decisions carried into the resumed agents:**
