@@ -114,7 +114,13 @@ applied here, each listed in the revision history below.*
   - **`[qa] profile` is informational** (PR #46): every take is scored with the QA profile the build
     pins, and `doctor` warns when the line differs (section 16).
   - **`CLIP_TOO_LONG`** (WP34, PR #39) is in the flag table: a designed candidate longer than `[limits]
-    max_clip_seconds` fails, and never triggers a retake (section 14).*
+    max_clip_seconds` fails, and never triggers a retake (section 14).
+  - **DC-18** (the owner's decision D2; built by WP47, PR #44): pace is spoken characters per second of
+    speaking time, the voiced span less every pause of 0.25 s or more inside it (ASSUME). The measured
+    pace model and QA's pace check use this one rule. The measurement key names the pace method, and the
+    measurement record and its key move to `/v2`, so a voice measured before is measured again from its
+    cached renders. The QA profile becomes `default.v5`; `PACE_FAST` and `PACE_SLOW` still only warn
+    (DC-19). Sections 0, 3.2, 6, 7.5, 7.6, 10.2, 11.1, 12, 14, 16 and Appendix B.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -226,7 +232,8 @@ written-text normaliser are later phases (sections 9.2, 13.1 and 20).
     - Spans the caller marks **exact** fail the take if the transcript shows a different value or
       different words there.
     - Speaker similarity thresholds come from the **voice's measurement**.
-    - Pace is judged on spoken words against the voice's length curve.
+    - Pace is judged in spoken characters per second of speaking time against the voice's length curve
+      (DC-18), and only warns (DC-19).
     - There are also head and end insertion checks, a token-cap check, and signal checks.
     - Every flag is reported; nothing is truncated. **What to accept is the caller's decision.**
 14. **Local only.** stdio; writes confined to the store root; a caller's file is read only by the
@@ -479,13 +486,22 @@ an invented name; no caller's text):
 spoken characters** (counted as in section 7.2), **at least 3 seeds per rung**, rendered from the
 shortest up. The corpus marks its number words as exact spans (section 11.3).
 
-- **Measured per take**: pace as *spoken* words per minute and spoken characters per second over the
-  voiced span; `wer_adj`; the exact-span check; similarity to the anchor.
+- **Measured per take**: pace as spoken characters per second of **speaking time**: the voiced span with
+  every pause inside it (a silence of at least 0.25 s) taken out (`narration.pace/articulation-cps@1`;
+  revision 5.16, DC-18); spoken words per minute and spoken characters per second over the whole voiced
+  span, for information; `wer_adj`; the exact-span check; similarity to the anchor. Every take, the
+  ladder's included, is scored by the one rule QA uses (section 11.1 step 9), so the curve and a take's
+  pace are one quantity.
 - **The pace trend**: a straight line of pace against length, fitted over the rungs ≤ 300 spoken
-  characters, where the probe showed no rushing. Pace naturally rises with length (section 1), so a rung
-  is judged against the **trend extended to its length**, not against a flat reference.
+  characters, where the probe showed no rushing. Pace may rise with length (section 1, where the probe
+  measured it in words per minute), so a rung is judged against the **trend extended to its length**,
+  not against a flat reference.
 - **Tolerance**: `tol = max(0.10, the largest per-rung seed spread observed at ≤ 300 characters)`,
-  never below the measured seed-to-seed spread (up to 17 % within one voice in the probe).
+  never below the measured seed-to-seed spread (up to 17 % within one voice in the probe). The spread is
+  relative, so it is derived the same way in characters per second.
+- **The speaking share**: the median over the band's takes of speaking time over the voiced span (1 when
+  none has both). It turns the curve into durations for estimates (sections 7.3, 7.6 and 12), never
+  into a verdict.
 - **A rung passes** when:
   - the **median over its seeds** of pace ≤ trend × (1 + tol);
   - the median `wer_adj` passes;
@@ -495,6 +511,11 @@ shortest up. The corpus marks its number words as exact spans (section 11.3).
   shortest**. The first failing rung ends the run, and the rungs above it are not rendered.
   **`max_segment_seconds`** is the median duration at that rung.
 - The **pace curve** (median pace by length over the passing run) is published for QA.
+
+The measurement key names the pace method (section 10.2), so a change to it measures every voice again.
+A measurement stored before DC-18 (`narration.measurement/v1`, pace in words per minute) is never read:
+the voice answers `VOICE_NOT_MEASURED` until `measure_voice` measures it again, which replaces it and
+finds the renders already in the cache, since no render key changed.
 
 **What the limit means.** `max_segment_chars` is a fact about this voice on this engine: the longest
 paragraph it read reliably in the ladder. It is **advice, never a refusal**. A longer segment is
@@ -901,7 +922,7 @@ records a caller's script, choices or approvals.
 | **Candidate** | `design_id`, index, clip {path, sha256}, exact transcript, verbatim description, seed, engine profile, lint, profile. Kept for the retention period; the caller copies the clip it chooses. |
 | **Provenance entry** ⊘ | clip sha256, `design_id`, date. One per clip the service designed; never pruned (section 17). |
 | **Voice** *(not stored)* | What a request sends: clip path + sha256 + transcript. `voice_hash` is computed from them on every request (section 10.2). |
-| **Measurement** ⊘ | (`voice_hash`, `engine_profile_id`); verified transcript; **anchor**; **similarity baseline** {anchor p5/p50, consistency p5}; **pace curve** and trend; **`max_segment_chars`**, **`max_segment_seconds`**; ladder table; calibration takes; corpus version. Returned in full to the caller as well. |
+| **Measurement** ⊘ | (`voice_hash`, `engine_profile_id`); verified transcript; **anchor**; **similarity baseline** {anchor p5/p50, consistency p5}; **pace model** {method, trend, tol, curve, speaking share} (DC-18); **`max_segment_chars`**, **`max_segment_seconds`**; ladder table; calibration takes; corpus version. Returned in full to the caller as well. |
 | **Render** ⊘ | `render_id` = `rn_` + 16 hex of `render_key`; seed, attempt; raw audio {path, sha256, samples, sample_rate}; `hit_token_cap`; gen timings. |
 | **Take** ⊘ *(the delivery layer)* | `take_id` = `tk_` + 16 hex of `delivery_key`; `render_id`; delivery {path, sha256, samples, sample_rate, duration_s}; **trim** {head_s, tail_s, pad_s}; **loudness** {measured_lufs, gain_db, true_peak_dbtp, ceiling_applied}; `post_stretched` (always false in v1). |
 | **Analysis** ⊘ | `analysis_id` = `an_` + 16 hex of `analysis_key`; `take_id`; QA verdict + flags + metrics + exact-span results; **cue alignment** {cues, words, method, model rev, cross-check, flags}. A take can have several analyses (e.g. with different hints' aliases or exact spans); a request uses the one matching its inputs. |
@@ -1245,7 +1266,10 @@ still cached.
     - `alignment` {method, model, revision, cross_check, max_disagreement_s, **measured_error**
       {p50_s, p95_s, n, benchmark}, flags} (R1)
     - `qa` {verdict, flags[], wer_raw, wer_adj, **exact_ok**, **exact[]** {cue, start, end, expected,
-      heard, match}, terms[], spk_sim_anchor, pace, pace_expected}
+      heard, match}, terms[], spk_sim_anchor, pace, pace_expected}. `pace` and `pace_expected` are
+      {spoken_wpm, articulation_cps}: `articulation_cps` is what QA judges (section 11.1 step 9);
+      `spoken_wpm` is information, and in `pace_expected` it is the take's own words per minute at the
+      expected pace (revision 5.16, DC-18)
     - `fit` (computed only if `scene_seconds` was given)
 - **`consistency`**: speaker similarity across the suggested takes of this request, {min, median,
   outliers[] (take ids below the voice's consistency baseline)}. It is a report on the set, never part
@@ -1290,7 +1314,8 @@ still cached.
      "qa": {"verdict": "pass", "wer_raw": 0.0, "wer_adj": 0.0, "exact_ok": true,
             "exact": [{"cue": 1, "start": 17, "end": 43, "expected": "3200", "heard": "3200", "match": "same"}],
             "terms": [{"term": "Ossavine", "cue": 0, "heard": "Ossavine", "ok": true}],
-            "spk_sim_anchor": 0.981, "pace": {"spoken_wpm": 158}, "pace_expected": {"spoken_wpm": 150}, "flags": []}},
+            "spk_sim_anchor": 0.981, "pace": {"spoken_wpm": 158, "articulation_cps": 15.8},
+            "pace_expected": {"spoken_wpm": 150, "articulation_cps": 15.2}, "flags": []}},
     {"take_id": "tk_2f07b1d9c4e8a613", "attempt": 1, "seed": 902214557, "fresh": true,
      "delivery": {"path": "…", "sha256": "…", "samples": 446400, "sample_rate": 48000, "duration_s": 9.30},
      "trim": {"head_s": 0.31, "tail_s": 0.35, "pad_s": 0.08}, "cues": ["…"], "qa": {"verdict": "pass"}}]}],
@@ -1330,14 +1355,15 @@ The `measured_error` values are Phase 0 output and unknown today.
   picture paths (section 3.6). The job runs on the CPU and finishes in seconds.
 - **`measure_voice`** `{voice}` → `{job_id}`, or at once the cached measurement if one exists for this
   voice and engine profile. The results give the verified transcript, the ladder table (per rung and
-  seed: spoken wpm, `wer_adj`, similarity, verdict), `max_segment_chars`, `max_segment_seconds`, the pace
-  curve and trend, the similarity baseline, and the path of the measurement JSON for the caller to keep.
+  seed: pace in spoken characters per second of speaking time, `wer_adj`, similarity, verdict; DC-18),
+  `max_segment_chars`, `max_segment_seconds`, the pace curve, trend and speaking share, the similarity
+  baseline, and the path of the measurement JSON for the caller to keep.
 - **`check_text`** `{voice?, hints?, segments ≤ 200}` (R6, R7, R8). It renders nothing. Per segment:
   - **`cues[]`** {index, received, spoken, engine, `hints_applied[]` {term, respell, offset},
     **`warnings[]`** (the text warnings of section 9.1; what `strict_text` refuses on), `exact[]`
     {start, end, words}}
   - `spoken_chars`; and, when a measured voice is given, `max_segment_chars`, `over_by_chars` and
-    `est_duration_s` (from the voice's pace curve).
+    `est_duration_s` (from the voice's pace curve and speaking share, section 12).
 - **`audition_pronunciation`** `{voice, term, variants: [{label, respell}] ≤ 4, carrier?}` → `{job_id}`.
   It produces takes plus what the ASR heard. The voice need not be measured. Whoever owns the text
   decides by ear; the service records no choice.
@@ -1682,7 +1708,7 @@ service's pins, never from earlier requests.
 | Layer | Key | Produces |
 |---|---|---|
 | — | `voice_hash` = H({schema: "narration.voice/v2", model, clip_sha256, transcript (NFC), language, x_vector_only_mode}) | |
-| — | measurement key = H({voice_hash, engine_profile_hash, corpus version, ladder settings}) | the voice's measurement |
+| — | measurement key = H({schema: "narration.measurement-key/v2", voice_hash, engine_profile_hash, corpus version, ladder settings, **pace method**}) (DC-18) | the voice's measurement (`narration.measurement/v2`) |
 | **Render** | `render_key` = H({schema: "narration.render/v1", engine_profile_hash, voice_hash, engine_text, seed}) | `raw.wav` (`render_id`) |
 | **Delivery** | `delivery_key` = H({raw_sha256, delivery profile (trim rule, target LUFS, TP ceiling, sample rate, subtype, fades), **the resampler's and loudness meter's names and versions**, the post-processing rules' version (`narration.post/1`), stretch: null}) | `delivery.wav` (**`take_id`**) |
 | **Analysis** | `analysis_key` = H({delivery_sha256, spoken_text, cue spans, exact spans, the QA inputs of the hints used (`term`, `asr_aliases`, `align_as`), QA profile version, text-checks version, number reader version, ASR model rev, SV model rev, aligner method id, the voice's measurement key}) | QA verdict, flags, exact-span results, cue and word times (`analysis_id`) |
@@ -1752,8 +1778,19 @@ on other takes, because verdicts are cached (section 10.2).
    60 s, and the embedding is the mean of the L2-normalised window embeddings, normalised again (DC-15):
    WavLM's memory grows with the square of the length (8.4 GB at 119 s in one pass). Cosine to one pass:
    0.998 at 90 s, 0.998 at 119 s (WP22, spike h).
-9. **Pace**: **spoken** words per minute (and spoken characters per second) over the voiced span,
-   compared with the voice's pace curve at this segment's spoken length.
+9. **Pace** (revision 5.16, DC-18): spoken characters per second of **speaking time**, compared with the
+   voice's pace curve at this segment's spoken length. Speaking time is the voiced span less every pause
+   inside it: a silence of at least 0.25 s (ASSUME until it is measured on the service's own takes). The
+   signal stage finds the silences on its 20 ms frames, so the shortest pause taken out is 13 frames
+   (0.26 s), and a 12-frame silence (0.24 s), such as a stop consonant's closure, stays in. Spoken words
+   per minute and spoken characters per second over the whole voiced span are reported for information.
+   - Words per minute follow word length, and a span that holds the pauses between sentences makes a
+     one-sentence segment look fast (KNOW, decision D2: on the first real voice and job, ladder takes
+     spoke 15.4–17.2 characters a second over the voiced span at every length, while their words per
+     minute ran 150–208; single sentences were flagged fast, and the owner heard them as normal).
+   - The method is `narration.pace/articulation-cps@1`; the voice's measurement uses the same one
+     (section 3.2). A take whose silences were not measured is paced over its whole voiced span, and its
+     flag's `details.basis` says `voiced_span`; the service's own signal stage always measures them.
 10. **Fit** (only with `scene_seconds`): reported, never remedied, in v1.
 
 **Consistency across the request (a report, not a verdict).** After every take is scored and each
@@ -1764,7 +1801,7 @@ verdict or a suggestion: it depends on which other takes are in the request, so 
 and cached nowhere. (Revision 4 compared each take with a running centroid inside its cached verdict,
 which made verdicts depend on render order and leak from one script to another.)
 
-**Default thresholds** (QA profile `default.v4`; revision 5.15, DC-19)
+**Default thresholds** (QA profile `default.v5`: revision 5.16, DC-18, with DC-19 kept)
 
 | Check | Warn | Fail | Rationale / evidence |
 |---|---|---|---|
@@ -1773,7 +1810,7 @@ which made verdicts depend on render order and leak from one script to another.)
 | terms | unverified | never | The probe heard stable, unstable and split variants of names (section 1). |
 | spk_sim vs anchor | < **voice `anchor_p5` − 0.01** | < **0.90** (absolute floor, ASSUME) | Per-voice thresholds from the voice's measurement: the probe's d4 scored 0.966–0.969 vs its clip and d2 0.978–0.984, so a fixed 0.975 would flag every d4 take. The floor only catches gross failure; unseeded VoiceDesign drift sat at 0.898–0.932. |
 | consistency across the request | — (report only: `SPK_OUTLIER`, info) | — | Probe `spk_consist` 0.981–0.992. |
-| pace vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | — (`PACE_FAST` and `PACE_SLOW` warn only; DC-19) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe). `default.v3` failed above curve × (1 + 2·tol). In the first real narration session 24 takes failed on pace alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast; so pace never fails and never triggers a retake. |
+| pace (characters per second of speaking time; DC-18) vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | — (`PACE_FAST` and `PACE_SLOW` warn only; DC-19) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe). `default.v3` failed above curve × (1 + 2·tol). In the first real narration session 24 takes failed on pace alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast; so pace never fails and never triggers a retake. |
 | head / end insertion | ≥ 1 word | ≥ 3 words, or a match of the voice's transcript at the head | Reference bleed; hallucinated tail. |
 | longest internal silence | > 1.2 s | > 2.5 s | Dropout or hang. |
 | clipping (raw) | > 0.01 % of samples at full scale | — | Gain problem. |
@@ -1975,7 +2012,8 @@ With `scene_seconds`:
   - `slack_s`, always;
   - `FIT_TIGHT` (warn) when slack < 1.0 s;
   - `OVER_SCENE` (warn), with `overrun_s`, when over budget. How to shorten the text is the caller's.
-- Prediction before render comes from the voice's pace curve (`check_text`, `dry_run`).
+- Prediction before render comes from the voice's pace curve and speaking share: a segment's spoken
+  characters at the curve's pace, over the share (`check_text`, `dry_run`; DC-18).
 - Nothing is ever truncated or stretched.
 
 **Later phase (section 13.1):** fit remedies, i.e. retake-for-length (seeds vary length by 2–17 %) and
@@ -2099,7 +2137,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `TERM_UNVERIFIED` | warn | | ASR did not match a hinted term |
 | `SPK_SIM_LOW` | warn / fail | fail | similarity to the voice's anchor below the measured warn threshold / the floor |
 | `SPK_OUTLIER` | info | | a suggested take stands apart from the rest of the request (a report, never a verdict) |
-| `PACE_FAST` / `PACE_SLOW` | warn | | against the voice's pace curve at this length; neither fails nor triggers a retake (revision 5.15, DC-19) |
+| `PACE_FAST` / `PACE_SLOW` | warn | | against the voice's pace curve at this length, in spoken characters per second of speaking time (DC-18); neither fails nor triggers a retake (revision 5.15, DC-19) |
 | `HEAD_INSERTION` | warn / fail | ✓ | words before cue 0, or reference bleed |
 | `END_INSERTION` | warn / fail | fail | words after the last cue |
 | `SILENCE_LONG` | warn / fail | fail | longest internal silence |
@@ -2262,7 +2300,7 @@ unplaced_below = 0.50          # ASSUME; below this the cue is not placed (CUE_U
 benchmark = "alignment-en.v1"  # the service's own; its measured error is published (R1, section 11.2)
 
 [qa]
-profile = "default.v4"         # DC-19: PACE_FAST warns only (section 11.1)
+profile = "default.v5"         # DC-18: pace in characters per second of speaking time; DC-19: warn only
                                # informational: every take is scored with the QA profile the build pins;
                                # `doctor` warns, and the daemon logs once at start, when this line differs
 
@@ -2615,7 +2653,7 @@ daemon computes the hashes. All times are in seconds.
     "exact": [{"start": 17, "end": 43, "words": [3, 7]}]}],
   "text_checks": {"version": "text-1.1.0", "rules_sha256": "…"},
   "hints_used": [{"term": "Ossavine", "respell": "Oss-a-veen"}]},
- "versions": {"qa_profile": "default.v4", "asr": "openai/whisper-large-v3@…", "sv": "microsoft/wavlm-base-plus-sv@…",
+ "versions": {"qa_profile": "default.v5", "asr": "openai/whisper-large-v3@…", "sv": "microsoft/wavlm-base-plus-sv@…",
               "aligner_method": "ctc-snap/wav2vec2-large-960h-lv60-self@…", "number_reader": "whisper-english-normalizer+nought@2",
               "measurement": "sha256:c07d…"},
  "alignment": {"method": "ctc-forced-align+silence-snap", "device": "cpu",
@@ -2628,7 +2666,8 @@ daemon computes the hashes. All times are in seconds.
         "exact": [{"cue": 1, "start": 17, "end": 43, "expected": "3200", "heard": "3200", "match": "same"}],
         "terms": [{"term": "Ossavine", "cue": 0, "heard": "Ossavine", "ok": true}],
         "metrics": {"wer_raw": 0.0, "wer_adj": 0.0, "word_errors": 0, "exact_ok": true, "spk_sim_anchor": 0.981,
-                    "spoken_wpm": 158, "expected_spoken_wpm": 150,
+                    "spoken_wpm": 158, "expected_spoken_wpm": 150, "spoken_cps": 14.8,
+                    "articulation_cps": 15.8, "expected_articulation_cps": 15.2, "pause_s": 0.56,
                     "head_insertion_words": 0, "end_insertion_words": 0, "longest_silence_s": 0.61},
         "thresholds": {"spk_warn": 0.972, "spk_fail": 0.90, "pace_tol": 0.17},
         "flags": []},
@@ -2638,15 +2677,16 @@ daemon computes the hashes. All times are in seconds.
 `measurements\3f9a0c1e…\qwen3-base-1.7b.p1\measurement.json` (abridged)
 
 ```json
-{"schema": "narration.measurement/v1", "voice_hash": "sha256:3f9a0c1e…", "clip_sha256": "5b1e…",
+{"schema": "narration.measurement/v2", "voice_hash": "sha256:3f9a0c1e…", "clip_sha256": "5b1e…",
  "engine_profile": {"id": "qwen3-base-1.7b.p1", "hash": "sha256:9e21…"},
  "transcript_check": {"heard": "Good bread asks for patience: …", "wer": 0.0, "ok": true},
  "corpus": "narration-en.v1",
  "similarity": {"anchor_p5": 0.982, "anchor_p50": 0.987, "consistency_p5": 0.983},
- "pace": {"trend": {"intercept_wpm": 118, "per_100_chars": 12.5, "band_max_chars": 300}, "tol": 0.17,
-          "curve": [{"chars": 80, "wpm": 121}, "…"]},
+ "pace": {"method": "narration.pace/articulation-cps@1",
+          "trend": {"intercept_cps": 15.0, "per_100_chars": 0.2, "band_max_chars": 300}, "tol": 0.17,
+          "curve": [{"chars": 80, "cps": 15.1}, {"chars": 150, "cps": 15.3}, "…"], "speaking_share": 0.93},
  "max_segment_chars": 450, "max_segment_seconds": 31.5,
- "ladder": [{"chars": 80, "seeds": [{"seed": "…", "wpm": 119, "wer_adj": 0.0, "sim": 0.986, "verdict": "pass"}, "…"], "passes": true}, "…"],
+ "ladder": [{"chars": 80, "seeds": [{"seed": "…", "cps": 15.0, "spoken_cps": 13.9, "wpm": 168, "wer_adj": 0.0, "sim": 0.986, "verdict": "pass"}, "…"], "passes": true}, "…"],
  "measured_at": "2026-10-02T14:03:11Z"}
 ```
 
