@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.15 (2026-09-28); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.16 (2026-09-28); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -96,6 +96,17 @@ applied here, each listed in the revision history below.*
     returns `DAEMON_UNAVAILABLE`. On a host whose jobs forbid breakaway, the route is `[daemon] autostart
     = false` and a daemon started by hand with `daemon start --foreground` (sections 4.1, 7.1, 14 and
     16). Section 7.1 also lists `narration-admin render`, as built.*
+- *Revision 5.16 (2026-09-28) describes what was built since revision 5.15.
+  - **A job whose daemon has gone** (PR #41). `get_job`, and `cancel_job` for a job it leaves
+    `cancelling`, ask for a daemon when none serves an active job. A launch is recorded in
+    `run\launch.json`. For 90 s after it (BELIEVE), while no daemon has started, no other is asked for as
+    long as the launched process runs; once that process has gone, the start failed, and `get_job` answers
+    `DAEMON_UNAVAILABLE` with the daemon's log. A stop answered `stopped: true`, by `daemon stop` or by
+    `install` after a repair (the lead's decision), holds for the jobs queued before it (sections 4, 4.1,
+    7.4, 7.6, 14 and 15).
+  - **A transcript that differs from the measured one** only in whitespace or punctuation is named in
+    `VOICE_NOT_MEASURED`, with the rewrites that give the measured one (PR #41; sections 3.2, 7.3 and
+    14).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -434,6 +445,16 @@ to the caller in full, as data and as a JSON file. A generation request with an 
 refused with `VOICE_NOT_MEASURED` and a hint to measure it first: measuring is heavy GPU work, and when
 heavy work runs is the caller's decision, so it never starts inside another job.
 
+The voice hash covers the transcript character for character (after NFC), so a clip measured under one
+transcript and sent with another spelling of it is another voice, and is not measured. The measurement
+keeps no transcript, so the service tries the spellings a slip in sending makes: the edges trimmed, the
+whitespace collapsed, a trailing newline added, typographic quotes, dashes and ellipses made plain,
+straight quotes made typographic, and each whitespace rewrite with each punctuation one (at most 9
+lookups). When one of them is measured for the clip, `VOICE_NOT_MEASURED` says which rewrites give the
+measured transcript, and not to measure again (section 7.3; revision 5.16, PR #41). Two slips the other
+way are not found: whitespace the measured transcript had and the one sent lacks (other than a trailing
+newline), and a typographic dash or ellipsis the measured one had where the one sent has a plain one.
+
 Measuring first checks the transcript: Whisper transcribes the clip, and a transcript that does not
 match is refused (`REF_TEXT_MISMATCH`), because a wrong transcript in ICL mode causes the reference to
 bleed into takes. Then it renders two sets through Qwen Base, all from the service's own corpus
@@ -611,8 +632,9 @@ item, to add only if agents shortlist badly from the numbers.
 **Daemon (`narrationd`).**
 
 - A singleton, enforced by a named mutex keyed on the store path. It is started detached (section 4.1)
-  by the first submission or by `narration-admin daemon start`, or run in a terminal with `daemon start
-  --foreground`.
+  by a submission, by `narration-admin daemon start`, or by `get_job` or `cancel_job` for an active job
+  that no daemon serves (section 4.1, "A job whose daemon has gone"; revision 5.16), or run in a terminal
+  with `daemon start --foreground`.
 - It unloads models after 120 s idle and exits after 15 min idle.
 - Why a separate process: a stdio server dies with its client, and two sessions must never load two
   models.
@@ -744,6 +766,27 @@ provides:
     Queued jobs resume on the next start.
   - `daemon stop --now`: terminate the Job Object and re-queue the in-flight segment. All files are
     written to a temp name and renamed, so nothing partial is ever published.
+  - `narration-admin install` posts the same stop as `daemon stop` when it repaired a worker's venv or a
+    model and a daemon runs, since a running daemon keeps a worker it found broken broken for its
+    lifetime. Its stop follows every rule of `daemon stop` (the lead's decision, revision 5.16).
+  - **A stop holds for the jobs queued before it** (revision 5.16, PR #41). A stop answered `stopped:
+    true` leaves the jobs queued before it was posted in the queue: `get_job` starts no daemon for them,
+    and says that they run on the next start (`narration-admin daemon start`, or the next `submit_job`
+    while `[daemon] autostart` is on). A job submitted after the stop starts a daemon as any submission
+    does, even while the stop's in-flight segment finishes.
+    - A `stopped` status alone is not an operator's decision. A daemon whose control loop or worker
+      supervisor failed writes it too, as does one that exited for being idle, and their queued jobs get
+      a daemon.
+    - The front-end tells them apart from the store alone. A queued job waits only for a `stop` or
+      `stop --now` answered `stopped: true` that was posted after the job was created (a stop in the
+      job's own millisecond counts as after it) and answered within 30 s of the time the `stopped` status
+      was written. A daemon answers its stop just before it writes `stopped` (or, when it took over and
+      honoured a stop the one before it answered, once it has started), and a `stopped` status keeps no
+      start time, so the answer stands in for "since the last daemon started" (BELIEVE: the 30 s is not
+      measured).
+    - What remains: a daemon launched by a later submission that fails within 30 s of the stop's answer
+      makes the older jobs read as stopped. The later submission's own job still asks for a daemon on its
+      next `get_job`, and that daemon runs them all.
   - **A stop is for every daemon launched before it was asked.** A daemon honours a stop only if it was
     posted after that daemon was launched. It honours it whether the stop is still pending or an exiting
     daemon has already answered it `stopped: true`. The launcher passes the launch time (`--launched-at`),
@@ -758,6 +801,49 @@ provides:
     it checks for a daemon, and starts one if the daemon says `stopping`. A daemon waiting to take over
     gives up only when the holder is `idle` or `busy` again. So a job queued in that moment is never
     stranded.
+- **A job whose daemon has gone** (revision 5.16, PR #41). A job stays `queued`, `running` or
+  `cancelling` in the store after its daemon has gone (a crash, a restart of the machine, a daemon ended
+  with its client), and only a daemon moves it on. So `get_job` checks once per call, before its
+  long-poll (the check counts against `wait_s`), that a daemon serves an active job. `cancel_job` checks
+  the same for a job it leaves `cancelling`; a queued job it cancels at once. In this order:
+  1. A `queued` job written less than 30 s ago is left to the daemon its submission asked for, which may
+     still be starting (BELIEVE: not measured).
+  2. A daemon that runs (`idle`, `busy` or `stopping`) is left alone: one exiting for being idle looks for
+     work once more, and one asked to stop is let stop.
+  3. A `queued` job that an operator's stop left in the queue starts no daemon (above).
+  4. A launch in progress starts no other (below).
+  5. Otherwise a daemon is asked for, as a submission asks (with `[daemon] autostart = false` none is
+     started, and the note says who must start one). The new daemon's start-up sweep puts a job left
+     `running` back on the queue, keeping what it finished in the cache, and finishes a `cancelling` job
+     as `cancelled`; a `queued` job runs in its turn.
+
+  `get_job`'s `message` adds what was found and done. When no daemon can be started, `get_job` is
+  `DAEMON_UNAVAILABLE` naming the job, with the launcher's reason and `details` {job_id, job_status,
+  daemon_state}, and the hint to run `narration-admin daemon start` in a terminal (an OS v1 does not
+  support keeps its own hint, and is not retryable). `cancel_job` records the cancel either way and
+  answers `{cancelling, completed: false}`; `get_job` then says why the job stays `cancelling`.
+  - **The launch record.** Each detached launch the platform let run, by the front-end or by `daemon
+    start`, is recorded in `run\launch.json`: the pid it got back (the launcher's, under a venv) and the
+    launch time. A refused start records nothing, so it holds back no later launch.
+  - **The start window** is 90 s: the singleton's takeover wait of 60 s, plus 30 s to start an interpreter
+    and import the service (BELIEVE: not measured). While the last launch is younger than that and no
+    daemon has recorded a start since, no other daemon is asked for as long as the launched process runs.
+  - **A failed start.** Once the launched process has gone without a daemon having started, the start
+    failed: the daemon died before it held the singleton, or failed through its `finally`, or gave up
+    waiting for one that was exiting. `get_job` then answers `DAEMON_UNAVAILABLE`, retryable, with
+    `retry_after_s` the rest of the window (at least 60 s), `details` {job_id, job_status, daemon_state,
+    log (the store's `logs\daemon.log`), launched_pid, launched_at}, and the hint to run `narration-admin
+    daemon start` in a terminal, or with `--foreground` to see why it exits. It launches none again at
+    once, since the next would most likely fail the same way; past the window, the next call launches
+    one. So a start that hangs or fails costs at most one launch per window.
+  - The launched process counts only if it was created at the launch, from 2 s before the launch time to
+    10 s after it: one created outside that span reused the pid. One whose creation time cannot be read
+    counts as running, since the window still bounds the wait. A `stopped` status written after the launch
+    does not decide it: the daemon that was exiting may write one while the launched one waits for the
+    singleton.
+  - The record is advice, read and written without a lock: two front-ends that poll in the same instant
+    may both launch, and the singleton makes that harmless. It is the service's own operational state,
+    never a caller's (section 0 item 2, section 15).
 
 ---
 
@@ -1005,10 +1091,26 @@ comments below mark where a fragment goes.
 - **New attempts are asked for, never remembered.** A resubmission renders nothing that is cached, and
   cached takes that failed are not retaken again: their retakes are cached too. To hear new deliveries,
   a segment names new `attempts` (e.g. `[3, 4]`).
-- **Refusals, as tool errors:** `VOICE_NOT_MEASURED` (hint: `measure_voice`), `VOICE_FILE_MISMATCH`,
+- **Refusals, as tool errors:** `VOICE_NOT_MEASURED` (below), `VOICE_FILE_MISMATCH`,
   `VOICE_NOT_SYNTHETIC`, `PATH_NOT_ALLOWED`, `ENGINE_CHANGED`, `TEXT_REFUSED` (markup, or `strict_text`
   with text warnings left), `INVALID_ARGUMENT` (an unknown field, `text_mode: "written"`, an exact span
   that cuts a word, duplicate segment ids), `CONTROL_UNSUPPORTED`.
+- **`VOICE_NOT_MEASURED`** (revision 5.16, PR #41) has `details` {voice_hash, clip_sha256,
+  engine_profile_id}. Which hint a caller gets depends on whether a nearby spelling of the transcript is
+  measured for this clip (section 3.2):
+  - if one is, `field` is `voice.transcript` and `details.transcript_mismatch` is {`measured_voice_hash`,
+    `rewrites`, `differs_in`, `first_difference`, `sent`, `measured`, `sent_chars`, `measured_chars`}.
+    `rewrites` names the rewrites of the transcript sent that give the measured one (`trim_edges`,
+    `collapse_whitespace`, `add_trailing_newline`, `plain_punctuation`, `typographic_quotes`), and
+    `differs_in` says `whitespace`, `punctuation`, or both. The hint gives the rewrites as steps, and says
+    not to measure again, since a measurement under this transcript would make the same clip a second
+    voice with a cache of its own;
+  - otherwise `field` is `voice`, and the hint is to measure the clip first with `measure_voice`, or, if
+    it was measured before, to send the transcript it was measured with, exactly as then.
+
+  Neither transcript is quoted: `first_difference` is a character index into the transcript sent, and
+  `sent` and `measured` name the character each has there by code point and name (or the end of the
+  text).
 - **A segment longer than the voice's reliable length is not refused.** It is flagged
   `SEGMENT_TOO_LONG` (warn) in `warnings` and in the results, with the voice's limits and the segment's
   spoken length, how far over it is, and each cue's spoken length, so a caller that splits knows where
@@ -1070,6 +1172,11 @@ The exact span is "three thousand two hundred".
     segments_done, segments_total}, `eta_s`, `queue_position`, **`poll_after_s`** (revision 5.2,
     DC-2: the earliest poll worth making, longer while `waiting_for_gpu`), `message`, optional
     `segments[]` {segment_id, state, takes_ok, retakes_used}, `error`, `updated_at`.
+- **A job whose daemon has gone** (revision 5.16, PR #41). Before it waits, `get_job` checks that a
+  daemon serves an active job, and asks for one when none does (section 4.1); `message` then says what was
+  found and done. When none can be started, or the one launched for the job exited before it served, the
+  call is `DAEMON_UNAVAILABLE` (retryable). `get_job` stays read-only (`readOnlyHint`), and its
+  description states the backoff rule (section 7.1).
 
 ```json
 {"jsonrpc": "2.0", "method": "notifications/progress",
@@ -1205,7 +1312,9 @@ The `measured_error` values are Phase 0 output and unknown today.
   It produces takes plus what the ASR heard. The voice need not be measured. Whoever owns the text
   decides by ear; the service records no choice.
 - **`cancel_job`** `{job_id, reason}` → `{status, completed}`. Finished renders, takes and analyses are
-  kept in the cache.
+  kept in the cache. A queued job is cancelled at once. A running one is `cancelling` until the daemon
+  stops it between two pieces of work; if no daemon serves it, one is asked for, and the answer is
+  `{cancelling, completed: false}` even when none can be started (section 4.1; revision 5.16).
 
 ### 7.7 Resources (`narration://`)
 
@@ -1925,14 +2034,14 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 | `UNSUPPORTED_AUDIO` | no | not a WAV the service reads, or longer than 30 s / larger than 20 MB for a voice clip |
 | `VOICE_FILE_MISMATCH` | no | the file's sha256 is not the one sent; the clip changed or the path is wrong |
 | `VOICE_NOT_SYNTHETIC` | no | the clip is neither one the service designed nor one the owner allowlisted (section 17) |
-| `VOICE_NOT_MEASURED` | no | no measurement for this voice under the current engine; hint: `measure_voice` |
+| `VOICE_NOT_MEASURED` | no | no measurement for this voice under the current engine; hint: run `measure_voice` first; or, when `details.transcript_mismatch` is present (`field` `voice.transcript`), send the transcript as the clip was measured with it (its `rewrites`), and do not measure again (section 7.3; revision 5.16) |
 | `REF_TEXT_MISMATCH` | no | measuring found that the transcript does not match the clip |
 | `ENGINE_CHANGED` | no | `expect_engine_profile` differs from the service's engine profile; hint: accept the new hash, or ask the owner to restore the old one |
 | `CONTROL_UNSUPPORTED` | no | `pace`, `context_before/after` (R10) |
 | `TEXT_REFUSED` | no | markup characters, or `strict_text` with text warnings left; every offender listed |
 | `ENGINE_DRIFT` | no | fingerprint mismatch, or the canary similarity is below threshold |
 | `BACKEND_NOT_INSTALLED` | no | weights or worker env missing |
-| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1); `retry_after_s` 60; hint: `narration-admin daemon start` |
+| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1); `retry_after_s` 60; hint: `narration-admin daemon start`. `get_job` returns it too, for an active job that no daemon serves: when none can be started (`details` job_id, job_status, daemon_state), or when the daemon launched for it exited before it served (`details.log`, launched_pid, launched_at; `retry_after_s` the rest of the 90 s start window, at least 60; revision 5.16, section 4.1) |
 | `GPU_UNAVAILABLE` | yes | the VRAM wait timed out |
 | `STORE_FULL` | yes | free disk below the minimum |
 | `JOB_NOT_CANCELLABLE` | no | the job is already terminal |
@@ -1985,6 +2094,7 @@ the service's own or a cache of work done; nothing in it is a caller's record.
 <store_root>\
   narration.sqlite                   jobs, queue, cache index, retention (WAL)
   run\daemon.json                    pid, workers (while running)
+  run\launch.json                    the last daemon launch: pid, time (advice to the next launcher; 4.1)
   engines\<engine_profile_id>.json   ⊘ (+ the canary's raw hash and embedding)
   alignment\<method_id>.json         ⊘ measured cue-boundary error on the benchmark (R1)
   provenance.jsonl                   ⊘ append-only: the fingerprint of every clip the service designed
@@ -1999,6 +2109,9 @@ the service's own or a cache of work done; nothing in it is a caller's record.
 ```
 
 - Paths are content-addressed.
+- `run\launch.json` (revision 5.16) records the last detached daemon launch the platform let run: the pid
+  it got back and the launch time. It is written only for a daemon that was let run, and is advice to the
+  next launcher (section 4.1): the service's own operational state, never a caller's.
 - **Retention.** Designs, renders, takes, analyses, profiles and jobs are kept for `retention_days`
   (default 30) after they were last used, then `gc` may remove them. A caller copies what it keeps
   (R12); after that, a request for the same work simply renders it again. Measurements are kept longer
