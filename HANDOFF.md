@@ -28,6 +28,13 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   - Its follow-ups are in WP49. Its worktree folder is empty but still locked by some process; remove
     `worktrees/wp30-escape` later.
 - **Merged 2026-09-28, later:**
+  - **PR #46, WP49's follow-ups:**
+    - doctor warns on a QA-profile mismatch;
+    - a log line when a job the daemon ran ends;
+    - PR #37's follow-ups;
+    - the refusal's messages are constants in `narration.platform`.
+
+    Its worktree and branch are removed, and so is the `wp30-escape` folder.
   - **PR #43, design revision 5.15:** DC-17, DC-19 and the Job Object rule; two reviews.
   - **PR #39, WP34 `design_voice` and `profile_voice`:** contracts 1.6.8. The owner's session sees the two tools
     after a `/mcp` reconnect.
@@ -42,7 +49,7 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
     - a batch design that gives way loses its unpublished clips;
     - §14's CLIP_TOO_LONG text is the lead's to write.
 - **Merge order from here:** PR #41 (fixing its review's L1: a daemon that dies before serving must give
-  DAEMON_UNAVAILABLE, not an endless cycle); PR #45 (WP48) and PR #46 (WP49), both in review; then WP47 (contracts
+  DAEMON_UNAVAILABLE, not an endless cycle); PR #45 (WP48, fixing its review); then WP47 (contracts
   1.6.9), each after an adversarial review and green CI. **After WP47:**
   re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in stages (remove
   `.dev/service-setup/STOP`), both in a GPU window.
@@ -99,7 +106,6 @@ Code session.
   | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | reviewed (Fable liveness lens + integration): all low; fixing L1 (a failed launch gives DAEMON_UNAVAILABLE with the log) and wording |
   | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | merging main (hotfix), `default.v5`, contracts 1.6.9, tests; then a PR |
   | WP48 failure audit | `wp/48-failures`, PR #45 | a8d587455178ad320 | CI green; two-lens review running |
-  | WP49 small follow-ups | `wp/49-followups`, PR #46 | a6da73fe016877af2 | CI green; review running |
 
   PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
   client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a

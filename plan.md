@@ -691,7 +691,7 @@ Updated by the lead on `main` only.
 | WP46 | Frontend (plan first) | later | the other packages | – | `later` | – | the owner asked 2026-09-27: plan it when the other work is done; nothing is built before the owner approves the plan |
 | WP47 | Pace in characters per second (D2) | 3 | WP33, WP22 | – (re-measure after merge) | `active` | PR #42 (hotfix, merged) | 2026-09-27; the owner's decision D2, after short segments failed `PACE_FAST` falsely in the first real job. The hotfix (`PACE_FAST` warns only, `wp/47-pace-warn`) merges first; the rate model follows, then the voice is measured again (cached renders, QA only) |
 | WP48 | Failure audit | 3 | WP37, WP36 | – | `review` | PR #45 | the owner asked 2026-09-27: collect failed and retaken takes with their reasons, for auditing; started 2026-09-28 |
-| WP49 | Small follow-ups | 3 | WP37, WP31, WP30 | – | `review` | PR #46 | 2026-09-28: doctor warns on a QA-profile mismatch, a log line per finished job, PR #37's follow-ups |
+| WP49 | Small follow-ups | 3 | WP37, WP31, WP30 | – | `done` | PR #46 (merged 2026-09-28) | 2026-09-28: doctor warns on a QA-profile mismatch, a log line per finished job, PR #37's follow-ups |
 
 **Phase 0 spikes → where they live:** (a) WP38 · (b) WP15 · (c) WP39 · (d) (e) (f) (h) (i) WP20, with the
 QA half of (h) in WP22 · (g) WP30 · (j) WP17.
