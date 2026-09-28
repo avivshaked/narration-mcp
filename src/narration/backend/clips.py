@@ -8,9 +8,11 @@ The front-end admits a clip in this order, each failure a tool error naming the 
    cloned (``narration.jobs.voice.require_synthetic``, which the job engine checks again).
 2. **The path** (section 17.3, ``Platform.check_readable_path``): absolute, on a local drive, resolving to a
    regular file; else ``PATH_NOT_ALLOWED``.
-3. **The file**: at most 20 MB (``MAX_CLIP_BYTES``), else ``UNSUPPORTED_AUDIO``; its sha256 must be the one
-   sent, else ``VOICE_FILE_MISMATCH``; it must be a WAV of at most ``[limits] max_clip_seconds``, else
-   ``UNSUPPORTED_AUDIO``.
+3. **The file**: at most 20 MB (``MAX_CLIP_BYTES``), else ``UNSUPPORTED_AUDIO``; a WAV of at most ``[limits]
+   max_clip_seconds``, else ``UNSUPPORTED_AUDIO``; and its sha256 must be the one sent, else
+   ``VOICE_FILE_MISMATCH``, whose ``details.actual`` is the file's sha256. The WAV check comes first, so that
+   hash is only ever given for a WAV: a caller cannot learn the sha256 of any other file by naming it
+   (``docs/security-review.md``, S1).
 4. **The copy** (``keep``): the bytes that were hashed are the bytes copied, to ``scratch/voices/<sha256>.wav``
    (the working copy the engine clones from, App. A's ``ref_wav``), under a temporary name then renamed. A
    file changed after the check is therefore never used. A copy already there with the right sha256 is kept
@@ -93,14 +95,14 @@ def admit_clip(
     target = clip_path(store, clip.sha256)
     if not keep:
         digest = _hash_file(source, clip, field)
-        _check_digest(digest, clip, field)
         _check_wav(source, max_seconds, field)
+        _check_digest(digest, clip, field)
         return target
     tmp = target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp")
     try:
         digest = _copy(source, tmp, clip, field)
-        _check_digest(digest, clip, field)
         _check_wav(tmp, max_seconds, field)
+        _check_digest(digest, clip, field)
         if not (target.is_file() and _sha256(target) == clip.sha256):
             try:
                 os.replace(tmp, target)

@@ -103,11 +103,13 @@ def stage_clip(store: Store, voice: VoiceSpec, *, check_path: PathCheck | None, 
     try:
         digest = _copy(source, tmp, voice)
         if digest != voice.sha256:
+            # No ``actual``: the file is no longer the one admitted, and may not be audio at all, so its hash is
+            # not given back (``docs/security-review.md``, S1).
             raise NarrationError(
                 codes.VOICE_FILE_MISMATCH,
                 f"the clip at {voice.path} no longer has the sha256 the request sent",
                 field="voice.sha256",
-                details={"expected": voice.sha256, "actual": digest},
+                details={"expected": voice.sha256},
             )
         try:
             os.replace(tmp, target)
