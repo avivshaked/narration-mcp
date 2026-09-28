@@ -477,6 +477,7 @@ def test_a_clip_that_is_not_the_one_sent_is_voice_file_mismatch_s17(store: Narra
     with pytest.raises(NarrationError) as caught:
         stage_clip(store, wrong.voice, check_path=check_readable_path)
     assert caught.value.code == codes.VOICE_FILE_MISMATCH and caught.value.field == "voice.sha256"
+    assert caught.value.details == {"expected": "d" * 64}, "the file's own sha256 is never given back"
     assert not clip_path(store, "d" * 64).exists()
     assert not list(clip_path(store, "d" * 64).parent.glob("*.tmp"))
 

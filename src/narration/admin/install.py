@@ -61,7 +61,7 @@ from typing import Any, Final, Protocol
 from narration.config import Config
 from narration.contracts.errors import NarrationError
 from narration.contracts.names import WorkerRole
-from narration.platform import is_supported
+from narration.platform import find_program, is_supported
 from narration.workers.launch import WORKER_PROJECT_DIRS, venv_python, worker_project
 
 from .cli import EXIT_FAILED, EXIT_OK, PROGRAM, Admin, AdminError, Subparsers
@@ -389,8 +389,9 @@ def run_uv(argv: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def find_uv() -> str | None:
-    """The uv that runs this service (``UV``, set by ``uv run``), else the one on ``PATH``."""
-    return os.environ.get("UV") or shutil.which("uv")
+    """The uv that runs this service (``UV``, set by ``uv run``), else the one on ``PATH`` (never one in the
+    working folder: ``narration.platform.find_program``)."""
+    return os.environ.get("UV") or find_program("uv")
 
 
 def sync_worker(
