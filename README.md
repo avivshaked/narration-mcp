@@ -111,7 +111,9 @@ folder of your clone.
 
    It detaches and keeps running after the terminal closes. If Windows refuses to detach it from the
    terminal, the command says so and offers `--foreground`, which runs the daemon in that terminal until
-   it exits; only then must the terminal stay open.
+   it exits; only then must the terminal stay open. On a host that never lets it detach (a CI runner,
+   say), set `[daemon] autostart = false`, so that no client tries to start the daemon, and run it with
+   `daemon start --foreground` in a process of its own.
 
    The server clones only voices this service designed, or clips whose sha256 is in `[voices]
    allow_sha256`. The same command with `voices allow <clip.wav>` adds a clip designed elsewhere to that
