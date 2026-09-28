@@ -4,6 +4,7 @@ claims and compare-and-set updates."""
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 from typing import Any
 
@@ -203,6 +204,28 @@ def test_jobs_created_since_counts_across_statuses_for_the_rate_cap(store: Narra
     assert store.jobs_created_since(before) == 2
     assert store.jobs_created_since(utc(clock.now - 10)) == 1
     assert store.jobs_created_since(utc(clock.now + 1)) == 0
+
+
+def test_list_jobs_lists_every_job_newest_first_and_uses_none_wp48(store: NarrationStore, clock: FakeClock) -> None:
+    first, _ = store.create_job(job_record(new_id(), request_sha256="1" * 64))
+    store.update_job(first.job_id, status="completed")
+    second, _ = store.create_job(job_record(new_id(), request_sha256="2" * 64))
+    third, _ = store.create_job(job_record(new_id(), request_sha256="3" * 64))
+    store.update_job(third.job_id, status="cancelling")
+
+    def last_used() -> list[tuple[str, float]]:
+        conn = sqlite3.connect(str(store.root / "narration.sqlite"))
+        try:
+            return conn.execute("SELECT job_id, last_used_at FROM jobs ORDER BY job_id").fetchall()
+        finally:
+            conn.close()
+
+    before = last_used()
+    clock.advance(3600)
+    listed = store.list_jobs()
+    assert [j.job_id for j in listed] == [third.job_id, second.job_id, first.job_id]
+    assert [j.status for j in listed] == ["cancelling", "queued", "completed"]
+    assert last_used() == before  # a listing is not a use: it never keeps a job from gc
 
 
 def test_a_malformed_job_id_is_refused(store: NarrationStore) -> None:

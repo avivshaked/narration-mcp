@@ -1,9 +1,15 @@
 """A job's report, from its assembled ``get_results`` object (design sections 7.5 and 11.1).
 
 ``report_md`` writes ``report.md``: every flag of every take, replaced attempts included, and each cue's
-received → engine text. ``report_json`` gives the same content as data (``names.REPORT_SCHEMA``). Both read
-the ``get_results`` layout, whose output schema fixes it, and tolerate a partial object (a failed or cancelled
-job returns the segments it finished). Neither changes anything: the report records what QA found.
+received → engine text. Its "Failures" section gathers every attempt that failed QA or that a retake replaced,
+with its fail and warn flags and the take that finally filled its slot (plan.md WP48). ``report_json`` gives the
+same content as data (``names.REPORT_SCHEMA``). Both read the ``get_results`` layout, whose output schema fixes
+it, and tolerate a partial object (a failed or cancelled job returns the segments it finished). Neither changes
+anything: the report records what QA found. Neither holds a file path (the tool texts promise that:
+``narration.mcp.descriptions.REPORT_HOLDS``).
+
+``replacements`` reads which retake replaced which attempt from the job's ``RETAKEN`` flags; the operator's
+``narration-admin failures`` uses it too, so both views agree.
 """
 
 from __future__ import annotations
@@ -13,9 +19,14 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from narration.contracts import codes
 from narration.contracts.names import REPORT_SCHEMA
 
-__all__ = ["report_json", "report_md"]
+__all__ = ["replacements", "report_json", "report_md"]
+
+_REASONS = ("fail", "warn")
+"""The severities that say why a take failed or was retaken (a retake trigger is a fail flag, or a warn
+``CUE_UNALIGNED`` or ``HEAD_INSERTION``: ``codes.is_retake_trigger``)."""
 
 _MD_SPECIAL = re.compile(r"([\\`*_\[\]<>|])")
 
@@ -58,6 +69,97 @@ def _take_flags(take: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def _flag_line(flag: Mapping[str, Any]) -> str:
     cue = f" (cue {flag['cue']})" if flag.get("cue") is not None else ""
     return f"**{_esc(flag.get('severity', '?'))}** `{flag.get('code', '?')}`{cue}: {_esc(flag.get('message', ''))}"
+
+
+def _int(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def replacements(attempts: Iterable[tuple[int, Iterable[Mapping[str, Any]]]]) -> dict[int, int]:
+    """Which attempt finally filled the take slot of each attempt a retake replaced, within one segment.
+
+    ``attempts`` gives each attempt's number with its flags as JSON (a ``get_results`` take's ``flags``, or a
+    ``JobAttempt``'s). The job writes ``RETAKEN`` on every retake, and its ``details.replaced`` lists every
+    earlier attempt of the slot (``narration.jobs.record``). So the retake that lists the most is the slot's
+    last attempt. The result maps each replaced attempt to that last attempt. An attempt no retake lists was
+    not replaced, and is not in it.
+    """
+    best: dict[int, tuple[int, int]] = {}
+    for number, flags in attempts:
+        for flag in flags:
+            if flag.get("code") != codes.RETAKEN:
+                continue
+            replaced = [_int(_map(entry).get("attempt")) for entry in _list(_map(flag.get("details")).get("replaced"))]
+            for earlier in replaced:
+                if earlier is None:
+                    continue
+                known = best.get(earlier)
+                if known is None or len(replaced) > known[0]:
+                    best[earlier] = (len(replaced), number)
+    return {earlier: last for earlier, (_, last) in best.items()}
+
+
+def _failures(segments: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Every take that failed QA or that a retake replaced, per segment in request order, by attempt: its
+    fail and warn flags, and the take that finally filled its slot (itself when nothing replaced it)."""
+    out: list[dict[str, Any]] = []
+    for segment in segments:
+        takes = [_map(t) for t in _list(segment.get("takes"))]
+        numbered = [(n, t) for t in takes if (n := _int(t.get("attempt"))) is not None]
+        last_of = replacements((n, [_map(f) for f in _list(t.get("flags"))]) for n, t in numbered)
+        by_attempt = dict(numbered)
+        for number, take in sorted(numbered, key=lambda nt: (nt[0], str(nt[1].get("take_id", "")))):
+            verdict = _map(take.get("qa")).get("verdict")
+            if verdict != "fail" and number not in last_of:
+                continue
+            final_number = last_of.get(number, number)
+            final = by_attempt.get(final_number)
+            out.append(
+                {
+                    "segment_id": segment.get("segment_id"),
+                    "attempt": number,
+                    "take_id": take.get("take_id"),
+                    "verdict": verdict,
+                    "replaced": number in last_of,
+                    "final_take": {
+                        "attempt": final_number,
+                        "take_id": final.get("take_id") if final is not None else None,
+                        "verdict": _map(final.get("qa")).get("verdict") if final is not None else None,
+                    },
+                    "flags": [dict(f) for f in _take_flags(take) if f.get("severity") in _REASONS],
+                }
+            )
+    return out
+
+
+def _failures_md(failures: Sequence[Mapping[str, Any]]) -> list[str]:
+    lines = ["## Failures", ""]
+    if not failures:
+        return [*lines, "None: no take failed QA, and no retake replaced one.", ""]
+    lines += [
+        f"Every take that failed QA or that a retake replaced ({len(failures)}), with its fail and warn flags "
+        "and the take that finally filled its slot:",
+        "",
+    ]
+    for failure in failures:
+        final = _map(failure.get("final_take"))
+        if failure.get("replaced"):
+            made = f"`{final['take_id']}`" if final.get("take_id") else "(not made)"
+            filled = (
+                f"replaced: the slot was filled by attempt {final.get('attempt', '?')} {made} "
+                f"({final.get('verdict') or 'not scored'})"
+            )
+        else:
+            filled = "not replaced: the last take of its slot"
+        verdict = failure.get("verdict") or "not scored"
+        lines.append(
+            f"- {_esc(failure.get('segment_id', '?'))} · attempt {failure.get('attempt', '?')} · "
+            f"`{failure.get('take_id', '?')}` · **{verdict}** · {filled}"
+        )
+        flags = [_map(f) for f in _list(failure.get("flags"))]
+        lines += [f"  - {_flag_line(f)}" for f in flags] or ["  - no fail or warn flag"]
+    lines.append("")
+    return lines
 
 
 def report_md(results: Mapping[str, Any]) -> str:
@@ -124,6 +226,9 @@ def report_md(results: Mapping[str, Any]) -> str:
         lines.append(f"{n}. {' · '.join(where)}: {_esc(item.get('reason', ''))}")
     lines.append("")
 
+    # ---- failures (plan.md WP48): every failed or replaced take, with why
+    lines += _failures_md(_failures(segments))
+
     # ---- segments
     lines += ["## Segments", ""]
     for segment in segments:
@@ -182,11 +287,13 @@ def report_md(results: Mapping[str, Any]) -> str:
 
 
 def report_json(results: Mapping[str, Any]) -> dict[str, Any]:
-    """The report as data: a summary, and per segment its text echo, suggestion and every take's flags."""
+    """The report as data: a summary, per segment its text echo, suggestion and every take's flags, and the
+    failures (every take that failed QA or that a retake replaced, as ``report_md``'s "Failures" lists them)."""
+    segments = [_map(s) for s in _list(results.get("segments"))]
     segments_out: list[dict[str, Any]] = []
     verdicts: Counter[str] = Counter()
     flag_counts: Counter[str] = Counter()
-    for segment in (_map(s) for s in _list(results.get("segments"))):
+    for segment in segments:
         takes_out: list[dict[str, Any]] = []
         for take in (_map(t) for t in _list(segment.get("takes"))):
             verdict = _map(take.get("qa")).get("verdict")
@@ -239,4 +346,5 @@ def report_json(results: Mapping[str, Any]) -> dict[str, Any]:
         "segments": segments_out,
         "consistency": dict(_map(results.get("consistency"))) or None,
         "listen_first": [dict(_map(i)) for i in _list(results.get("listen_first"))],
+        "failures": _failures(segments),
     }

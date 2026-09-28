@@ -1261,6 +1261,14 @@ class NarrationStore:
         )
         return tuple(from_json(JobRecord, json.loads(r["record"])) for r in rows)
 
+    def list_jobs(self) -> tuple[JobRecord, ...]:
+        """Every job the store holds, in any status, newest first (the order they were queued in, reversed).
+
+        A read for the operator's views (``narration-admin failures``, plan.md WP48): it changes nothing, not
+        even a job's last use, so listing a job never keeps it from ``gc``."""
+        rows = self._conn().execute("SELECT record FROM jobs ORDER BY seq DESC").fetchall()
+        return tuple(from_json(JobRecord, json.loads(r["record"])) for r in rows)
+
     def claim_job(self, job_id: str, holder: str) -> JobRecord | None:
         """Atomically move this job from ``queued`` to ``running`` for ``holder``; None if it is no longer
         queued (or unknown)."""

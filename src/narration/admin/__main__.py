@@ -77,6 +77,11 @@ COMMAND_GROUPS: Final[tuple[CommandGroup, ...]] = (
         "narration.admin.voices",
         "allow a synthetic clip designed elsewhere, by its sha256, or list the allowed ones (section 17.4)",
     ),
+    CommandGroup(
+        "failures",
+        "narration.admin.failures",
+        "list the takes that failed QA or were replaced by a retake, across jobs, for an audit",
+    ),
 )
 """The command groups, in the order ``--help`` lists them (section 7.1's order)."""
 

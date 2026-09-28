@@ -10,6 +10,15 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `narration-admin failures` lists every take that failed QA or that a retake replaced, across jobs, newest
+  job first, for an audit: the job, segment, attempt and seed; the take's WAV in the store; each fail and warn
+  flag with its message; the QA metrics; the take that finally filled the slot; and the segment's text.
+  `--since`, `--job`, `--voice` and `--code` filter it, and `--json` prints it as data. `--export <dir>`
+  copies each take's WAV with a JSON sidecar of its reasons, plus an `index.csv`; it never overwrites a
+  different file, and refuses a folder inside the store. It only reads the store. The job report
+  (`narration://jobs/{job_id}/report`, and `report.json`) gains a "Failures" section with the same takes, and
+  `narration-admin gc` lists them apart (how many, how old, and which the run would remove), so an audit
+  can finish before retention removes them.
 - `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices] allow_sha256`,
   instead of hashing it and editing `narration.toml` by hand.
   - It makes the clip's path absolute (so a relative path is taken from the working folder), checks it
