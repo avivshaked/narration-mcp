@@ -675,7 +675,7 @@ Updated by the lead on `main` only.
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
 | WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `active` | `wp/34-design` | 2026-09-27; started after M1; must not change the engine's identity while the owner narrates |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
-| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `done` | PR #32 | 2026-09-27; Fable review and re-verification (merge with follow-ups; all fixed); `narration-admin render` included; follow-ups: `AnalysisPins` in `backend_for`, §7.3's all-cached submit |
+| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `done` | PR #32, #40 | 2026-09-27; the caller's guidance in the tool texts merged (PR #40); Fable review and re-verification (merge with follow-ups; all fixed); `narration-admin render` included; follow-ups: `AnalysisPins` in `backend_for`, §7.3's all-cached submit |
 | WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `done` | PR #30 | 2026-09-27; daemon, doctor, gc, verify, install (review fixes incl. a path-traversal hole); `engine` from WP32, `render` after WP36, `bench` after WP38 |
 | WP38 | Alignment benchmark (spike a) | 2 | WP15, WP18, WP20 | yes | `todo` | – | H2, H3 |
 | WP39 | Ladder d2/d4 (spike c) | 2 | WP33 | yes (long) | `todo` | – | needs H1 |

@@ -68,8 +68,9 @@ def mismatch_error(
         f"{profile.wer_fail_min_errors} errors)",
         field="voice.transcript",
         hint=(
-            "Send the exact words spoken in the clip, as design_voice returned them; 'details.heard' is what the "
-            "speech recogniser heard. Nothing was rendered."
+            "Send the exact words spoken in the clip, copied from the record kept with it (where design_voice is "
+            "available, the candidate's transcript), never retyped; 'details.heard' is what the speech recogniser "
+            "heard. Nothing was rendered."
         ),
         details={"heard": check.heard, "wer": check.wer, "word_errors": errors, "words": n_ref},
         retryable=False,
