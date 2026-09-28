@@ -116,6 +116,17 @@ Code session.
   | Package | Branch | Agent | State |
   |---|---|---|---|
   | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps`, PR #44 | af6d02f523a3a52f0 | fixing its review: DC-20 (the flat level), the report's wording for pre-1.6.9 jobs, `Pace.method`; merging main (#41, #45) |
+  | Design revision 5.16 | `docs/design-5.16`, PR #47 | a184336c31c8b3167 | six commits: #41's liveness text, #45's `failures`, #46's `[qa] profile` note, §14 CLIP_TOO_LONG, then DC-18 (checked against PR #44 at b6507e9) and DC-20 (written from plan.md; its code is not pushed yet). Commits 1–4 in an adversarial review. **Merge after WP47**, checking the DC-18 and DC-20 commits against WP47's final code; bump AGENTS.md to 5.16 then |
+
+  Found while writing 5.16 (all low; not changed there):
+  - `contracts/codes.py` gives CLIP_TOO_LONG the retake rule `always`, but the handler raises it with
+    `retake_trigger` false, and a candidate is never retaken (a contracts fix, the lead's).
+  - `narration-admin install`'s message "The next job starts a fresh daemon" is ambiguous: jobs queued before its
+    stop wait for the next start.
+  - Stale design text: "verified transcript" (§6, §7.6; only `transcript_check` is kept); §14's `TOKEN_CAP_HIT`
+    and `WER_HIGH` retake marks apply to takes only; §11.1's "up to 17 %" tolerance was measured in wpm; App. B's
+    metrics example lacks `clipping_fraction`; §15 says `run\daemon.json` exists "while running"; §0 item 11
+    and §20 list older admin commands.
 
   PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
   client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a
