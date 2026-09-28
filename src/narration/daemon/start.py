@@ -4,10 +4,12 @@ For the front-end's autostart (WP36) and ``narration-admin daemon start | status
 
 - ``start_detached`` starts ``python -m narration.daemon --store <store_root> --config <path>`` through
   ``Platform.spawn_detached``: ``CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``,
-  the standard handles on ``NUL``, nothing inherited, the store root as the working directory. When the
-  caller's Job Object forbids breakaway, it raises ``DAEMON_UNAVAILABLE`` (retryable, with the hint to run
-  ``narration-admin daemon start`` in a terminal) and starts nothing: a daemon that is not detached would
-  die with its client mid-job;
+  the standard handles on ``NUL``, nothing inherited, the store root as the working directory. The daemon
+  runs only once the platform has confirmed it is in no Job Object. When the caller's Job Objects keep it
+  in one (the innermost forbids breakaway, so Windows refuses; or the innermost allows it and an enclosing
+  one does not, so Windows leaves the daemon in that one; KNOW, spike k), it raises ``DAEMON_UNAVAILABLE``
+  (retryable, with the hint to run ``narration-admin daemon start`` in a terminal) and nothing runs: a
+  daemon inside a client's kill-on-close job would die with the client mid-job;
 - ``running_daemon`` reads ``run/daemon.json`` and checks its pid (``sweep.daemon_alive``). Post a
   ``stop`` only when it says a daemon runs (``narration-admin daemon stop``, WP37): a daemon honours only
   the stops posted after it was launched (``service``, "Which stops a daemon honours"), so a stop posted
@@ -74,9 +76,10 @@ def start_detached(
     this interpreter by default. Its environment is ``env`` (this process's by default) without the
     ``PYTHON*`` variables that change imports (``settings.scrub_python_env``). The daemon is told when it was
     launched (``--launched-at``, this process's wall clock just before the spawn), so that a stop posted
-    while it starts up is for it. Raises
-    ``NarrationError(DAEMON_UNAVAILABLE)`` when breakaway is refused, and never falls back to a daemon that is
-    not detached; on an OS v1 does not support, ``UnsupportedPlatform``.
+    while it starts up is for it. Raises ``NarrationError(DAEMON_UNAVAILABLE)`` when the daemon cannot leave
+    this process's Job Objects (breakaway refused, or the daemon left in an enclosing job and ended before it
+    ran), and never falls back to a daemon that is not detached; on an OS v1 does not support,
+    ``UnsupportedPlatform``.
     """
     if platform is None:
         from narration.platform import get_platform
