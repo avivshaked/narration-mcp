@@ -687,7 +687,7 @@ Updated by the lead on `main` only.
 | WP42 | Acceptance: Phase 5 | 3 | WP41 | yes | `todo` | – | |
 | WP43 | Docs | 3 | WP36, WP37 | – | `todo` | – | |
 | WP44 | Release readiness | 3 | WP41–WP43 | – | `todo` | – | a release itself needs the owner |
-| WP45 | `narration-admin voices allow` | 3 | WP37 | – | `review` | PR #38 | 2026-09-27; a careful text edit (tomlkit rejected: it broke one-line arrays and CRLF files); adversarial review running |
+| WP45 | `narration-admin voices allow` | 3 | WP37 | – | `done` | PR #38 | 2026-09-27; a careful text edit (tomlkit rejected: it broke one-line arrays and CRLF files); adversarial review; merged 2026-09-27 |
 | WP46 | Frontend (plan first) | later | the other packages | – | `later` | – | the owner asked 2026-09-27: plan it when the other work is done; nothing is built before the owner approves the plan |
 | WP47 | Pace in characters per second (D2) | 3 | WP33, WP22 | – (re-measure after merge) | `active` | PR #42 (hotfix, merged) | 2026-09-27; the owner's decision D2, after short segments failed `PACE_FAST` falsely in the first real job. The hotfix (`PACE_FAST` warns only, `wp/47-pace-warn`) merges first; the rate model follows, then the voice is measured again (cached renders, QA only) |
 | WP48 | Failure audit | 3 | WP37, WP36 | – | `active` | – | the owner asked 2026-09-27: collect failed and retaken takes with their reasons, for auditing; started 2026-09-28 |
