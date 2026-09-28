@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import time
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 
 from narration.config import Config, DaemonConfig, WorkersConfig
 from narration.contracts.models import DaemonStatus, WorkerInfo
+from narration.contracts.names import STOP_REASONS, StopReason
 from narration.daemon.seam import GpuFacts
 from narration.daemon.settings import DaemonSettings
 from narration.daemon.status import StatusBoard
@@ -138,14 +140,48 @@ def test_gpu_facts_and_the_drain_estimate_come_from_the_runner_dc2(store: Narrat
     assert status.est_drain_s == 42.5
 
 
-def test_the_last_write_says_stopped_with_no_pid_s15(store: NarrationStore) -> None:
+@pytest.mark.parametrize("reason", STOP_REASONS)
+def test_the_last_write_says_stopped_with_no_pid_keeps_the_start_and_says_why_s15(
+    store: NarrationStore, reason: StopReason
+) -> None:
     board = StatusBoard(store, pid=99, started_at="2026-09-26T10:00:00.000Z")
     board.set_workers((WorkerInfo(role="fake", pid=5),), "qwen")
-    board.stopped()
+    board.stopped(reason)
     status = store.get_daemon_status()
     assert status is not None
-    assert (status.state, status.pid, status.started_at, status.workers) == ("stopped", None, None, ())
+    assert (status.state, status.pid, status.workers) == ("stopped", None, ())
+    assert status.started_at == "2026-09-26T10:00:00.000Z", "the start time is kept (contracts 1.6.11)"
+    assert status.stop_reason == reason
     assert (status.gpu.in_use, status.gpu.holder, status.current_job) == (False, None, None)
+
+
+def test_a_running_status_says_no_stop_reason_s15(store: NarrationStore) -> None:
+    board = StatusBoard(store, pid=99, started_at="2026-09-26T10:00:00.000Z")
+    board.set_state("stopping")
+    status = store.get_daemon_status()
+    assert status is not None and (status.state, status.stop_reason) == ("stopping", None)
+    written = json.loads(store.layout.daemon_json_path().read_text(encoding="utf-8"))
+    assert "stop_reason" not in written, "left out while the daemon runs, so an older reader still loads it"
+
+
+def test_a_status_written_before_1_6_11_still_loads_s15(store: NarrationStore) -> None:
+    # An older daemon's last write: stopped, with no start time and no stop_reason field at all.
+    old = {
+        "state": "stopped",
+        "pid": None,
+        "started_at": None,
+        "workers": [],
+        "current_job": None,
+        "gpu": {"name": None, "total_mb": None, "free_mb": None, "in_use": False, "holder": None, "unload_in_s": None},
+        "est_drain_s": None,
+        "updated_at": "2026-09-26T10:00:00.000Z",
+    }
+    path = store.layout.daemon_json_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(old), encoding="utf-8")
+    status = store.get_daemon_status()
+    assert status is not None
+    assert (status.state, status.started_at, status.stop_reason) == ("stopped", None, None)
 
 
 def test_a_status_that_cannot_be_written_never_stops_the_daemon(store: NarrationStore) -> None:

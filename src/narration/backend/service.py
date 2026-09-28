@@ -53,7 +53,7 @@ from narration.contracts.models import (
     Progress,
     SegmentText,
 )
-from narration.contracts.names import TERMINAL_JOB_STATUSES, EngineKind, JobKind, JobStatus, Priority
+from narration.contracts.names import STOP_OPERATOR, TERMINAL_JOB_STATUSES, EngineKind, JobKind, JobStatus, Priority
 from narration.contracts.serial import to_json
 from narration.daemon import start as daemon_start
 from narration.daemon.service import posted_after_launch
@@ -103,10 +103,12 @@ launch the platform made is also told apart by ``run/launch.json`` (``daemon.sta
 grace still covers a daemon started by a launcher that records no launch."""
 STOP_TO_STOPPED_S: Final = 30.0
 """How long before a ``stopped`` daemon status a stop answered ``stopped: true`` may have been answered and still be
-the stop that daemon ended on (``operator_stop``). A daemon answers its stop commands just before it writes
-``stopped``, in the same ``finally``; a daemon that took over and honoured a stop the one before it answered
-writes ``stopped`` once it has started, having done no work. BELIEVE, not measured: both take seconds, the second
-bounded by a daemon's start-up (the follow-up that measures launch-to-status time bounds it)."""
+the stop that daemon ended on (``operator_stop``), for a status that says no ``stop_reason``: one written by an
+older daemon, before contracts 1.6.11. A status that says one decides by it, and this is not used. A daemon
+answers its stop commands just before it writes ``stopped``, in the same ``finally``; a daemon that took over and
+honoured a stop the one before it answered writes ``stopped`` once it has started, having done no work. BELIEVE,
+not measured: both take seconds, the second bounded by a daemon's start-up (the follow-up that measures
+launch-to-status time bounds it)."""
 GIB: Final = 1024**3
 REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
@@ -1124,10 +1126,14 @@ def operator_stop(store: Store, job: JobRecord) -> DaemonCommand | None:
       rule has it: a daemon honours no stop posted before its launch (``narration.daemon.service``). A stop
       stamped in the job's own millisecond counts as after it, as it does against a launch
       (``posted_after_launch``: store times are cut to the millisecond);
-    - was answered at most ``STOP_TO_STOPPED_S`` before ``stopped`` was written: the daemon that wrote it is the
-      one that stopped for it, or took over and honoured it, and not a later daemon that served and then failed.
-      A ``stopped`` status keeps no start time (``started_at`` is null), so the stop's answer stands in for "since
-      the last daemon started".
+    - comes before a status that says an operator's stop ended its daemon: ``stop_reason`` is ``operator``
+      (contracts 1.6.11; that daemon answered the stop it ended on, or took over and honoured one the daemon
+      before it had answered). Under any other reason (``idle``, ``interrupted``, ``error``) the job gets a
+      daemon, even when an older daemon had stopped for a stop posted after the job: the start that followed that
+      stop lifted it;
+    - under a status with no ``stop_reason`` (written by an older daemon, which also kept no start time once
+      ``stopped``), was answered at most ``STOP_TO_STOPPED_S`` before ``stopped`` was written: the rule before
+      1.6.11, where the stop's answer stood in for "since the last daemon started".
 
     None when the status is missing, unreadable or not ``stopped``, or no such stop is found. The latest such
     stop otherwise. Store times only: no clock of this process is read.
@@ -1137,6 +1143,8 @@ def operator_stop(store: Store, job: JobRecord) -> DaemonCommand | None:
     except StatusUnreadable:
         return None
     if status is None or status.state != "stopped":
+        return None
+    if status.stop_reason is not None and status.stop_reason != STOP_OPERATOR:
         return None
     try:
         created = parse_iso(job.created_at)
@@ -1154,14 +1162,18 @@ def operator_stop(store: Store, job: JobRecord) -> DaemonCommand | None:
             answered = parse_iso(command.done_at)
         except ValueError:
             continue
-        if after and abs(stopped_at - answered) <= STOP_TO_STOPPED_S:
+        if not after:
+            continue
+        if status.stop_reason is not None or abs(stopped_at - answered) <= STOP_TO_STOPPED_S:
             return command
     return None
 
 
 def _failed_start(job: JobRecord, launch: daemon_start.Launch, *, now: float, log_path: Path) -> NarrationError:
     """``DAEMON_UNAVAILABLE`` for an active job whose daemon, launched less than ``daemon.start.START_WINDOW_S``
-    ago, exited before it served (``daemon.start.check_launch`` says ``failed``). No other is launched at once:
+    ago, exited before it served (``daemon.start.check_launch`` says ``failed``: no daemon has recorded a start
+    since that launch, so the message is true; a daemon that started and then stopped is not a failed start, and
+    the job gets a daemon instead). No other is launched at once:
     it would most likely fail the same way. ``details.log`` is the daemon's log in the store (section 14), and
     the hint says how to see the failure. Retryable, after the rest of the window: then a call launches one
     again."""

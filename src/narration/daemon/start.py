@@ -17,8 +17,8 @@ For the front-end's autostart (WP36) and ``narration-admin daemon start | status
 - ``ensure_daemon`` starts one unless one runs, and can wait until it has written its status;
 - ``start_detached`` records each launch the platform let run in ``run/launch.json`` (the pid it got back and
   the launch time; a refused start records nothing), and ``check_launch`` reads it. A daemon launched less
-  than ``START_WINDOW_S`` ago that has not written a status since is ``starting`` while its process runs, and
-  ``failed`` once that process has gone. The front-end asks for no other daemon while one is starting, and
+  than ``START_WINDOW_S`` ago, with no daemon recorded as started since, is ``starting`` while its process runs,
+  and ``failed`` once that process has gone. The front-end asks for no other daemon while one is starting, and
   reports a failed start rather than launching again at once (WP36: ``get_job`` and ``cancel_job`` on a job no
   daemon serves). The file is the service's own operational state, like ``run/daemon.json``, and records
   nothing of a caller (sections 0.2, 2). It is advice, read and written without a lock: two front-ends that
@@ -126,15 +126,20 @@ def check_launch(store: Store, *, now: float | None = None) -> LaunchCheck | Non
     """What became of the last launch, while it was made less than ``START_WINDOW_S`` before ``now`` (a stamp up
     to the window in the future, from a clock stepped back, counts as now; one further out is not trusted):
 
-    - None: no launch in the window, or a daemon status written since it (``run/daemon.json``'s ``started_at``
-      is later): the daemon started, and whether it still runs is ``running_daemon``'s to say;
-    - ``starting``: no status since, and the launched process still runs (``sweep.launch_alive``);
-    - ``failed``: no status since, and the launched process has gone. It died before it held the singleton (an
-      import or configuration error, say), or failed through its ``finally``, which writes ``stopped`` with no
-      start time, or gave up waiting for a daemon that was exiting (``takeover_wait_s``). Its log has why.
+    - None: no launch in the window, or a daemon started at or after it (``run/daemon.json``'s ``started_at``,
+      which a ``stopped`` status keeps since contracts 1.6.11): the launch started, whether that daemon still runs
+      or has stopped since (idle, stopped by the operator, or failed after it started), and whether one runs now
+      is ``running_daemon``'s to say;
+    - ``starting``: no daemon started since, and the launched process still runs (``sweep.launch_alive``);
+    - ``failed``: no daemon started since, and the launched process has gone. It died before it held the
+      singleton (an import or configuration error, say), or gave up waiting for a daemon that was exiting
+      (``takeover_wait_s``): it never served. Its log has why.
 
     A ``stopped`` status newer than the launch does not decide it: it may be the exiting daemon's, written while
-    the launched one waits for the singleton, so the launched process decides.
+    the launched one waits for the singleton. That status keeps the exiting daemon's own start time, before the
+    launch, so the launched process decides. A status written before 1.6.11 keeps no start time once it says
+    ``stopped``, so under one a daemon that started and then stopped within the window reads as ``failed``, as it
+    did before.
     """
     launch = read_launch(store.root)
     if launch is None:

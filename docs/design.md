@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.16 (2026-09-28); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.17 (2026-09-29); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -130,6 +130,13 @@ applied here, each listed in the revision history below.*
     against the band level (the median of the band rungs' medians) × (1 + tol); QA's expected pace
     follows the curve inside its range and holds its end values flat outside it (sections 3.2, 11.1 step
     9 and 21).*
+- *Revision 5.17 (2026-09-29) records why the daemon stopped (WP51; a contract change the lead approved,
+  contracts 1.6.11). A `stopped` `run\daemon.json` keeps its daemon's start time and says why it stopped
+  (`stop_reason`: `operator`, `idle`, `interrupted` or `error`). A queued job waits after a stop only when
+  the reason is `operator`; the 30 s timing rule stays only for a status an older daemon wrote. A launch
+  counts as started once any daemon records a start at or after it, running or stopped, so a daemon that
+  started, served and then failed inside the 90 s window is no longer reported as a failed start
+  (sections 4.1 and 15).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -808,7 +815,8 @@ provides:
 
   The marker to match is `-m <module> --store <store_root>`. `store_root\run\daemon.json` (state, pid,
   start time, workers) is written while the daemon runs, and stays behind when it exits, with state
-  `stopped` and no pid, start time, workers or job. A recorded daemon counts as running only if a process
+  `stopped` and no pid, workers or job, but with that daemon's start time and why it stopped
+  (`stop_reason`, below; revision 5.17). A recorded daemon counts as running only if a process
   with its pid was created no later than its start time (within 2 s), so a later process that reuses the
   pid is never taken for it. The service never acts on a process by a bare pid: it stops the workers it
   started through their own process handles and the daemon's Job Object.
@@ -827,19 +835,34 @@ provides:
     does, even while the stop's in-flight segment finishes.
     - A `stopped` status alone is not an operator's decision. A daemon whose control loop or worker
       supervisor failed writes it too, as does one that exited for being idle, and their queued jobs get
-      a daemon. After a daemon that failed within 90 s of its launch, they get one only once that window
-      has passed: until then `get_job` reads the exit as a failed start (below).
-    - The front-end tells them apart from the store alone. A queued job waits only for a `stop` or
-      `stop --now` answered `stopped: true` that was posted after the job was created (a stop in the
-      job's own millisecond counts as after it) and answered within 30 s of the time the `stopped` status
-      was written. A daemon answers its stop just before it writes `stopped` (or, when it took over and
-      honoured a stop the one before it answered, once it has started), and a `stopped` status keeps no
-      start time, so the answer stands in for "since the last daemon started" (BELIEVE: the 30 s is not
-      measured).
-    - What remains: a daemon launched by a later submission that fails within 30 s of the stop's answer
-      makes the older jobs read as stopped. The later submission's own job answers `DAEMON_UNAVAILABLE`
-      (a failed start, with `details.log`) until 90 s after that launch; the first `get_job` after the
-      window asks for a daemon, and that daemon runs them all.
+      a daemon.
+    - **Why it stopped** (revision 5.17). The `stopped` status says why, in `stop_reason`, from what the
+      daemon can tell apart:
+      - `operator`: it answered a `stop` or `stop --now` `stopped: true` (read while it ran, or found
+        pending as it exited), or it took over and honoured one the daemon before it had answered so.
+        This wins over the others: the answer told the operator that the stop held, so it must hold for
+        the jobs queued before it, even when the daemon also failed on its way out (its log has why);
+      - `idle`: it exited for want of work;
+      - `interrupted`: an interrupt ended it (Ctrl+C in the terminal of a `--foreground` daemon);
+      - `error`: its control loop, its worker supervisor or its job runner's thread failed.
+
+      There is no takeover reason: a daemon that finds another serving exits without writing a status,
+      and one that takes over from an exiting daemon is a new start, with its own reason.
+    - The front-end tells them apart from the store alone. A queued job waits only when the `stopped`
+      status says `operator`, and a `stop` or `stop --now` answered `stopped: true` was posted after the
+      job was created (a stop in the job's own millisecond counts as after it). Under any other reason
+      the job gets a daemon, even when an older daemon had stopped for a stop posted after the job: the
+      start that followed that stop lifted it.
+    - **A status an older daemon wrote** (before revision 5.17) has no `stop_reason` and, once `stopped`,
+      no start time. It still loads, and the rule before revision 5.17 decides for it: the stop must also
+      have been answered within 30 s of the time the `stopped` status was written, the answer standing in
+      for "since the last daemon started" (BELIEVE: the 30 s is not measured). Under such a status, a
+      daemon launched by a later submission that fails within 30 s of the stop's answer still makes the
+      older jobs read as stopped. The first daemon of the new version to stop replaces the status.
+    - What remains: during an upgrade, a front-end older than revision 5.17 (one that has not been
+      restarted) cannot read a `stopped` status that carries `stop_reason`, and takes it as unreadable. So
+      it starts a daemon for a queued job that an operator's stop left waiting, and that daemon runs it.
+      Restarting the MCP client's server (a reconnect) ends that.
   - **A stop is for every daemon launched before it was asked.** A daemon honours a stop only if it was
     posted after that daemon was launched. It honours it whether the stop is still pending or an exiting
     daemon has already answered it `stopped: true`. The launcher passes the launch time (`--launched-at`),
@@ -881,24 +904,31 @@ provides:
   - **The start window** is 90 s: the singleton's takeover wait of 60 s, plus 30 s to start an interpreter
     and import the service (BELIEVE: not measured). The check reads only the current `run\daemon.json`.
     While the last launch is younger than the window and that status shows no start at or after the
-    launch, no other daemon is asked for as long as the launched process runs. A `stopped` status keeps
-    no start time, so it never shows one.
+    launch, no other daemon is asked for as long as the launched process runs. A start at or after the
+    launch counts whether that daemon still runs or has stopped since, since a `stopped` status keeps
+    its daemon's start time (revision 5.17). A `stopped` status written by the daemon that was exiting
+    when the launch was made keeps that daemon's own, earlier, start, so it shows none.
   - **A failed start.** Once the launched process has gone and the status shows no start since the
-    launch, the start counts as failed: the daemon died before it held the singleton, or failed through
-    its `finally`, or gave up waiting for one that was exiting. `get_job` then answers
+    launch, the start counts as failed: the daemon died before it held the singleton, or gave up waiting
+    for one that was exiting, so it never served. `get_job` then answers
     `DAEMON_UNAVAILABLE`, retryable, with `retry_after_s` the rest of the window (at least 60 s),
     `details` {job_id, job_status, daemon_state, log (the store's `logs\daemon.log`), launched_pid,
     launched_at}, and the hint to run `narration-admin daemon start` in a terminal, or with
     `--foreground` to see why it exits. It launches none again at once, since the next would most likely
     fail the same way; past the window, the next call launches one. So a start that hangs or fails costs
     at most one launch per window.
-    - The same holds for any daemon of the last launch that exits within the window, even one that
-      started and served. A daemon whose control loop or worker supervisor fails exits through its
-      `finally` and writes `stopped`, which keeps no start time. Until the window ends, `get_job` on any
-      active job that no daemon serves (unless step 1 or 3 above applies) answers `DAEMON_UNAVAILABLE`
-      with the log, saying that the daemon exited before it served; the first `get_job` after the
-      window asks for a daemon. The approved follow-up that records the daemon's launch time, or why it
-      stopped, in `run\daemon.json` would narrow this.
+    - A daemon of the last launch that started and then stopped within the window, for any reason, is
+      not a failed start (revision 5.17): its `stopped` status keeps its start time, which is after the
+      launch. `get_job` on an active job that no daemon serves then asks for a daemon at once (unless
+      step 1 or 3 above applies), as it would after the window. So the failed start's message, that the
+      daemon exited before it served, is true whenever it is given.
+    - Under a status an older daemon wrote, a `stopped` status keeps no start time, so a daemon of that
+      version that started, served and failed within the window still reads as a failed start until the
+      window ends, as it did before revision 5.17.
+    - What remains: a daemon that starts and then fails at once (say, its worker supervisor cannot open)
+      is not held back by the window, so each `get_job` on a job no daemon serves launches one more, one
+      per daemon's short life, at the pace the caller polls. Its log has each failure (BELIEVE: rare; not
+      seen).
   - The launched process counts only if it was created at the launch, from 2 s before the launch time to
     10 s after it: one created outside that span reused the pid. One whose creation time cannot be read
     counts as running, since the window still bounds the wait. A `stopped` status written after the launch
@@ -2207,7 +2237,8 @@ the service's own or a cache of work done; nothing in it is a caller's record.
 ```
 <store_root>\
   narration.sqlite                   jobs, queue, cache index, retention (WAL)
-  run\daemon.json                    state, pid, start time, workers; stays with state `stopped` (4.1)
+  run\daemon.json                    state, pid, start time, workers; stays with state `stopped`, its
+                                     start time and why it stopped (`stop_reason`; 4.1)
   run\launch.json                    the last daemon launch: pid, time (advice to the next launcher; 4.1)
   engines\<engine_profile_id>.json   ⊘ (+ the canary's raw hash and embedding)
   alignment\<method_id>.json         ⊘ measured cue-boundary error on the benchmark (R1)
@@ -2223,6 +2254,10 @@ the service's own or a cache of work done; nothing in it is a caller's record.
 ```
 
 - Paths are content-addressed.
+- `run\daemon.json` is written by the daemon that holds the singleton, on every change. Its last write says
+  `stopped`, with no pid, workers or job, but with that daemon's start time and `stop_reason` (`operator`,
+  `idle`, `interrupted` or `error`; revision 5.17, section 4.1). `stop_reason` is left out while the daemon
+  runs, and a file an older daemon wrote has neither (a null start time once `stopped`), and still loads.
 - `run\launch.json` (revision 5.16) records the last detached daemon launch the platform let run: the pid
   it got back and the launch time. It is written only for a daemon that was let run, and is advice to the
   next launcher (section 4.1): the service's own operational state, never a caller's.

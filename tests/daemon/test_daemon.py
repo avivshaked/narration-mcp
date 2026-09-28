@@ -17,6 +17,7 @@ import pytest
 
 from narration.backend.service import operator_stop
 from narration.contracts.models import DaemonStatus, JobRecord
+from narration.contracts.names import STOP_ERROR, STOP_IDLE, STOP_INTERRUPTED, STOP_OPERATOR
 from narration.daemon.seam import NullRunner, RunnerHost, ShutdownReason, return_job
 from narration.daemon.service import EXIT_ERROR, EXIT_OK, STALE_STOP_REASON, Daemon
 from narration.daemon.start import ensure_daemon
@@ -358,6 +359,8 @@ def test_a_stop_the_exiting_daemon_answered_stops_the_one_waiting_to_take_over_s
     assert b_started is not None, "B took over"
     assert ("idle", b_started) not in written, "B never said it serves"
     assert ("stopping", b_started) in written and written[-1][0] == "stopped", "B stopped as a stop does"
+    final = store.get_daemon_status()
+    assert final is not None and (final.stop_reason, final.started_at) == (STOP_OPERATOR, b_started), "B's own"
     found = operator_stop(store, job_status(store, job))
     assert found is not None and found.command_id == posted.command_id, "the job waits for the next start"
 
@@ -750,7 +753,8 @@ def test_an_operators_stop_is_found_for_a_job_queued_before_it_s4_1(
     stop = daemon.command("stop")
     assert daemon.join() == EXIT_OK
     final = store.get_daemon_status()
-    assert final is not None and (final.state, final.started_at) == ("stopped", None), "no start time is kept"
+    assert final is not None and (final.state, final.stop_reason) == ("stopped", STOP_OPERATOR)
+    assert final.started_at == daemon.daemon.started_at, "the start time is kept (contracts 1.6.11)"
     found = operator_stop(store, job_status(store, job))
     assert found is not None and found.command_id == stop.command_id
 
@@ -768,6 +772,7 @@ def test_a_daemon_whose_control_loop_failed_leaves_no_operators_stop_s4_1(
     assert daemon.join() == EXIT_ERROR
     final = store.get_daemon_status()
     assert final is not None and final.state == "stopped", "its finally still wrote stopped"
+    assert (final.stop_reason, final.started_at) == (STOP_ERROR, daemon.daemon.started_at)
     assert operator_stop(store, job_status(store, job)) is None, "so get_job starts a daemon for the job"
 
 
@@ -785,6 +790,7 @@ def test_a_daemon_whose_supervisor_failed_leaves_no_operators_stop_s4_1(
         daemon.join()
     final = store.get_daemon_status()
     assert final is not None and final.state == "stopped", "its finally still wrote stopped"
+    assert (final.stop_reason, final.started_at) == (STOP_ERROR, daemon.daemon.started_at)
     assert operator_stop(store, job_status(store, job)) is None, "so get_job starts a daemon for the job"
 
 
@@ -794,4 +800,57 @@ def test_an_idle_exit_leaves_no_operators_stop_s4(run_daemon: DaemonFactory, sto
     assert daemon.join() == EXIT_OK
     final = store.get_daemon_status()
     assert final is not None and final.state == "stopped"
+    assert (final.stop_reason, final.started_at) == (STOP_IDLE, daemon.daemon.started_at)
     assert operator_stop(store, job_status(store, job)) is None, "so get_job starts a daemon for the job"
+
+
+def test_an_interrupted_daemon_says_so_and_leaves_no_operators_stop_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = make_job(store, "Queued before the interrupt.")
+
+    def interrupted(self: Daemon) -> None:
+        raise KeyboardInterrupt  # Ctrl+C in the terminal of a --foreground daemon
+
+    monkeypatch.setattr(Daemon, "_control_loop", interrupted)
+    daemon = run_daemon(NullRunner())
+    assert daemon.join() == EXIT_OK
+    final = store.get_daemon_status()
+    assert final is not None and (final.state, final.stop_reason) == ("stopped", STOP_INTERRUPTED)
+    assert operator_stop(store, job_status(store, job)) is None, "so get_job starts a daemon for the job"
+
+
+def test_a_runner_thread_that_failed_is_an_error_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fails(self: Daemon, host: object) -> bool:
+        raise RuntimeError("a bug between steps")
+
+    monkeypatch.setattr(Daemon, "_idle", fails)
+    with caplog.at_level(logging.ERROR, logger="narration.daemon.service"):
+        daemon = run_daemon(NullRunner())
+        assert daemon.join() == EXIT_OK, "the control loop saw the runner end, with no stop asked"
+    final = store.get_daemon_status()
+    assert final is not None and (final.state, final.stop_reason) == ("stopped", STOP_ERROR)
+    assert "the job runner's thread failed" in caplog.text, "in the daemon's log, not only on a NUL stderr"
+
+
+def test_a_stop_answered_on_the_way_out_of_a_failure_is_the_operators_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The operator's stop was posted as the control loop failed: the exit answers it stopped: true, so the
+    # jobs queued before it wait for the next start (the log has the failure).
+    job = make_job(store, "Queued before the stop.")
+    posted: list[str] = []
+
+    def fails(self: Daemon) -> None:
+        posted.append(store.post_command("stop").command_id)
+        raise RuntimeError("a bug in the control loop")
+
+    monkeypatch.setattr(Daemon, "_control_loop", fails)
+    daemon = run_daemon(NullRunner())
+    assert daemon.join() == EXIT_ERROR
+    final = store.get_daemon_status()
+    assert final is not None and (final.state, final.stop_reason) == ("stopped", STOP_OPERATOR)
+    found = operator_stop(store, job_status(store, job))
+    assert found is not None and found.command_id == posted[0]

@@ -26,7 +26,10 @@ is a thin, stateless front-end per client that starts it on the first job and as
   back on the queue. Nothing is posted when no daemon runs. Queued jobs survive either way and resume on
   the next start.
 - **`narration-admin daemon status [--json]`** prints `run/daemon.json` (state, pid, the current job, the
-  GPU, the workers) and whether that daemon still runs.
+  GPU, the workers) and whether that daemon still runs. Once the daemon has stopped, it says why
+  (`stop_reason`): `operator` (a `daemon stop`, or `install`'s stop), `idle` (it had no work for
+  `[daemon] idle_exit_min`), `interrupted` (Ctrl+C under `--foreground`) or `error` (its log says what
+  failed).
 
 **The Job Object rule (Windows).** The daemon is started detached
 (`CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`) so that it outlives the client

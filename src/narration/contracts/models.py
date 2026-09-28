@@ -44,6 +44,7 @@ from .names import (
     Priority,
     SegmentState,
     Severity,
+    StopReason,
     SuggestionTier,
     Verdict,
     WorkerRole,
@@ -1188,6 +1189,12 @@ class DaemonStatus:
     the front-end for ``get_server_status`` and DC-2's ``admission`` and ``poll_after_s``.
 
     ``est_drain_s`` is the daemon's estimate of how long the queue will take (null when unknown).
+
+    ``started_at`` is when the daemon that wrote the status started. A ``stopped`` status keeps it (contracts
+    1.6.11; before, it was null there), so a reader can tell whether a daemon started after a given launch
+    (``narration.daemon.start.check_launch``). ``stop_reason`` (added, contracts 1.6.11) says why a ``stopped``
+    daemon stopped (``StopReason``); it is left out while the daemon runs, and a status written before 1.6.11
+    has none, so readers keep their older rule for it (``narration.backend.service.operator_stop``).
     """
 
     state: DaemonState
@@ -1198,6 +1205,7 @@ class DaemonStatus:
     gpu: GpuStatus
     est_drain_s: float | None
     updated_at: str
+    stop_reason: StopReason | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

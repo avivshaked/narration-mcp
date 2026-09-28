@@ -204,6 +204,16 @@ SegmentState = Literal[
 ]
 Priority = Literal["batch", "interactive"]
 DaemonState = Literal["stopped", "idle", "busy", "stopping"]
+StopReason = Literal["operator", "idle", "interrupted", "error"]
+"""Why a daemon stopped: ``run/daemon.json``'s ``stop_reason`` once it says ``stopped`` (sections 4.1, 15; contracts
+1.6.11). ``operator``: it answered a ``stop`` or ``stop_now`` ``stopped: true``, or honoured one the daemon before it
+answered so; ``idle``: it exited for want of work; ``interrupted``: an interrupt (Ctrl+C in the terminal of a
+``--foreground`` daemon) ended it; ``error``: its control loop, its worker supervisor or its runner thread failed.
+A status written before 1.6.11 has none."""
+STOP_OPERATOR: Final = "operator"
+STOP_IDLE: Final = "idle"
+STOP_INTERRUPTED: Final = "interrupted"
+STOP_ERROR: Final = "error"
 GpuHolder = Literal["qwen", "qa"]
 DeterminismTier = Literal["bit_exact", "similar"]
 ExactMatch = Literal["same", "different", "missing"]
@@ -225,6 +235,7 @@ JOB_STATUSES: Final = get_args(JobStatus)
 TERMINAL_JOB_STATUSES: Final = ("completed", "failed", "cancelled")
 JOB_PHASES: Final = get_args(JobPhase)
 SEGMENT_STATES: Final = get_args(SegmentState)
+STOP_REASONS: Final = get_args(StopReason)
 
 
 # ---------------------------------------------------------------- the per-call generation cap (DC-4)

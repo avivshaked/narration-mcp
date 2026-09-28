@@ -338,6 +338,7 @@ def show_status(admin: Admin, args: argparse.Namespace) -> int:
     else:
         admin.say(
             f"No daemon runs for {root}. The last one said {status.state!r} at {status.updated_at}"
+            + (f" (stop reason: {status.stop_reason})" if status.stop_reason is not None else "")
             + ("" if status.state == "stopped" else " and then went without saying it stopped (see its log)")
             + f". `{PROGRAM} daemon start` starts one."
         )
