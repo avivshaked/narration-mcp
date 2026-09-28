@@ -694,6 +694,7 @@ Updated by the lead on `main` only.
 | WP48 | Failure audit | 3 | WP37, WP36 | – | `done` | PR #45 (merged 2026-09-28) | the owner asked 2026-09-27: collect failed and retaken takes with their reasons, for auditing; `narration-admin failures` (read-only; `--json` is the data WP46's view can read); review, fix round, and a check by the lead that it never writes the store |
 | WP49 | Small follow-ups | 3 | WP37, WP31, WP30 | – | `done` | PR #46 (merged 2026-09-28) | 2026-09-28: doctor warns on a QA-profile mismatch, a log line per finished job, PR #37's follow-ups |
 | WP50 | Small follow-ups (2) | 3 | WP47, WP34 | – | `done` | PR #49 (merged 2026-09-28) | CLIP_TOO_LONG never retakes (`is_retake_trigger` follows the table; contracts 1.6.10); a worker-start race in the supervisor fixed (the flaky s14 test); `install`'s stop message; each take's speaking share (WP47 F3). F4 waits for the re-measure |
+| WP51 | Daemon stop reason | 3 | WP36, WP30 | – | `done` | PR #50 (merged 2026-09-28) | `run/daemon.json` keeps the start time when stopped and records `stop_reason` (operator, idle, interrupted, error); `operator_stop` and `check_launch` decide by them (the 30 s rule only for older files); contracts 1.6.11, design 5.17. Built by a claude.ai/code cloud session (the first) |
 
 **Phase 0 spikes → where they live:** (a) WP38 · (b) WP15 · (c) WP39 · (d) (e) (f) (h) (i) WP20, with the
 QA half of (h) in WP22 · (g) WP30 · (j) WP17.
