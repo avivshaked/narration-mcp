@@ -1,5 +1,5 @@
 # WP47-pace-warn PACE_FAST warns only (hotfix; the owner's decision, 2026-09-27)
-State: blocked:paused-by-owner        Updated: 2026-09-27
+State: review        Updated: 2026-09-28
 ## Done
 - `QaProfile.pace_fail_tol_factor` is `float | None = None`: `default.v4` has no pace fail.
 - `pace_flags`: with no factor, `PACE_FAST` only warns; `details.fast_fail_above` is null. A profile with a
@@ -16,10 +16,17 @@ State: blocked:paused-by-owner        Updated: 2026-09-27
   - `current_measurement` compares only the measurement key; `MeasurementRecord` has no QA field;
   - no code compares `versions.qa_profile`; `config.qa.profile` is read by nothing in `src/`;
   - the engine profile does not include the QA profile. Nothing forces a re-measure.
+- Merged `origin/main` (dd6b3be, with PR #40) into the branch: no conflicts. PR #40's tool texts say
+  nothing about a pace fail.
 ## Tests
-`uv run python -m pytest tests/qa tests/keys tests/contracts tests/jobs tests/measure tests/backend tests/store
-tests/material tests/mcp tests/engine tests/lint` → 1980 passed, 2 failed (the two store tests, since fixed);
-then `tests/store tests/jobs/test_engine.py` → 262 passed.
+- Before the merge: `uv run python -m pytest tests/qa tests/keys tests/contracts tests/jobs tests/measure
+  tests/backend tests/store tests/material tests/mcp tests/engine tests/lint` → 1980 passed, 2 failed (the two
+  store tests above, since fixed); then `tests/store tests/jobs/test_engine.py` → 262 passed.
+- After the merge: `uv run python -m pytest tests/qa tests/keys tests/contracts tests/jobs tests/measure
+  tests/backend tests/store tests/mcp` → 1441 passed, 8 deselected (the default markers).
+- `uv run python -m ruff check`, `uv run python -m ruff format --check` and `uv run python -m basedpyright`
+  on the 12 changed code and test files: clean. `py -3.12 tools/check_tracked.py`: exit 0.
+- Not run locally, as the lead asked: the full suite (CI runs it), GPU tests.
 ## Decisions made (and why)
 - `fast_fail_above` is null (not omitted), so a reader sees there is no fail line.
 - `codes.FLAGS[PACE_FAST]` keeps severities (warn, fail): the code table lists what a profile may use, as
@@ -32,9 +39,9 @@ then `tests/store tests/jobs/test_engine.py` → 262 passed.
 ## Dependency requests
 - none
 ## Questions for the lead / owner
-- plan.md's WP47 says "with the same warn and fail factors"; this hotfix removes the fail. Reconcile when
-  WP47 lands.
+- plan.md's WP47 row ("with the same warn and fail factors", and "a take 25% faster in characters per second
+  fails") is superseded by this decision: PACE_FAST has no fail until WP47's rate model is validated. The
+  lead updates plan.md; WP47 keeps `pace_fail_tol_factor` None unless the owner decides otherwise.
 ## Next
-- ruff check, ruff format --check, basedpyright on the changed files; tools/check_tracked.py.
-- Final commit (not wip), push, PR `fix(qa): PACE_FAST warns only, never fails (the owner's decision;
-  contracts 1.6.7)`.
+- Review of the PR. After merge, the owner's next request re-scores cached takes under `default.v4`
+  (QA only; no new render, no re-measure).
