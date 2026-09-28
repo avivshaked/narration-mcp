@@ -16,6 +16,7 @@ import pytest
 import soundfile
 from jsonschema import Draft202012Validator
 
+from narration.backend.service import KIND_OF_TOOL, RUNNABLE_KINDS
 from narration.config import VoicesConfig
 from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
@@ -230,8 +231,14 @@ def test_an_audition_without_a_carrier_speaks_the_term_s7_6(steps: Service) -> N
 # ======================================================================== the build's kinds
 
 
-@pytest.mark.parametrize("tool", ["audition_pronunciation"])
+def test_this_build_runs_every_tools_kind_s7_1() -> None:
+    assert set(KIND_OF_TOOL.values()) <= RUNNABLE_KINDS, "WP35 landed the last handler (pronunciation)"
+
+
+@pytest.mark.parametrize("tool", sorted(KIND_OF_TOOL))
 def test_a_tool_whose_kind_the_daemon_does_not_run_says_so_at_once_s14(service: Service, tool: str) -> None:
+    """A build whose daemon lacks a tool's kind answers BACKEND_NOT_INSTALLED at once and queues nothing."""
+    service.backend.kinds = ALL_KINDS - {KIND_OF_TOOL[tool]}
     before = len(service.world.store.queued_jobs())
     with pytest.raises(NarrationError) as caught:
         getattr(service.backend, f"{tool}_sync")({})

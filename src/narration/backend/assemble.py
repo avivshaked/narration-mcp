@@ -30,11 +30,14 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from narration.audition import SIMILARITY, AuditionAsk, AuditionRequestError, heard_term
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Store, TextPlanner
 from narration.contracts.models import (
     AnalysisRecord,
+    AuditionResult,
+    AuditionVariantResult,
     Consistency,
     CueTiming,
     EngineRef,
@@ -279,6 +282,64 @@ def assemble(
     return Assembled(segments=tuple(out), engine=engine, licence=licence)
 
 
+def assemble_audition(
+    store: Store, text_planner: TextPlanner, job: JobRecord, *, include_words: bool, include_transcripts: bool
+) -> AuditionResult:
+    """An audition's results (section 7.6): per variant, in the request's order, its engine text and every take
+    found, each with what the recogniser heard in the term's place and its similarity to the clip.
+
+    Each variant is planned again from the stored request, exactly as the handler planned it
+    (``narration.audition.AuditionAsk.segments``), so its text echo and engine text are the request's own. The
+    takes come from the job's items and the cache, as a generation job's do (``take_result``); the similarity
+    comes from the job's result (``spk_sim_clip``, by take id), which the handler writes when it finishes."""
+    try:
+        ask = AuditionAsk.parse(job.request)
+    except AuditionRequestError as exc:
+        raise NarrationError(codes.INTERNAL, f"the audition's request cannot be read: {exc}", retryable=False) from exc
+    items: dict[str, JobSegment] = {item.segment_id: item for item in job.items}
+    raw = (job.result or {}).get(SIMILARITY)
+    similarity: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}  # pyright: ignore[reportUnknownVariableType]
+    variants: list[AuditionVariantResult] = []
+    for variant, (segment, hint) in zip(ask.variants, ask.segments(), strict=True):
+        (text,) = text_planner.plan_request([segment], [hint], strict_text=False)
+        item = items.get(segment.segment_id)
+        takes: list[TakeResult] = []
+        heard: list[str | None] = []
+        sims: list[float | None] = []
+        for attempt in item.attempts if item is not None else ():
+            found = _records(store, attempt)
+            if found is None:
+                continue
+            render, take, analysis = found
+            takes.append(
+                take_result(
+                    store,
+                    attempt=attempt,
+                    take=take,
+                    render=render,
+                    analysis=analysis,
+                    segment=segment,
+                    text=text,
+                    include_words=include_words,
+                    include_transcripts=include_transcripts,
+                )
+            )
+            heard.append(heard_term(analysis.qa.terms) if analysis is not None else None)
+            sim = similarity.get(take.take_id)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            sims.append(float(sim) if isinstance(sim, int | float) and not isinstance(sim, bool) else None)  # pyright: ignore[reportUnknownArgumentType]
+        variants.append(
+            AuditionVariantResult(
+                label=variant.label,
+                respell=variant.respell,
+                engine_text=text.engine_text,
+                takes=tuple(takes),
+                heard=tuple(heard),
+                spk_sim_clip=tuple(sims),
+            )
+        )
+    return AuditionResult(term=ask.term, carrier=ask.carrier, variants=tuple(variants))
+
+
 def _records(store: Store, attempt: JobAttempt) -> tuple[RenderRecord, TakeRecord, AnalysisRecord | None] | None:
     """The attempt's render, take and analysis, or None when it has no take (unfinished) or its records left
     the cache (collected after the retention period)."""
@@ -313,6 +374,7 @@ def segments_json(segments: Sequence[SegmentResult]) -> list[dict[str, Any]]:
 __all__ = [
     "Assembled",
     "assemble",
+    "assemble_audition",
     "consistency_of",
     "measured_error",
     "restamp_exact",

@@ -60,10 +60,10 @@ def engine(host: RunnerHost, *, probe: VramProbe | None = None) -> JobEngine:
 def more_handlers(host: RunnerHost, engine: JobEngine) -> Mapping[str, JobHandler[Any]]:
     """The handlers of the other job kinds, by kind, built on the daemon's job ``engine`` so that they share
     its residency, throughput and canary: ``measure`` (WP33's ``measure_voice``), ``design`` and ``profile``
-    (WP34's ``design_voice`` and ``profile_voice``). WP35 adds ``pronunciation`` here; until then a job of that
-    kind fails with ``INTERNAL`` and ``details.kind``.
+    (WP34's ``design_voice`` and ``profile_voice``), and ``pronunciation`` (WP35's ``audition_pronunciation``).
     """
-    # Imported here: narration.measure and narration.design build on narration.jobs.
+    # Imported here: narration.measure, narration.design and narration.audition build on narration.jobs.
+    from narration.audition import AUDITION_KIND, build_audition_handler
     from narration.design import DESIGN_KIND, PROFILE_KIND, build_design_handler, build_profile_handler
     from narration.measure import KIND, build_measure_handler
 
@@ -71,6 +71,7 @@ def more_handlers(host: RunnerHost, engine: JobEngine) -> Mapping[str, JobHandle
         KIND: build_measure_handler(engine),
         DESIGN_KIND: build_design_handler(engine),
         PROFILE_KIND: build_profile_handler(engine),
+        AUDITION_KIND: build_audition_handler(engine),
     }
 
 
