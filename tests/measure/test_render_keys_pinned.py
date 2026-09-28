@@ -56,9 +56,7 @@ def fixed_clip(path: Path) -> str:
 
 def planned_attempts(root: Path) -> list[tuple[str, int, int, str]]:
     """(segment_id, attempt, seed, render_key) of every attempt a full measurement plans, in plan order."""
-    world = make_world(
-        root, ladder=FULL_LADDER, seeds=SEEDS, corpus=corpus_data(), material=default_material_root()
-    )
+    world = make_world(root, ladder=FULL_LADDER, seeds=SEEDS, corpus=corpus_data(), material=default_material_root())
     try:
         clip = root / "pinned" / "clip.wav"
         sha = fixed_clip(clip)
@@ -78,7 +76,9 @@ def planned_attempts(root: Path) -> list[tuple[str, int, int, str]]:
 def test_measurement_render_keys_and_seeds_are_unchanged_by_the_pace_rule_s10_2_s10_3(tmp_path: Path) -> None:
     planned = planned_attempts(tmp_path)
     lines = "".join(f"{segment_id} {attempt} {seed} {key}\n" for segment_id, attempt, seed, key in planned)
-    first = next((seed, key) for segment_id, attempt, seed, key in planned if segment_id == "ladder-080" and not attempt)
+    first = next(
+        (seed, key) for segment_id, attempt, seed, key in planned if segment_id == "ladder-080" and not attempt
+    )
     assert first == PINNED_LADDER_080_ATTEMPT_0
     assert hashlib.sha256(lines.encode("utf-8")).hexdigest() == PINNED_PLAN_SHA256
     assert len(planned) == 13 * SEEDS  # the design text, three calibration paragraphs and nine rungs

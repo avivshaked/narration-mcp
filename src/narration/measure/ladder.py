@@ -193,8 +193,7 @@ def judge(
         reasons.append("no seed's pace could be measured")
     elif cps > limit:
         reasons.append(
-            f"median pace {cps:.2f} characters per second of speaking time is above the trend x (1 + tol) = "
-            f"{limit:.2f}"
+            f"median pace {cps:.2f} characters per second of speaking time is above the trend x (1 + tol) = {limit:.2f}"
         )
     wer = median([s.wer_adj for s in rung.seeds])
     errors = median([None if s.word_errors is None else float(s.word_errors) for s in rung.seeds])

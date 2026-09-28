@@ -58,6 +58,14 @@ SHORT_LADDER: Final = (80, 150, 350)
 SHORT_CALIBRATION: Final = ("cal-02",)
 """The corpus paragraphs the tests' calibration set keeps, beside the design text."""
 DESIGN_SEGMENT: Final = "cal-design"
+FAKE_PACE_TOL_MIN: Final = 0.6
+"""The measure tests' pace tolerance floor, wide on purpose, like the job tests' measurement (tol 0.6). The
+fake gives every word a fixed 0.2 s beside its letters, so its pace in characters per second falls as its
+words get shorter: on the corpus, its 80-character rung reads about 9 % faster than its 150 (KNOW, computed
+through the delivery pipeline), and a trend through those two, extended to 400 characters, sits about 34 % under
+what the fake reads there. A real voice's rate does not follow word length that way (plan.md WP47). The
+ladder's pace rule is tested on numbers in ``test_ladder``; these tests are about the job, so the fake's
+arithmetic must not end its ladders."""
 
 
 # ======================================================================== the corpus
@@ -242,7 +250,10 @@ def make_world(
     (store_root / "scratch").mkdir(parents=True, exist_ok=True)
     base = Config.for_tests(store_root, models_root)
     config = dataclasses.replace(
-        base, measurement=MeasurementConfig(seeds=seeds, length_ladder_spoken_chars=tuple(ladder))
+        base,
+        measurement=MeasurementConfig(
+            seeds=seeds, length_ladder_spoken_chars=tuple(ladder), pace_tol_min=FAKE_PACE_TOL_MIN
+        ),
     )
     data = dict(corpus) if corpus is not None else corpus_data(calibration=SHORT_CALIBRATION)
     material_root = material if material is not None else write_corpus(root / "material", data, status=status)
