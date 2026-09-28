@@ -485,6 +485,7 @@ approves it; WP46-A turns it into a test.
 
 ```python
 """Probe: how a read-only reader behaves beside the store's own connections (WP46 plan evidence)."""
+
 import hashlib, sqlite3, sys, time
 from pathlib import Path
 from narration.store import db
@@ -492,35 +493,59 @@ from narration.store import db
 root = Path(sys.argv[1]) / "store"
 root.mkdir(parents=True, exist_ok=True)
 path = root / "narration.sqlite"
-w = db.connect(path); db.migrate(w); w.close()
+w = db.connect(path)
+db.migrate(w)
+w.close()
+
+
 def state():
     return {p.name: (p.stat().st_size, hashlib.sha256(p.read_bytes()).hexdigest()[:12]) for p in sorted(root.iterdir())}
+
+
 print("1 after create+close:", state())
 # (a) re-running migrate on an up-to-date store: does anything change?
-before = state(); c = db.connect(path); db.migrate(c); c.close(); print("2 migrate again changes files:", before != state(), state())
+before = state()
+c = db.connect(path)
+db.migrate(c)
+c.close()
+print("2 migrate again changes files:", before != state(), state())
 # (b) mode=ro with no -wal/-shm present
 uri = f"file:{path.as_posix()}?mode=ro"
 r = sqlite3.connect(uri, uri=True, isolation_level=None)
 r.execute("PRAGMA query_only = ON")
-print("3 ro open, jobs rows:", r.execute("SELECT count(*) FROM jobs").fetchone(), "journal:", r.execute("PRAGMA journal_mode").fetchone())
+print(
+    "3 ro open, jobs rows:",
+    r.execute("SELECT count(*) FROM jobs").fetchone(),
+    "journal:",
+    r.execute("PRAGMA journal_mode").fetchone(),
+)
 try:
     r.execute("INSERT INTO settings VALUES ('x','y')")
 except sqlite3.Error as e:
     print("4 ro write refused:", type(e).__name__, e)
 # (c) reader while a writer holds BEGIN IMMEDIATE and has uncommitted rows
 w = db.connect(path)
-w.execute("BEGIN IMMEDIATE"); w.execute("INSERT INTO settings VALUES ('a','1')")
-t = time.perf_counter(); n = r.execute("SELECT count(*) FROM settings").fetchone()[0]
-print(f"5 read during writer txn: rows={n}, {1000*(time.perf_counter()-t):.2f} ms (not blocked)")
+w.execute("BEGIN IMMEDIATE")
+w.execute("INSERT INTO settings VALUES ('a','1')")
+t = time.perf_counter()
+n = r.execute("SELECT count(*) FROM settings").fetchone()[0]
+print(f"5 read during writer txn: rows={n}, {1000 * (time.perf_counter() - t):.2f} ms (not blocked)")
 w.execute("COMMIT")
 print("6 read after commit:", r.execute("SELECT count(*) FROM settings").fetchone()[0])
 # (d) a long read txn blocks checkpoint reset (WAL growth)
-r.execute("BEGIN"); r.execute("SELECT count(*) FROM settings").fetchone()
-for i in range(200): w.execute("INSERT INTO settings VALUES (?, 'v')", (f"k{i}",))
-print("7 checkpoint while reader holds snapshot:", tuple(w.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()), "(busy, log, ckpt)")
+r.execute("BEGIN")
+r.execute("SELECT count(*) FROM settings").fetchone()
+for i in range(200):
+    w.execute("INSERT INTO settings VALUES (?, 'v')", (f"k{i}",))
+print(
+    "7 checkpoint while reader holds snapshot:",
+    tuple(w.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()),
+    "(busy, log, ckpt)",
+)
 r.execute("COMMIT")
 print("8 checkpoint after reader ends:", tuple(w.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()))
-r.close(); w.close()
+r.close()
+w.close()
 ```
 
 Output (the hashes differ from run to run, since the migration records the time it ran; what matters is
