@@ -269,7 +269,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   asked for a daemon and what happens next, or with `[daemon] autostart` off, who must start one. When no
   daemon can be started, `get_job` answers `DAEMON_UNAVAILABLE` (retryable) with the job and the hint to run
   `narration-admin daemon start`. A queued job is left alone for 30 s after it was written, while the daemon
-  its submission asked for starts up.
+  its submission asked for starts up. A queued job that `narration-admin daemon stop` left in the queue starts
+  no daemon: `get_job` says it runs on the next start (`narration-admin daemon start`, or the next
+  `submit_job`). A daemon that stopped because it failed, or a stop asked before the job was queued, does not
+  hold the job back.
 - A daemon launched by `get_job`, `cancel_job` or `submit_job` is recorded in the store (`run/launch.json`: when
   it was launched, and its pid). While that daemon is starting (90 s at most, and until it writes its status),
   `get_job` and `cancel_job` ask for no other, so repeated polls during a start launch one daemon, and a start

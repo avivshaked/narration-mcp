@@ -6,9 +6,10 @@ the launcher for a daemon when none runs, and ``get_job`` says so in its reply, 
 with what to do when none can be started. The fake launcher starts nothing; where a test needs the new daemon's
 start-up, it runs the daemon's own sweep (``narration.daemon.sweep``) at ``ensure``.
 
-While a launched daemon is still starting (``run/launch.json``, ``narration.daemon.start``), no other is asked
-for. Those tests run the real ``DetachedLauncher`` and ``start_detached`` over the stand-in platform, which
-records each launch and starts nothing.
+A queued job that an operator's stop left in the queue starts no daemon (``operator_stop``); a queued job
+under any other ``stopped`` status does. While a launched daemon is still starting (``run/launch.json``,
+``narration.daemon.start``), no other is asked for. Those tests run the real ``DetachedLauncher`` and
+``start_detached`` over the stand-in platform, which records each launch and starts nothing.
 
 Every text is invented for these tests.
 """
@@ -27,17 +28,24 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from narration.backend.launch import DAEMON_RETRY_S, DetachedLauncher, unavailable
-from narration.backend.service import DAEMON_START_GRACE_S, NarrationBackend
+from narration.backend.service import (
+    DAEMON_START_GRACE_S,
+    STOP_TO_STOPPED_S,
+    NarrationBackend,
+    Revival,
+    operator_stop,
+)
 from narration.config import DaemonConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
-from narration.contracts.models import JobRecord
+from narration.contracts.models import DaemonCommand, JobRecord
+from narration.contracts.names import DaemonCommandKind
 from narration.contracts.schemas import TOOLS_BY_NAME
 from narration.daemon import start as daemon_start
 from narration.daemon.settings import DaemonSettings
 from narration.daemon.sweep import sweep
 from narration.platform.testing import StandInPlatform
-from narration.store.store import utc_iso
+from narration.store.store import parse_iso, utc_iso
 from tests.jobs.support import LAMPS
 
 from .conftest import Service
@@ -112,6 +120,7 @@ def test_get_job_reports_the_request_before_the_new_daemon_has_run_s7_4(service:
 def test_get_job_asks_for_a_daemon_for_a_queued_job_with_none_after_the_grace_s4(service: Service) -> None:
     job_id = service.backend.submit_job_sync(service.request(LAMPS))["job_id"]
     service.launcher.ensured.clear()
+    assert service.world.store.get_daemon_status() is None, "no daemon has run: no operator stopped one"
     out = get_job(service.backend, {"job_id": job_id})
     assert service.launcher.ensured == [], "the daemon its submission asked for may still be starting up"
     assert out["message"] == "queued"
@@ -392,3 +401,158 @@ def test_launch_in_progress_reads_the_record_and_the_status_s4_1(service: Servic
     assert daemon_start.launch_in_progress(store, now=now + 1) is None, "it has started"
     daemon_start.launch_path(store.root).write_text("{not json", encoding="utf-8")
     assert daemon_start.read_launch(store.root) is None, "a torn record is no launch"
+
+
+# ======================================================================== a queued job after a stop (4.1)
+
+
+def queued(service: Service) -> str:
+    """A job submitted and still queued; its submission's ``ensure`` is forgotten. Store times are cut to the
+    millisecond, so the helper waits a little: whatever a test does next is stamped later."""
+    job_id = service.backend.submit_job_sync(service.request(LAMPS))["job_id"]
+    service.launcher.ensured.clear()
+    time.sleep(0.01)
+    return job_id
+
+
+def answered(service: Service, command: DaemonCommand) -> DaemonCommand:
+    """The daemon answers a stop it stops for, as ``narration.daemon.service`` does."""
+    time.sleep(0.01)
+    return service.world.store.complete_command(command.command_id, {"stopped": True, "requeued": []})
+
+
+def stopped_status(service: Service, *, after: DaemonCommand | None = None, later_s: float = 0.01) -> None:
+    """``run/daemon.json`` as a daemon's exit leaves it: ``stopped``, with no pid and no start time, written
+    ``later_s`` after ``after`` was answered (or now)."""
+    at = parse_iso(after.done_at) + later_s if after is not None and after.done_at is not None else time.time()
+    status = dataclasses.replace(daemon_status(state="stopped"), pid=None, started_at=None, updated_at=utc_iso(at))
+    service.world.store.put_daemon_status(status)
+
+
+def past_the_grace(service: Service) -> None:
+    service.backend.clock = lambda: time.time() + DAEMON_START_GRACE_S + 1
+
+
+@pytest.mark.parametrize(
+    ("kind", "later_s"),
+    [("stop", 0.01), ("stop_now", 0.01), ("stop", 5.0)],
+    ids=["stop", "stop_now", "honoured by the daemon that took over"],
+)
+def test_a_job_queued_before_an_operators_stop_waits_for_the_next_start_s4_1(
+    service: Service, kind: DaemonCommandKind, later_s: float
+) -> None:
+    job_id = queued(service)
+    stop = answered(service, service.world.store.post_command(kind))
+    stopped_status(service, after=stop, later_s=later_s)
+    past_the_grace(service)
+    out = get_job(service.backend, {"job_id": job_id})
+    assert service.launcher.ensured == [], "the operator stopped the service; get_job starts none"
+    assert out["status"] == "queued"
+    message = out["message"]
+    assert "'narration-admin daemon stop' after this job was queued" in message
+    assert "narration-admin daemon start" in message and "submit_job" in message, "how the job resumes"
+    found = operator_stop(service.world.store, service.world.job(job_id))
+    assert found is not None and found.command_id == stop.command_id
+
+
+def test_an_operators_stop_starts_nothing_with_autostart_off_either_s4_1(service: Service) -> None:
+    config = dataclasses.replace(service.world.config, daemon=DaemonConfig(autostart=False))
+    backend, _, launcher = make_backend(dataclasses.replace(service.world, config=config))
+    job_id = queued(service)
+    stopped_status(service, after=answered(service, service.world.store.post_command("stop")))
+    backend.clock = lambda: time.time() + DAEMON_START_GRACE_S + 1
+    out = get_job(backend, {"job_id": job_id})
+    assert launcher.ensured == []
+    assert "narration-admin daemon stop" in out["message"] and "autostart is off" not in out["message"]
+
+
+def test_a_job_queued_while_a_stop_finished_its_segment_starts_a_daemon_s4_1(service: Service) -> None:
+    # (c): the stop was posted, the job was submitted while the old daemon finished its in-flight segment (the
+    # daemon its submission launched gave up waiting for the singleton), then the old daemon answered and stopped.
+    stop = service.world.store.post_command("stop")
+    time.sleep(0.01)
+    job_id = queued(service)
+    stopped_status(service, after=answered(service, stop))
+    past_the_grace(service)
+    out = get_job(service.backend, {"job_id": job_id})
+    assert len(service.launcher.ensured) == 1, "a stop asked before the job was queued is not its stop"
+    assert "so get_job asked for one to start" in out["message"]
+
+
+@pytest.mark.parametrize(
+    "why",
+    ["its control loop failed", "its worker supervisor failed", "it exited idle as the job was queued"],
+)
+def test_a_daemon_that_stopped_with_no_operators_stop_is_replaced_s4_1(service: Service, why: str) -> None:
+    # (a), (b) and (d): each exit writes stopped (tests/daemon/test_daemon.py pins that), and none answers a stop.
+    job_id = queued(service)
+    stopped_status(service)
+    past_the_grace(service)
+    out = get_job(service.backend, {"job_id": job_id})
+    assert len(service.launcher.ensured) == 1, why
+    assert "so get_job asked for one to start" in out["message"]
+
+
+def test_a_job_whose_submission_could_not_start_a_daemon_gets_one_later_s4_1(service: Service) -> None:
+    # (e): the submission's start failed (the caller was told), and the daemon that was exiting then stopped.
+    service.launcher.error = NarrationError(codes.DAEMON_UNAVAILABLE, "no start", retryable=True)
+    error = refused(lambda: service.backend.submit_job_sync(service.request(LAMPS)))
+    assert error.details is not None
+    job_id = str(error.details["job_id"])
+    assert service.world.job(job_id).status == "queued"
+    service.launcher.error = None
+    service.launcher.ensured.clear()
+    time.sleep(0.01)
+    stopped_status(service)
+    past_the_grace(service)
+    get_job(service.backend, {"job_id": job_id})
+    assert len(service.launcher.ensured) == 1
+
+
+def test_a_daemon_that_crashed_is_replaced_for_a_queued_job_s4_1(service: Service) -> None:
+    job_id = queued(service)
+    dead_status(service, time.time())  # busy, and its pid is gone: no finally ran
+    past_the_grace(service)
+    get_job(service.backend, {"job_id": job_id})
+    assert len(service.launcher.ensured) == 1
+
+
+def test_a_daemon_that_served_after_the_stop_then_failed_is_replaced_s4_1(service: Service) -> None:
+    job_id = queued(service)
+    stop = answered(service, service.world.store.post_command("stop"))
+    # A later daemon started, served, and failed: its stopped status is written long after the stop's answer.
+    stopped_status(service, after=stop, later_s=STOP_TO_STOPPED_S + 60)
+    past_the_grace(service)
+    get_job(service.backend, {"job_id": job_id})
+    assert len(service.launcher.ensured) == 1, "the operator's stop was lifted by the start that followed it"
+
+
+def test_only_a_stop_answered_stopped_true_is_the_operators_s4_1(service: Service) -> None:
+    store = service.world.store
+    job_id = queued(service)
+    stale = store.post_command("stop")
+    time.sleep(0.01)
+    done = store.complete_command(stale.command_id, {"stopped": False, "reason": "stale"})
+    stopped_status(service, after=done)
+    assert operator_stop(store, service.world.job(job_id)) is None, "a stop answered stopped: false"
+    release = store.post_command("release_gpu")
+    time.sleep(0.01)
+    stopped_status(service, after=store.complete_command(release.command_id, {"released": False}))
+    assert operator_stop(store, service.world.job(job_id)) is None, "not a stop"
+
+
+def test_no_stopped_status_means_no_operators_stop_s4_1(service: Service) -> None:
+    store = service.world.store
+    job_id = queued(service)
+    stop = answered(service, store.post_command("stop"))
+    assert operator_stop(store, service.world.job(job_id)) is None, "no status at all"
+    store.put_daemon_status(dataclasses.replace(daemon_status(state="stopping"), updated_at=stop.done_at or ""))
+    assert operator_stop(store, service.world.job(job_id)) is None, "a daemon that has not stopped yet"
+    (store.root / "run" / "daemon.json").write_text("{torn", encoding="utf-8")
+    assert operator_stop(store, service.world.job(job_id)) is None, "an unreadable status"
+
+
+def test_the_operators_stop_note_is_dropped_once_a_daemon_moved_the_job_on_s4_1() -> None:
+    revival = Revival(action="stopped", status="queued")
+    assert "stays in the queue" in revival.note(status_now="queued")
+    assert "one has started since" in revival.note(status_now="running")

@@ -1,51 +1,122 @@
 # WP36-liveness A dead daemon, a mistyped transcript, and cached analyses in the plan
-State: blocked:paused-by-owner        Updated: 2026-09-27 (PR #41 review, round 2, paused mid-way)
+State: active        Updated: 2026-09-28 (PR #41 review, round 3: L1 built; CI is the test runner)
 
-## PR #41 review, round 2 (paused by the owner; WIP commit, not ready for review)
+## PR #41 review, rounds 2 and 3
 
-Done (targeted tests passed before the pause: tests/backend, tests/mcp, tests/daemon without test_process,
-test_owned and test_entry: 471 passed; tests/jobs, tests/engine/test_daemon_backend.py, tests/keys: 233 passed;
-tests/lint and test_package: 57 passed; ruff check, ruff format --check and basedpyright clean on the changed files):
+The owner needs the machine, so no local pytest and no basedpyright ran in round 3 (the lead's instruction).
+Round 3 ran ruff check and ruff format --check on the changed files, check_private and check_tracked locally;
+the tests run on GitHub's CI (run ids in "Tests"). Round 2's numbers are from before the owner's pause.
+
+Done:
+- **L1, option (b') as the lead approved it, with one adaptation.** A queued job under a `stopped` status starts
+  no daemon only when an operator's stop left it there (`service.operator_stop`): a `stop` or `stop_now`
+  answered `stopped: true` that was posted after the job was created, and that the daemon which wrote `stopped`
+  stopped for. The note then says the job stays queued and runs on the next start ('narration-admin daemon
+  start', or the next submit_job while autostart is on). Every other queued job whose daemon has gone gets one;
+  with autostart off, the existing note only. `running` and `cancelling` jobs are revived as before.
+  - **The adaptation (please confirm).** The approved rule reads `store.commands_since(status.started_at)`, but
+    a `stopped` status keeps no start time: `StatusBoard._record` writes `started_at=None` (and `pid=None`)
+    once stopped (daemon/status.py). My round-2 proposal assumed it was kept; it is not. And a kept start time
+    would not suffice: a daemon that took over and honoured a stop the one before it answered started after
+    that stop was posted, so the rule would read that operator's stop as a crash and start a third daemon,
+    which would not honour the stop (it was posted before its launch) and would run the stopped jobs.
+  - So "the stop is among the commands since that daemon started" is read from store times instead: the stop
+    was answered at most `STOP_TO_STOPPED_S` (30 s, BELIEVE) before `stopped` was written. The daemon answers
+    its stops just before it writes `stopped` (the same `finally`), and a daemon that honours an answered stop
+    writes `stopped` within its start-up. A later daemon that served and then failed writes `stopped` long
+    after the stop's answer, so its queued jobs get a daemon. Only store times are compared (the command's
+    `requested_at` and `done_at`, the status's `updated_at`, the job's `created_at`); no process clock.
+  - **What is left over:** a daemon launched by a later submission that fails within 30 s of the operator's stop
+    being answered is read as that stop, for jobs queued before the stop. The later submission's own job is
+    not (it was created after the stop), so its next get_job starts a daemon, which runs them all.
+  - The exact alternative is a daemon change, and I did not make it: `run/daemon.json` could keep the stopped
+    daemon's launch time, or why it stopped (a contract field, 1.6.10). That is WP30's area; see the requests below.
+  - **Tests** (in CI): tests/backend/test_liveness.py covers each case against the store state it leaves:
+    - the operator's `stop`, `stop_now`, and a stop honoured by the daemon that took over: note only;
+    - the same with autostart off: the operator's note, not the autostart one;
+    - (c) a job queued while the stop's segment finished: a start;
+    - (a), (b) and (d), a stopped status with no stop answered: a start;
+    - (e) a submission whose start failed: a start on the next get_job;
+    - a crash (busy status, dead pid): a start;
+    - a daemon that served after the stop and then failed: a start;
+    - a stop answered `stopped: false`, a `release_gpu`, no status, a `stopping` status, an unreadable status:
+      none is an operator's stop;
+    - the note is dropped once a daemon moved the job on.
+
+    tests/daemon/test_daemon.py pins what each real exit leaves, with `operator_stop` on the result:
+    - an operator's stop: found;
+    - the daemon that took over and honoured a stop (the existing test, one assertion added): found;
+    - a control loop that raised (EXIT_ERROR): `stopped` and none found;
+    - a worker supervisor whose `__enter__` raised: `stopped` and none found;
+    - an idle exit with a job it never saw: none found.
+  - `test_get_job_asks_for_a_daemon_for_a_queued_job_with_none_after_the_grace_s4` now also asserts that no
+    daemon status exists (no operator stopped one).
 - L2: `start_detached` records `run/launch.json` (pid, launch time; temp name and rename). `_revive` asks for no
   daemon while a launch is younger than `START_WINDOW_S` = 90 s (`takeover_wait_s` 60 s + 30 s interpreter start
   and imports; BELIEVE, to be measured) and no status was written since. Tests: repeated polls, cancel then
-  get_job, a stuck start (one launch per window), a start that died (replaced at once).
+  get_job, a stuck start (one launch per window), a start that died (replaced at once). The operator-stop check
+  comes before the launch check, so the note for a stopped job is right even while a later launch starts.
+  Known: a launched daemon that fails through its `finally` writes `stopped` with no start time, which the
+  launch check cannot tell from a start in progress, so it is replaced after the window (up to 90 s), not at
+  once. A daemon that crashes hard (its status left busy) is replaced at once.
 - L3: explicit `SHIELDED_TOOLS` (server.py) and `RETRYABLE_TOOLS` (descriptions.py, with get_job); get_job's
   description gets the backoff rule plus one clause; readOnlyHint stays true.
 - L4: "asked for one"; the log line only with autostart on; the stale "(daemon state: ...)" is dropped when the
   poll ended on a status change.
 - L5: a negative age within the grace counts as just written; the 30 s grace is labelled BELIEVE.
 - L6: the wait_s test counts polls instead of timing (a mutation check showed 10 polls against at most 1).
-- F1/F2: `details.transcript_mismatch.rewrites`, a hint phrased as steps, `transcript + "
-"` as a spelling;
-  tests for the double space, the leading space, the ellipsis and the measured trailing newline. CHANGELOG and
-  the measures.py docstring say which directions are caught.
+- F1/F2: `details.transcript_mismatch.rewrites`, a hint phrased as steps, the transcript plus a trailing newline
+  as a spelling; tests for the double space, the leading space, the ellipsis and the measured trailing newline.
+  CHANGELOG and the measures.py docstring say which directions are caught.
 - F3: `AnalysisPins.aligner_revision` (no key input), filled by `InstalledPins`; `get_server_status` reports it
   before the benchmark has run.
 - F5: one builder, `narration.jobs.plan.analysis_key_inputs`, used by `Stages.key_inputs` and
   `planning.analysis_key_inputs`. Tests: a parity test over the real `Stages.key_inputs` (with hints and an exact
   span), and one key pinned at the value the code computed before the refactor.
 
-Not done:
-- L1, NOT BUILT, as asked ("stop and tell me before building"). A `stopped` status is not only an operator's
-  decision, so option (b) would leave these queued jobs stuck:
-  - (a) the control loop raising: `log.exception(...)`, then EXIT_ERROR; `_run_held`'s finally still writes
-    `stopped` (daemon/service.py, `_run_held`);
-  - (b) the supervisor factory raising: that goes through the same finally;
-  - (c) a job submitted during an operator stop's in-flight segment: the daemon its submit launched gives up
-    after `takeover_wait_s` (60 s) while the old one finishes the segment; then the old one writes `stopped`.
-    The design intends that job to run: a stop posted before a daemon's launch is not honoured by it;
-  - (d) an idle exit that takes more than 60 s after `has_work` said no, while a job is submitted (unlikely);
-  - (e) the submit's ensure failed and the old daemon exits cleanly (the caller was told at submit).
-  - Proposed (b'): a queued job under `stopped` is an operator's stop only if `store.commands_since(status.started_at)`
-    has a `stop`/`stop_now` answered `stopped: true` AND the job was created before that stop was posted.
-    Otherwise start one (autostart off: the note only). Waiting on the lead's decision.
-- The design text proposals (§4/§4.1 for L1 and L2's launch marker; §3.2/§7.3/§14 for F4, that
-  VOICE_NOT_MEASURED's hint depends on a nearby spelling being measured) are still to be written into this file.
-- A follow-up to measure start-to-status time (for the 30 s grace and the 90 s window).
-- Merge main when the lead says (conflicts expected in descriptions.py from #40, and maybe daemon/start.py from #37),
-  then the full suite, and set State to review.
+### Design text proposals (docs/design.md is the lead's; nothing edited there)
+- **§4, who starts the daemon.** Now: "by the first submission, or by `narration-admin daemon start`". Proposed:
+  "by a submission, by `narration-admin daemon start`, or by `get_job` or `cancel_job` for an active job that no
+  daemon serves: a job left `running` or `cancelling`, or a `queued` job that no operator's stop left in the
+  queue (§4.1). A launch is recorded in `run/launch.json` (the launched pid and the time), which is the
+  service's operational state, never a caller's (§0.2). While a launch is younger than the start window
+  (90 s: the singleton takeover wait of 60 s plus start-up; BELIEVE until measured) and no daemon status has
+  been written since, `get_job` and `cancel_job` launch no other, so a start costs one launch per window even
+  when it hangs."
+- **§4.1, what a stop means for queued jobs.** Proposed addition: "An operator's stop (`narration-admin daemon
+  stop`, answered `stopped: true`) holds for the jobs queued before it was posted: `get_job` starts no daemon
+  for them, and says they run on the next start (`narration-admin daemon start`, or a later submission). A job
+  submitted after the stop starts a daemon as any submission does, even while the stop's in-flight segment
+  finishes; that daemon does not honour the earlier stop. A `stopped` status alone is not an operator's
+  decision: a daemon whose control loop or worker supervisor failed, and one that exited idle, write it too,
+  and their queued jobs get a daemon. The front-end tells them apart from the store: the stop's answer is
+  written just before `stopped` (within 30 s, BELIEVE, allowing for a daemon that took over and honoured it)."
+- **§3.2, a voice's transcript.** Proposed addition: "The voice hash covers the transcript character for
+  character, so a clip measured under one transcript and sent with another spelling is another voice, and is
+  not measured. When a spelling a slip makes (the edges trimmed, the whitespace collapsed, a trailing newline
+  added, quotes, dashes and ellipses made plain, or straight quotes made typographic) is measured for the
+  clip, `VOICE_NOT_MEASURED` says so (§7.3)."
+- **§7.3, submit_job's `VOICE_NOT_MEASURED`.** Proposed: "`field` is `voice.transcript` and
+  `details.transcript_mismatch` is {`measured_voice_hash`, `rewrites`, `differs_in`, `first_difference`,
+  `sent`, `measured`, `sent_chars`, `measured_chars`} when a nearby spelling of the transcript is measured for
+  this clip; the hint then gives the rewrites as steps, and says not to measure again. Otherwise `field` is
+  `voice`, with the general hint. Which hint a caller gets depends on whether such a spelling is measured: a
+  retyped word, or whitespace or a typographic dash the measured transcript had, gets the general hint.
+  Neither transcript is quoted."
+- **§14, the code table.** `VOICE_NOT_MEASURED`'s hint: "Run measure_voice first; or, when
+  `details.transcript_mismatch` is present, send the transcript as the clip was measured with it (its
+  `rewrites`), and do not measure again." `DAEMON_UNAVAILABLE` gains get_job as a tool that returns it.
 
+### Follow-ups
+- **Measure start-to-status time**: from a launch (`run/launch.json`) to the daemon's first status write, on
+  Windows with the virus scanner on and off, cold and warm. It turns three BELIEVE values into KNOW:
+  `DAEMON_START_GRACE_S` (30 s), `START_WINDOW_S` (90 s) and `STOP_TO_STOPPED_S` (30 s).
+- **An exact operator-stop signal** (for the lead; WP30's area, and a contract change): keep the stopped
+  daemon's launch time in `run/daemon.json`, or record why it stopped (operator stop, idle, failure). Either
+  one removes the 30 s reading and its leftover case.
+- A launched daemon that fails through its `finally` is replaced after the start window, not at once (above).
+
+## Round 1
 
 Branch `wp/36-liveness`, rebased onto `main` 78b2fae (docs only since 10270ba). Fixes three readiness-audit findings in WP36's area (the
 front-end's backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13/mcp-12/triage-5.
@@ -164,6 +235,9 @@ front-end's backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13
   one test. A second end-to-end test elsewhere would have repeated its 15 s measure run.
 
 ## Contract change requests
+- **Round 3: an exact signal for an operator's stop** (`DaemonStatus`, WP30's writer): keep the stopped daemon's
+  launch time in `run/daemon.json` (today `started_at` is null once `stopped`), or add why it stopped
+  (`operator`, `idle`, `failed`). Then `operator_stop` needs no time window. Contracts 1.6.10 if taken.
 - **`get_job` output: an optional `daemon` object** `{state, started: bool, hint}` (schemas `_get_job_output`),
   present only when the call found no daemon for an active job. It would replace the note in `message`.
 - **`MeasurementRecord.transcript`** (design §6 already lists the "verified transcript" on Measurement), plus a
