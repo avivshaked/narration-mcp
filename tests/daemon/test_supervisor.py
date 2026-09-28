@@ -7,6 +7,7 @@ stand-in's kill-on-close group kills whatever is left when it closes.
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.workers import SubprocessWorkerClient, WorkerCommand, worker_command
 
-from .conftest import fake_env, our_children, running, unstartable
+from .conftest import WAIT_S, fake_env, our_children, running, unstartable, wait_until
 
 pytestmark = pytest.mark.timeout(120)
 
@@ -205,6 +206,51 @@ def test_a_worker_that_cannot_start_is_backend_not_installed_for_good_s14(
     assert again.value is first.value, "the same failure, without another attempt"
     assert len(platform.added) == started
     assert supervisor.failure("qa") is first.value
+
+
+def test_a_poll_during_a_failed_start_leaves_it_backend_not_installed_s14(
+    supervisors: SupervisorFactory, platform: StandInPlatform, config: Config, tmp_path: Path
+) -> None:
+    """The daemon's control loop polls while the job's thread starts a worker. A worker that cannot start exits
+    before ``hello``; if a poll saw the dead process before the client had read its exit code, it closed the
+    client, ``hello`` failed as "closed", and the job failed ``INTERNAL`` instead of ``BACKEND_NOT_INSTALLED``
+    (a flaky ``test_a_worker_that_cannot_start_fails_the_job_once_s14`` on Linux CI). A starting worker is left
+    to its start. The client's report of the exit is held back here until the poll has run."""
+    made: list[SubprocessWorkerClient] = []
+    polled = threading.Event()
+
+    class SlowToReport(SubprocessWorkerClient):
+        def __init__(self, command: WorkerCommand, **options: Any) -> None:
+            super().__init__(command, **options)
+            made.append(self)
+
+        def _stream_ended(self, reason: str | None) -> None:
+            polled.wait(WAIT_S)  # as a stderr pipe that is slow to drain does, on a loaded machine
+            super()._stream_ended(reason)
+
+    supervisor = supervisors(
+        command_factory=unstartable(config, fake_env(tmp_path), platform), client_factory=SlowToReport
+    )
+    raised: list[BaseException] = []
+
+    def start() -> None:
+        try:
+            supervisor.client("qa")
+        except BaseException as exc:
+            raised.append(exc)
+
+    starter = threading.Thread(target=start, name="test-start")
+    starter.start()
+    try:
+        wait_until(lambda: bool(made) and made[0].exit_code is not None, what="the worker to exit before hello")
+        supervisor.poll()  # the control loop's look, while the start still waits for hello
+    finally:
+        polled.set()
+    starter.join(WAIT_S)
+    assert not starter.is_alive()
+    assert len(raised) == 1 and isinstance(raised[0], WorkerFailure), raised
+    assert raised[0].code == "BACKEND_NOT_INSTALLED"
+    assert supervisor.failure("qa") is raised[0], "never tried again"
 
 
 def test_a_missing_worker_venv_is_backend_not_installed_without_a_start_s14(
