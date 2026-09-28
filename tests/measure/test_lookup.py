@@ -107,3 +107,37 @@ def test_a_measurement_whose_pace_was_in_words_per_minute_is_never_read_dc18(wor
     again = world.store.put_measurement(current)  # measure_voice again: another key, so it replaces the v1 row
     assert lookup_measurement(world.store, voice_hash=vh, engine_profile_id=ENGINE_ID) == again
     assert again.pace.method == names.PACE_METHOD and again.schema == names.MEASUREMENT_SCHEMA
+
+
+def test_a_measurement_of_another_pace_method_is_never_read_dc18(world: MeasureWorld) -> None:
+    """``pace.method`` names the rule the pace numbers were measured by. A measurement whose method is not the
+    service's ``names.PACE_METHOD`` is not read, whatever its schema says: its numbers are in another rule's
+    units. Measuring again replaces it."""
+    vh = voice_hash(world.clip_sha256)
+    profile = world.store.current_engine_profile("base")
+    assert profile is not None
+    corpus = world.handler.corpus(world.config.measurement.corpus)
+    key = measurement_key_of(voice_hash=vh, profile=profile, corpus=corpus, config=world.config)
+    current = dataclasses.replace(measurement(world.clip_sha256, (1.0, 0.0, 0.0)), measurement_key=key)
+    stored = world.store.put_measurement(current)
+    other_key = "sha256:" + "cd" * 32  # another method has another key: the key names the method
+    other = to_json(stored)
+    other.update(measurement_key=other_key, pace={**other["pace"], "method": "narration.pace/voiced-span-cps@0"})
+    with world.store._write() as conn:  # pyright: ignore[reportPrivateUsage]  # as another build would have stored it
+        conn.execute(
+            "UPDATE measurements SET record = ?, measurement_key = ? WHERE measurement_key = ?",
+            (json.dumps(other), other_key, key),
+        )
+        conn.execute(
+            "UPDATE files SET owner_id = ? WHERE owner_kind = 'measurement' AND owner_id = ?", (other_key, key)
+        )
+
+    assert lookup_measurement(world.store, voice_hash=vh, engine_profile_id=ENGINE_ID) is None
+    assert world.store.measurements_of(vh) == ()
+    with pytest.raises(NarrationError) as caught:
+        require_measured(world.store, voice_hash=vh, engine_profile_id=ENGINE_ID)
+    assert caught.value.code == codes.VOICE_NOT_MEASURED
+    assert current_measurement(world.store, voice_hash=vh, profile=profile, corpus=corpus, config=world.config) is None
+
+    again = world.store.put_measurement(current)
+    assert lookup_measurement(world.store, voice_hash=vh, engine_profile_id=ENGINE_ID) == again
