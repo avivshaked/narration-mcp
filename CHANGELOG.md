@@ -297,9 +297,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   the configuration names another: the setting changes nothing, since every take is scored with the
   build's profile. The warning says which profile runs and to update the line; it never fails the check.
   The daemon logs the same warning once when it starts.
-- The daemon logs one INFO line when a job ends (completed, failed or cancelled): its id, kind, final
-  status and outcome, the number of segments, the retakes used, and the wall time since it took the job.
-  Nothing of the request is logged: no text, no transcript, no path.
+- The daemon logs one INFO line when a job it ran ends (completed, failed or cancelled): its id, kind,
+  final status and outcome, the number of segments, the retakes used, and the wall time since it took the
+  job. A job cancelled while still queued never reached the daemon, so it gets no line. Nothing of the
+  request is logged: no text, no transcript, no path.
 - `DAEMON_UNAVAILABLE`'s `retry_after_s` is 60 s at every level when the daemon could not be detached (it
   was 30 s at the MCP tool level and 60 s in the platform's own error): the fix needs a person to run
   `narration-admin daemon start`, and a retry sooner than that fails the same way.
