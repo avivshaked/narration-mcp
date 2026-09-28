@@ -412,7 +412,8 @@ def test_progress_grows_with_retakes_and_never_goes_back_s7_4(world: World) -> N
     totals = [p.total_s for p in seen]
     finished = [p.segments_done for p in seen]
     assert dones == sorted(dones)
-    assert totals == sorted(totals) and totals[-1] == pytest.approx(3 * totals[0])
+    # total_s is stated to 0.001 s, so three rounded estimates can differ from the rounded total by 0.002.
+    assert totals == sorted(totals) and totals[-1] == pytest.approx(3 * totals[0], abs=0.002)
     assert finished == sorted(finished)  # a segment about to be retaken is not done yet
     assert seen[-1].fraction == 1.0 and seen[-1].segments_done == seen[-1].segments_total == 1
     phases = {p for p in world.host.phases if p is not None}
