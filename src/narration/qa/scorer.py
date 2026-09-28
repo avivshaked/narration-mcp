@@ -125,6 +125,7 @@ class Scorer:
                 articulation_cps=pace.articulation_cps,
                 expected_articulation_cps=pace.expected_cps,
                 pause_s=pace.pause_s,
+                speaking_share=pace.speaking_share,
             ),
             thresholds=QaThresholds(spk_warn=speaker.warn_below, spk_fail=speaker.fail_below, pace_tol=pace.tol),
             flags=flags,

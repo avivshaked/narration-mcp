@@ -93,6 +93,7 @@ METRIC_COLUMNS: Final = (
     "articulation_cps",
     "expected_articulation_cps",
     "pause_s",
+    "speaking_share",
 )
 """The QA metrics ``index.csv`` has a column for (``QaMetrics``' names). The pace QA judges since contracts
 1.6.9 is ``articulation_cps`` against ``expected_articulation_cps`` (WP47); a take scored before has them

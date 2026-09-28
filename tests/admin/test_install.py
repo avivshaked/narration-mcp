@@ -259,7 +259,13 @@ def test_after_a_worker_is_repaired_a_running_daemon_is_asked_to_stop_s4_1(
         admin, out, _ = make_admin(config_path, platform)
         assert run_install(admin, args(workers_only=True), sources=sources(synced=False)) == EXIT_OK
         assert [c.kind for c in store.pending_commands()] == ["stop"]
-        assert "asked to stop after its segment in flight" in out.getvalue()
+        said = out.getvalue()
+        assert "asked to stop after its segment in flight" in said
+        # Section 4.1: the stop holds for the jobs queued before it; the next start runs the whole queue.
+        assert "Jobs queued before this stop wait for the next start" in said
+        assert "daemon start`, or the next submit_job while [daemon] autostart is on" in said
+        assert "runs the whole queue" in said
+        assert "The next job starts" not in said
 
 
 def test_select_files_skips_docs_other_frameworks_and_pickles_beside_safetensors_s17_8() -> None:

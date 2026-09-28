@@ -492,6 +492,10 @@ class QaMetrics:
     minute this take would have if its speaking time ran at ``expected_articulation_cps`` and its pauses stayed
     as they are; null without a pace curve. An analysis made before 1.6.9 has no articulation fields, and its
     ``expected_spoken_wpm`` came from a pace curve in words per minute.
+
+    ``speaking_share`` (added, contracts 1.6.10; WP47's F3) is the take's own speaking time over its voiced span,
+    for information only: nothing judges it. Null when ``pause_s`` is (the silences were not measured), and in an
+    analysis made before 1.6.10.
     """
 
     wer_raw: float | None
@@ -509,6 +513,7 @@ class QaMetrics:
     articulation_cps: float | None = None
     expected_articulation_cps: float | None = None
     pause_s: float | None = None
+    speaking_share: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

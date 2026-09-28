@@ -102,6 +102,8 @@ class _Slot:
 
     role: WorkerRole
     client: SubprocessWorkerClient | None = None
+    starting: bool = False
+    """True while ``client`` is inside ``start()``: its start judges its own failure, so ``poll`` leaves it."""
     cublas: str | None = None
     crashes: deque[float] = field(default_factory=deque)
     failure: WorkerFailure | None = None
@@ -238,12 +240,16 @@ class WorkerSupervisor:
 
     def poll(self) -> None:
         """Notice workers that died since the last look: count the crash, forget their models, and report
-        the change. The next use starts them again."""
+        the change. The next use starts them again.
+
+        A worker still starting is left to its start, which tells a worker that cannot start
+        (``BACKEND_NOT_INSTALLED``, for good) from one that crashed. Closing it here would fail its ``hello``
+        as closed before its exit code was read, and a broken venv would pass for a crash."""
         dead: list[tuple[GpuHolder, SubprocessWorkerClient]] = []
         with self._lock:
             for group, slot in self._slots.items():
                 client = slot.client
-                if client is not None and client.pid is not None and not client.is_alive():
+                if client is not None and not slot.starting and client.pid is not None and not client.is_alive():
                     dead.append((group, client))
                     self._crashed(group, slot)
         for group, client in dead:
@@ -403,23 +409,28 @@ class WorkerSupervisor:
             self._check_open()
             slot.client = client
             slot.cublas = cublas
+            slot.starting = True
         try:
             client.start()
         except WorkerFailure as exc:
             with self._lock:
                 slot.client = None
+                slot.starting = False
             if exc.code == codes.BACKEND_NOT_INSTALLED:
                 self._fail_for_good(group, slot, exc)
             raise
         except BaseException as exc:
             with self._lock:
                 slot.client = None
+                slot.starting = False
                 closed = self._closed
                 if not closed and isinstance(exc, WorkerCrashed | WorkerTimeout):
                     slot.crashes.append(self._clock())
             if closed:
                 raise SupervisorClosed(f"the daemon is stopping; the {group} worker was not started") from exc
             raise
+        with self._lock:
+            slot.starting = False
         log.info("started the %s worker (%s, pid %s)", group, slot.role, client.pid)
         self._changed()
         return client

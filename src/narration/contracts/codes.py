@@ -321,7 +321,7 @@ FLAGS: Final[dict[str, FlagCode]] = {
         FlagCode(
             CLIP_TOO_LONG,
             ("fail",),
-            "always",
+            "never",
             "a designed candidate is longer than [limits] max_clip_seconds, so measure_voice would refuse it",
         ),
         FlagCode(LOUDNESS_UNDER_TARGET, ("info",), "never", "the true-peak ceiling lowered the gain"),
@@ -356,17 +356,19 @@ is this module's rule, from contracts 1.6.3 on; DC-12 names only ``CUE_NO_ALIGNA
 
 
 def is_retake_trigger(code: str, severity: Severity, details: Mapping[str, object] | None = None) -> bool:
-    """Whether a flag triggers an automatic retake (section 11.1).
+    """Whether a flag triggers an automatic retake (section 11.1, the "R" column of section 14).
 
-    Any fail-severity flag does, and so do ``CUE_UNALIGNED`` and ``HEAD_INSERTION`` at any severity, except
-    a ``CUE_UNALIGNED`` whose ``details.reason`` is ``no_alignable_words`` (DC-12): the cue's text gives the
+    Any fail-severity flag does, except one whose retake rule is ``never`` (``CLIP_TOO_LONG``: a design job
+    has no take slots to retake; contracts 1.6.10). A fail of a code this module does not know is still a
+    trigger. ``CUE_UNALIGNED`` and ``HEAD_INSERTION`` are triggers at any severity, except a
+    ``CUE_UNALIGNED`` whose ``details.reason`` is ``no_alignable_words`` (DC-12): the cue's text gives the
     aligner nothing to place, so every retake would fail the same way.
     """
+    flag = FLAGS.get(code)
     if severity == "fail":
-        return True
+        return flag is None or flag.retake != "never"
     if code == CUE_UNALIGNED and details is not None and details.get("reason") == CUE_NO_ALIGNABLE_WORDS:
         return False
-    flag = FLAGS.get(code)
     return flag is not None and flag.retake == "always"
 
 

@@ -315,6 +315,14 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- `narration-admin install`, when it asks a running daemon to stop after a repair, now says what the stop
+  means: jobs queued before it wait for the next start (`narration-admin daemon start`, or the next
+  `submit_job` while `[daemon] autostart` is on), and that daemon runs the whole queue. It said "The next
+  job starts a fresh daemon", which read as if a queued job would.
+- Each take's QA reports its own speaking share, its speaking time over its voiced span, beside `pause_s`:
+  in `qa.metrics.speaking_share` (contracts 1.6.10), in the pace flag's `details`, and as a column of
+  `narration-admin failures --export`'s `index.csv`. It is information only: nothing judges it. It is null
+  when the take's silences were not measured, and in a take scored before.
 - Pace is now measured in spoken characters per second of speaking time: the voiced span with its pauses
   (silences of at least 13 frames of 20 ms, 0.26 s) taken out (DC-18; the QA profile is now `default.v5`).
   Words per minute followed the corpus's word lengths rather than the voice, and a one-sentence segment, which
@@ -476,6 +484,14 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Fixed
 
+- Contracts 1.6.10: `CLIP_TOO_LONG`'s retake rule is `never`, as design section 14 gives it (it said
+  `always`): a designed candidate has no take slot to retake. `is_retake_trigger` now follows the table's
+  retake column for a fail too, so a fail whose rule is `never` is not a trigger; every other fail still
+  is, and no job's retakes change.
+- A worker that cannot start (a missing or broken venv) could fail its job with `INTERNAL` ("the worker was
+  closed") instead of `BACKEND_NOT_INSTALLED`, and be tried again. The daemon's check for dead workers could
+  see the starting worker's process gone before the start had read its exit code, and closed it, so the
+  start read as a crash. A worker still starting is now left to its start.
 - A daemon started from an MCP session could die with the session, without a stop, on Windows. When the
   client runs the server in a Job Object that forbids breakaway (the MCP Python SDK does) and the server is
   the venv's `python.exe`, a launcher that puts the interpreter in a nested job of its own, Windows accepted

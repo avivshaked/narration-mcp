@@ -337,6 +337,23 @@ def test_without_measured_silences_the_pace_is_over_the_voiced_span_s11_1() -> N
     assert check.articulation_cps == check.spoken_cps == pytest.approx(seg.spoken_chars / 1.0)
     (flag,) = check.flags
     assert flag.details is not None and (flag.details["pause_s"], flag.details["basis"]) == (None, "voiced_span")
+    assert check.speaking_share is None and flag.details["speaking_share"] is None
+
+
+def test_a_takes_speaking_share_is_its_speaking_time_over_its_voiced_span_s11_1() -> None:
+    """WP47's F3: each take reports its own speaking share beside ``pause_s``, for information. A silence under
+    ``MIN_PAUSE_S`` is speaking time; the share never changes the pace or a flag."""
+    seg = segment("The ferry left the quay at dawn.", "Gulls followed it out past the light.")
+    curve = pace(((30, EXPECTED), (300, EXPECTED)), per_100=0.0, tol=TOL)
+    pause = 0.5
+    span = seg.spoken_chars / (1.25 * EXPECTED) + pause
+    check = pace_check(seg, signal(voiced=(0.1, 0.1 + span), silences=(0.1, pause)), curve, CONFIG, P)
+    assert check.pause_s == pytest.approx(pause)
+    assert check.speaking_share == pytest.approx((span - pause) / span)
+    (flag,) = check.flags
+    assert flag.details is not None and flag.details["speaking_share"] == round((span - pause) / span, 3)
+    no_pause = pace_check(seg, signal(voiced=(0.1, 0.1 + span), silences=(0.1,)), curve, CONFIG, P)
+    assert no_pause.pause_s == 0.0 and no_pause.speaking_share == 1.0
 
 
 def test_expected_wpm_is_the_takes_own_words_at_the_expected_pace_s11_1() -> None:

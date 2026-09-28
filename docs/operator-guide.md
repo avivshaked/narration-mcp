@@ -74,8 +74,10 @@ Hugging Face publishes for that revision before it is kept, and syncs each worke
 (`workers/qwen3tts`, `workers/qa`) from its own committed `uv.lock`. Run it again any time to repair a
 missing or corrupted file — nothing half-written is ever left in a model's snapshot folder, and a file
 already there that already matches is left alone. If a running daemon holds a worker or model that
-`install` repaired, it is asked to stop after its segment in flight (the next job starts a fresh one),
-since a daemon keeps a worker it once found broken marked broken for its whole lifetime.
+`install` repaired, it is asked to stop after its segment in flight, since a daemon keeps a worker it once
+found broken marked broken for its whole lifetime. Jobs queued before that stop wait for the next start
+(`narration-admin daemon start`, or the next `submit_job` while `[daemon] autostart` is on), and that
+daemon runs the whole queue.
 
 TLS: downloads are verified against the system's certificate store (plus `SSL_CERT_FILE` /
 `REQUESTS_CA_BUNDLE` if set). If your network intercepts TLS, set those, or `UV_NATIVE_TLS=1` for uv's own
@@ -223,13 +225,3 @@ call for that voice simply measures it again, under the current corpus and pace 
 measurement stays in the store until `[retention] measurement_retention_days` and `gc` remove it (or you
 can leave it — it costs disk, not correctness). This is also what happens automatically after an `engine
 repin`, since the engine profile is part of the same key.
-
-## Where the design and the code disagree
-
-`CLIP_TOO_LONG`'s retake rule: design section 14 states it as `never` (a designed candidate over
-`[limits] max_clip_seconds` has no take slot for an automatic retake to redo), and the running handler
-does set `retake_trigger: false` on it in every result. The code's own table of flag codes
-(`narration.contracts.codes.FLAGS`, which [docs/tools.md](tools.md)'s Flag codes table is generated from)
-still lists its retake column as `always`. It is a tracked, known gap (a contracts-only fix, not yet
-merged) rather than a behaviour difference: nothing currently retakes on `CLIP_TOO_LONG`, whatever the
-table says.
