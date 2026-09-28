@@ -28,6 +28,7 @@ from ._support import (
     heartbeat_stopped,
     host_lets_a_child_leave_every_job,
     is_beating,
+    note_the_refusal_branch,
     read_json,
     run_child,
     run_in_job,
@@ -251,6 +252,8 @@ def test_a_job_check_that_fails_ends_the_daemon_s4_1(tmp_path: Path, monkeypatch
     assert error.details is not None
     assert (error.details["reason"], error.details["winerror"]) == (_windows.JOB_CHECK_FAILED, 87)
     assert isinstance(error.__cause__, OSError)
+    # an MCP client and narration-admin's terminal both show the message: it names this process, no client
+    assert "this process" in error.message and "client" not in error.message, error.message
     assert made[0].killed
 
 
@@ -329,6 +332,8 @@ def test_breakaway_refused_is_daemon_unavailable_s4_1(tmp_path: Path, monkeypatc
     assert error.details is not None
     assert error.details["reason"] == "breakaway_refused"
     assert error.details["winerror"] == 5
+    # an MCP client and narration-admin's terminal both show the message: it names this process, no client
+    assert "this process" in error.message and "client" not in error.message, error.message
     assert isinstance(error.__cause__, PermissionError)
 
 
@@ -386,7 +391,9 @@ def test_a_daemon_that_would_stay_in_a_clients_job_is_refused_s4_1(tmp_path: Pat
 def assert_refused_by_the_host(client: dict[str, object], marker: Path) -> None:
     """On a host whose own jobs forbid breakaway (``HOST_FORBIDS_BREAKAWAY``), a client stand-in's detached
     start is refused with ``left_in_job`` (its own job allows breakaway, so the refusal comes from the host's),
-    and no daemon ever runs: the marker a daemon would write never appears."""
+    and no daemon ever runs: the marker a daemon would write never appears. It warns
+    (``note_the_refusal_branch``), so the run's log shows that this branch, not the survival, was tested."""
+    note_the_refusal_branch()
     refused = client.get("refused")
     assert isinstance(refused, dict), f"{HOST_FORBIDS_BREAKAWAY}; yet a daemon was let run: {client}"
     assert refused["code"] == codes.DAEMON_UNAVAILABLE

@@ -42,7 +42,12 @@ if sys.platform != "win32":
     )
 
 from narration.platform import _windows, get_platform
-from tests.platform._support import HOST_FORBIDS_BREAKAWAY, host_lets_a_child_leave_every_job, start_in_job
+from tests.platform._support import (
+    HOST_FORBIDS_BREAKAWAY,
+    host_lets_a_child_leave_every_job,
+    note_the_refusal_branch,
+    start_in_job,
+)
 
 pytestmark = pytest.mark.timeout(180)
 
@@ -297,6 +302,7 @@ def test_a_detached_daemon_outlives_its_session_s4_1(service: Path, real_store: 
     result = json.loads(out.read_text(encoding="utf-8"))
     if not host_lets_a_child_leave_every_job():
         # The rule is "in no Job Object at all": on such a host the start is refused, and no daemon runs.
+        note_the_refusal_branch()  # the run's log shows that this branch, not the survival, was tested
         assert result.get("code") == "DAEMON_UNAVAILABLE", f"{HOST_FORBIDS_BREAKAWAY}; yet: {result}"
         assert result["details"]["reason"] == _windows.LEFT_IN_JOB, result
         time.sleep(1.0)
