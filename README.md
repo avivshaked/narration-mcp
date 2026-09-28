@@ -4,11 +4,11 @@ A local [MCP](https://modelcontextprotocol.io) server that gives an AI agent nar
 voice**, and the time of every line within that audio.
 
 > **Status: pre-alpha, working end to end on Windows with an NVIDIA GPU.** An agent can design or allow a
-> voice, measure it once, and narrate paragraphs of cues, getting back QA'd, cue-aligned takes. One tool,
-> `audition_pronunciation`, is published but not runnable yet (it answers `BACKEND_NOT_INSTALLED` at once;
-> `docs/tools.md` says so on its own entry); everything else works. The package has not had a numbered
-> release yet, and its schemas may still change (`CHANGELOG.md` tracks every one). [plan.md](plan.md) §4
-> has the status of every part of the build.
+> voice, measure it once, and narrate paragraphs of cues, getting back QA'd, cue-aligned takes. Every
+> published tool runs; the newest, `audition_pronunciation`, has so far been tested only against the
+> service's fake workers, not on a GPU. The package has not had a numbered release yet, and its schemas may
+> still change (`CHANGELOG.md` tracks every one). [plan.md](plan.md) §4 has the status of every part of the
+> build.
 
 ## What it does
 
@@ -62,9 +62,6 @@ cache when the work has already been done.
 
 ## Not yet supported
 
-- `audition_pronunciation` is published (it appears in `tools/list` and [docs/tools.md](docs/tools.md))
-  but answers `BACKEND_NOT_INSTALLED` at once: hint a term's respelling in a short `submit_job` instead,
-  and read what the recogniser heard in `qa.terms` (the tool's own description says this too).
 - `narration-admin bench alignment` (measuring the cue aligner against a hand-marked benchmark) is not
   built yet.
 - Only Windows runs the service; see Requirements above.
