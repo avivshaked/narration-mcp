@@ -1,7 +1,65 @@
 # HANDOFF
 
-*Updated 2026-09-27, evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-28. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
+
+## Resumed 2026-09-28, with the machine kept free (the owner's rule)
+
+**The owner needs the machine free: agents run no local pytest and no basedpyright.** They run ruff, check_private
+and check_tracked only. They push, and CI on GitHub is the test runner (`gh run watch <id> --interval 60`).
+GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner chooses.
+
+- **Merged 2026-09-28:**
+  - the pace hotfix (PR #42, fda412f; DC-19; contracts 1.6.7);
+  - PR #40.
+
+  The hotfix is live: no daemon was running at the merge, and the owner's `narration.toml` `[qa] profile` now
+  says `default.v4` (the key is inert). No re-measure was needed: the measurement key does not include the QA
+  profile (KNOW, and verified by PR #42's reviewers). The owner's Claude Code session reads PR #40's tool texts
+  after a `/mcp` reconnect.
+- **PR #37** (the daemon's Job Object rule): main merged into it (db73f91), and CI is running on the
+  combination. It merges when CI is green.
+  - **KNOW (2026-09-28): under Claude Code (the VS Code extension), processes sit in a Job Object, and a child
+    started with `CREATE_BREAKAWAY_FROM_JOB` ends up in no job at all.** So PR #37 lets the daemon start
+    detached under Claude Code (a probe from the lead's session with PR #37's `_windows._in_job`).
+  - BELIEVE: the owner's narrating session behaves the same.
+- **Merge order from here:** PR #37; then PR #41 and PR #39 (WP34, contracts 1.6.8); then WP47 (1.6.9), WP48
+  and WP49, the design document's revision 5.15, each after an adversarial review and green CI. **After WP47:**
+  re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in stages (remove
+  `.dev/service-setup/STOP`), both in a GPU window.
+- **Decisions carried into the resumed agents:**
+  - **PR #41, L1: option (b′).** A queued job under a `stopped` status counts as an operator's stop only if both
+    hold:
+    - a `stop` or `stop_now` answered `stopped: true` is among the commands since that daemon started;
+    - the job was created before that stop was posted.
+
+    Otherwise a daemon is started (only the note when autostart is off). Why: `stopped` is also written after a
+    control-loop error, a supervisor failure, and a submit during an operator's stop.
+  - **WP47:** the rate is characters per second of speaking time, excluding silences of 0.25 s or more, from the
+    signal stage's speech mask (ASSUME until it is measured on the re-measured voice). Measurement schemas move
+    to `/v2` with `PACE_METHOD` in the key, and the QA profile becomes `default.v5`.
+    - **Review at merge:** the contract fields it added beyond the lead's approval (each justified in its status
+      file).
+    - It once tried to measure pauses on the bake-off's clone takes, and the permission classifier refused
+      that. Measure on the owner's synthetic voice after the merge.
+  - **WP34:** take design_voice and profile_voice out of `NOT_IN_THIS_BUILD` (PR #40's equality test enforces
+    it), and keep both #40's design_text wording and its own CLIP_TOO_LONG sentence.
+- **Cleaned up:** the worktrees and branches of PRs #40 and #42 (local and remote). `git worktree remove`
+  failed with "Filename too long" on Windows (deep `.pytest-tmp` paths). The folders went with PowerShell
+  `Remove-Item -LiteralPath "\\?\<path>" -Recurse -Force`.
+
+**The owner's first real narration session (21:46–22:10): 9 jobs ran** through the MCP from the owner's Claude
+Code session.
+- Every take that failed QA failed on `PACE_FAST` (24 takes; 7 of them also warned `SPK_SIM_LOW`), all with WER 0 and high speaker
+  similarity. The owner listened and confirmed they were not fast.
+- The cause (KNOW): the pace model is words per minute over a span that includes the pauses between sentences.
+  The wpm curve follows the corpus's word lengths, and a one-sentence segment has no pauses.
+- The owner decided:
+  - **PACE_FAST warns only** (the hotfix);
+  - **pace in characters per second with the pauses excluded** (WP47).
+- Failed takes are listed locally by `py -3.12 .dev/lead/failures_now.py` (into `.dev/scratch/failures.md`), a
+  stopgap for WP48.
+- Small gap: the daemon logs no line when a job ends (WP31's area).
 
 ## Where things stand
 
@@ -19,11 +77,20 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | The daemon-detach fix (WP30's area) | `wp/30-escape`, PR #37 | a9adeef63f4026ccc (Fable) | fixing its review (Windows CI red, an orphan on an async exception, wording) |
-  | WP34 design and profile | `wp/34-design` | aee097b972cdb073f | building; must not change the engine's identity |
-  | WP45 `voices allow` / `list` | `wp/45-voices`, PR #38 | a8b585cae285db8e6 | done; adversarial review running |
-  | The caller's guidance in the tool texts | `wp/36-guidance` | aa82ffe101d84906f | building (audit item 1.1) |
-  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness` | afe8baa2a8d6e61fb | building (audit 1.3, cf-3, cf-13) |
+  | The daemon-detach fix (WP30's area) | `wp/30-escape`, PR #37 | a9adeef63f4026ccc (Fable) | main merged in (db73f91); CI running; merge when green |
+  | WP34 design and profile | `wp/34-design`, PR #39 | aee097b972cdb073f | merging main (PR #40's texts, unmark its tools, contracts 1.6.8); CI-only testing |
+  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | building L1 (b′), then merging main; CI-only testing |
+  | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | merging main (hotfix), `default.v5`, contracts 1.6.9, tests; then a PR |
+  | WP48 failure audit | `wp/48-failures` | a8d587455178ad320 | building (`narration-admin failures`, export, report section, gc listing) |
+  | WP49 small follow-ups | `wp/49-followups` | a6da73fe016877af2 | building (doctor QA-profile warning, a job-end log line, delivery_key pin; PR #37's follow-ups once it merges) |
+  | The design document, revision 5.15 | `docs/design-5.15` | a004cac688510edbe | applying DC-17, DC-19 and PR #37's rule (once merged) |
+
+  PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
+  client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a
+  host that forbids breakaway, not `[daemon] autostart = false`; the CI log cannot show which branch the
+  survival tests took (a `warnings.warn` or `record_property` would); a regression that refuses every detached
+  start stays green on GitHub's runner (only a Windows developer run catches it); a docstring line that the
+  no-orphan guarantee holds from the moment `Popen` returns, not from `CreateProcess`.
 
 - **Every branch gets an independent read-only reviewer before merge.** Findings are fixed before merge,
   and a branch that had a BLOCK or a data-loss finding is re-verified by its reviewer.
@@ -63,8 +130,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **The readiness audit's decisions** (`.dev/lead/readiness_synthesis.md`, local; section 4):
   - D1: a full ladder for the first voice, or keep the stop at 300 (some of the consumer's paragraphs are
     longer); needs a GPU hold over 30 min, which the lock tool refuses without an override;
-  - D2: judge pace in characters per second rather than words per minute (§3.2, §11.1): the ladder texts'
-    word lengths differ, which the wpm trend reads as pace;
+  - D2: **decided 2026-09-27: characters per second** (WP47). The first real job's short segments failed
+    `PACE_FAST` falsely on every attempt;
   - D3: a compact `get_results` (a segment filter; words off by default) (§7.5);
   - D4: run the service from a pinned checkout, or freeze merges that touch the engine while narrating;
   - D5: whether dev GPU work pauses while the owner narrates;
@@ -74,10 +141,6 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   - D8: loudness: deliveries are at -23 LUFS; confirm what the consumer expects.
 - **The Avast Auto-Sandbox exception** for the projects folder, or Auto-Sandbox off: the durable fix for
   the hangs.
-- **Listen to the first voice** (the owner asked the lead to pick one and measure it, to save time): seed
-  2006 of d2 re-designed, the highest WavLM similarity to d2 (0.978). If the ear disagrees, seeds 2003 and
-  2008 are the next candidates (`.dev/d2-redesign/out/`). **A full ladder** needs a GPU hold over 30 min,
-  which `tools/gpu_lock.py` refuses without an override; the owner decides whether to add one.
 - **DC-14 and DC-15** (plan.md §1.5): lead gap-fills the owner may overrule.
 - **4a in the owner's list:** cross-job grouping (§4 item 3); the lead recommends leaving it out of v1.
 - Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
@@ -89,17 +152,22 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Next steps (the lead)
 
-1. **The first real voice is measured and ready** (2026-09-27, 20:17): `.dev/voices/d2r-seed2006.wav` (its
-   sidecar holds the transcript, the corpus's design text), allowlisted in the gitignored `narration.toml`;
-   the real store `.dev/stores/service` is pinned (the same profile hashes as the smoke store) and holds its
-   measurement: reliable up to 301 spoken characters (the ladder stopped at 300, as `narration.toml` notes),
-   pace trend 147 wpm + 13.5 per 100 characters, pace tolerance 0.155, anchor p5 0.990; 12.75 min on the GPU.
-   The owner narrates from a Claude Code session (the setup is in the session's last report).
+1. **The narration voice is a-warm-s101** (the owner's choice, 2026-09-27): designed by the lead from the
+   owner's description, and measured 21:16 in the real store `.dev/stores/service`: reliable up to 301 spoken
+   characters (the ladder stopped at 300, as `narration.toml` notes), pace 154.7 wpm + 15.0 per 100
+   characters, pace tolerance 0.111, anchor p5 0.989. Clip, sidecar (the transcript is the corpus's design
+   text) and allowlist entry are local (`.dev/voices/`, `narration.toml`). The earlier voice, d2 re-designed
+   seed 2006, is a measured spare, kept local only. The owner's guide is the gitignored
+   `.dev/scratch/first-narration.md`, and the narrating agent's brief is `.dev/narration-brief.md`. The
+   owner's session connected at 21:24. **The rest of the ladder** (350–560) runs later in 30-minute stages
+   (`.dev/service-setup/staged_ladder.sh`; remove its `STOP` file first), never while the owner narrates.
    **The owner's `.mcp.json`** should start the server through the venv's interpreter
    (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not
    `uv run … narration-mcp`, whose launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`).
-2. **Merge in this order once each is green and verified:** PR #37 (the daemon fix), PR #38 (WP45),
-   `wp/36-liveness`, `wp/36-guidance`; then WP34 (it removes the "not in this build" marks for its tools).
+2. **Merge once each is green and verified:** PR #40 (texts only) whenever its review is clean; after the
+   owner's session, PR #37 (the daemon fix), PR #41, then PR #39 (WP34; it removes the "not in this build"
+   marks for its tools). Run the full suites then; the agents run only targeted tests while the owner
+   narrates.
 3. **After M1:** WP34, WP35, WP38, WP39 and WP45, then Wave 3 (WP40–WP44), with the follow-ups below.
 4. **WP37 follow-ups:** `doctor` checks the material manifests (WP33's corpus loader is on `main`); a
    single-item evict in the store for what `verify` finds damaged (the store's area); `reset_workers`
@@ -156,6 +224,12 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
   x_vector_only_mode` must stay `false` (the canary clones with `false`), so document it or make the
   canary follow it; a canary-text change forces new profile ids (a canary-only re-pin under the same id
   would need a store change).
+- **WP48, a failure audit (the owner asked, 2026-09-27):** collect every failed or retaken take across jobs,
+  with its reasons, for the owner to audit (`narration-admin failures`, an export, a report section, and
+  WP46's view). The store already keeps them; what is missing is a cross-job view and retention that waits
+  for the audit.
+- **WP46, a frontend (the owner asked, 2026-09-27):** plan a view of jobs, takes, voices, the allowlist and the
+  engine and daemon state, **after the other work**. Write the plan for the owner's approval first; build nothing before it.
 - **WP45 (the owner asked, 2026-09-27; DC-17):** `narration-admin voices allow <clip.wav>` adds a clip
   designed elsewhere to `[voices] allow_sha256`; operator-only, never an MCP tool. Any time after M1.
 - **WP32, after M1:** a contract field `CanaryPin.calibration: tuple[float, ...] = ()` (unhashed), so

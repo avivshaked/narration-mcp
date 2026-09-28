@@ -13,7 +13,7 @@ import pytest
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import DaemonStatus, GpuStatus
-from narration.daemon.start import daemon_argv, ensure_daemon, running_daemon, start_detached
+from narration.daemon.start import daemon_argv, ensure_daemon, read_launch, running_daemon, start_detached
 from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
@@ -101,6 +101,21 @@ def test_breakaway_refused_is_daemon_unavailable_and_nothing_else_starts_s4_1(tm
         start_detached(tmp_path / "store", tmp_path / "narration.toml", platform=platform)
     assert info.value.code == codes.DAEMON_UNAVAILABLE
     assert platform.spawned == [], "no fallback to a daemon that is not detached"
+    assert read_launch(tmp_path / "store") is None, "a refused start records no launch"
+
+
+def test_a_launch_is_recorded_only_for_a_daemon_the_platform_let_run_s4_1(tmp_path: Path) -> None:
+    platform = StandInPlatform()
+    platform.refuse_spawn = NarrationError(codes.DAEMON_UNAVAILABLE, "left in a job", retry_after_s=60.0)
+    with pytest.raises(NarrationError):
+        start_detached(tmp_path / "store", tmp_path / "narration.toml", platform=platform)
+    assert read_launch(tmp_path / "store") is None
+    platform.refuse_spawn = None
+    before = time.time()
+    pid = start_detached(tmp_path / "store", tmp_path / "narration.toml", platform=platform)
+    launch = read_launch(tmp_path / "store")
+    assert launch is not None and launch.pid == pid == platform.spawn_pid
+    assert before - 0.01 <= launch.launched_at <= time.time() + 0.01
 
 
 def test_ensure_starts_nothing_while_a_daemon_serves_s4(store: NarrationStore, tmp_path: Path) -> None:

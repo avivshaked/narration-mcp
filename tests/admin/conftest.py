@@ -57,11 +57,24 @@ def config_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def admin(platform: StandInPlatform) -> AdminRun:
+    """Run ``narration-admin``; ``answer`` is what the operator types (by default nothing: stdin at its end)."""
+
     def run(
-        *argv: str, groups: Sequence[CommandGroup] = COMMAND_GROUPS, environ: Mapping[str, str] | None = None
+        *argv: str,
+        groups: Sequence[CommandGroup] = COMMAND_GROUPS,
+        environ: Mapping[str, str] | None = None,
+        answer: str = "",
     ) -> Ran:
         out, err = io.StringIO(), io.StringIO()
-        code = main(list(argv), out=out, err=err, platform=lambda: platform, groups=groups, environ=environ or {})
+        code = main(
+            list(argv),
+            out=out,
+            err=err,
+            inp=io.StringIO(answer),
+            platform=lambda: platform,
+            groups=groups,
+            environ=environ or {},
+        )
         return Ran(code, out.getvalue(), err.getvalue())
 
     return run

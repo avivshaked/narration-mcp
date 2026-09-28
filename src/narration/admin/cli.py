@@ -67,7 +67,8 @@ class Admin:
     one rule ``narration-mcp`` uses too (``--config``, else ``NARRATION_CONFIG`` in ``environ``, else
     ``narration.toml`` in the service's folder). The configuration is loaded, and the store opened, on first
     use, so a command that needs neither (``doctor`` reporting a missing file) still runs. ``platform`` makes
-    the ``Platform`` (tests pass a stand-in). Call ``close`` when done.
+    the ``Platform`` (tests pass a stand-in). ``inp`` is where ``ask`` reads the operator's answer (stdin by
+    default). Call ``close`` when done.
     """
 
     def __init__(
@@ -76,6 +77,7 @@ class Admin:
         config_path: Path | None,
         out: TextIO | None = None,
         err: TextIO | None = None,
+        inp: TextIO | None = None,
         platform: Callable[[], ProcessPlatform] = get_platform,
         environ: Mapping[str, str] | None = None,
     ) -> None:
@@ -83,6 +85,7 @@ class Admin:
         self.environ = environ
         self.out: TextIO = sys.stdout if out is None else out
         self.err: TextIO = sys.stderr if err is None else err
+        self.inp: TextIO | None = sys.stdin if inp is None else inp
         self._make_platform = platform
         self._platform: ProcessPlatform | None = None
         self._config: Config | None = None
@@ -132,6 +135,22 @@ class Admin:
     def warn(self, text: str) -> None:
         """Print a line to stderr."""
         print(text, file=self.err, flush=True)
+
+    def ask(self, question: str) -> str | None:
+        """Print ``question`` and read one line of the operator's answer, without its line ending. None when there
+        is no answer to read: stdin is closed, missing (``pythonw``) or at its end (a pipe with nothing more, or
+        Ctrl+Z / Ctrl+D)."""
+        print(question, end="", file=self.out, flush=True)
+        line = ""
+        if self.inp is not None:
+            try:
+                line = self.inp.readline()
+            except (OSError, ValueError):  # ValueError: the stream is closed
+                line = ""
+        if not line:
+            self.say()  # end the question's line
+            return None
+        return line.rstrip("\r\n")
 
     def close(self) -> None:
         """Close the store, if it was opened."""

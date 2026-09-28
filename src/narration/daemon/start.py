@@ -4,20 +4,22 @@ For the front-end's autostart (WP36) and ``narration-admin daemon start | status
 
 - ``start_detached`` starts ``python -m narration.daemon --store <store_root> --config <path>`` through
   ``Platform.spawn_detached``: ``CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``,
-  the standard handles on ``NUL``, nothing inherited, the store root as the working directory. When the
-  caller's Job Object forbids breakaway, it raises ``DAEMON_UNAVAILABLE`` (retryable, with the hint to run
-  ``narration-admin daemon start`` in a terminal) and starts nothing: a daemon that is not detached would
-  die with its client mid-job;
+  the standard handles on ``NUL``, nothing inherited, the store root as the working directory. The daemon
+  runs only once the platform has confirmed it is in no Job Object. When the caller's Job Objects keep it
+  in one (the innermost forbids breakaway, so Windows refuses; or the innermost allows it and an enclosing
+  one does not, so Windows leaves the daemon in that one; KNOW, spike k), it raises ``DAEMON_UNAVAILABLE``
+  (retryable, with the hint to run ``narration-admin daemon start`` in a terminal) and nothing runs: a
+  daemon inside a client's kill-on-close job would die with the client mid-job;
 - ``running_daemon`` reads ``run/daemon.json`` and checks its pid (``sweep.daemon_alive``). Post a
   ``stop`` only when it says a daemon runs (``narration-admin daemon stop``, WP37): a daemon honours only
   the stops posted after it was launched (``service``, "Which stops a daemon honours"), so a stop posted
   with none running stops nothing, and the next daemon answers it ``stopped: false``;
 - ``ensure_daemon`` starts one unless one runs, and can wait until it has written its status;
-- ``start_detached`` records each launch in ``run/launch.json`` (the pid it got back and the launch time), and
-  ``launch_in_progress`` reads it: a daemon launched less than ``START_WINDOW_S`` ago that has not written a
-  status since is still starting. The front-end asks for no other daemon while one is (WP36: ``get_job`` and
-  ``cancel_job`` on a job no daemon serves). The file is the service's own operational state, like
-  ``run/daemon.json``, and records nothing of a caller (sections 0.2, 2).
+- ``start_detached`` records each launch the platform let run in ``run/launch.json`` (the pid it got back and
+  the launch time; a refused start records nothing), and ``launch_in_progress`` reads it: a daemon launched
+  less than ``START_WINDOW_S`` ago that has not written a status since is still starting. The front-end asks
+  for no other daemon while one is (WP36: ``get_job`` and ``cancel_job`` on a job no daemon serves). The file
+  is the service's own operational state, like ``run/daemon.json``, and records nothing of a caller (sections 0.2, 2).
 
 Starting a daemon when one already runs is harmless: the second one exits quietly (the singleton). One that
 finds the running daemon ``stopping`` waits for it to go, then takes over.
@@ -160,9 +162,14 @@ def start_detached(
     this interpreter by default. Its environment is ``env`` (this process's by default) without the
     ``PYTHON*`` variables that change imports (``settings.scrub_python_env``). The daemon is told when it was
     launched (``--launched-at``, this process's wall clock just before the spawn), so that a stop posted
-    while it starts up is for it; the launch is recorded in ``run/launch.json`` (``record_launch``). Raises
-    ``NarrationError(DAEMON_UNAVAILABLE)`` when breakaway is refused, and never falls back to a daemon that is
-    not detached; on an OS v1 does not support, ``UnsupportedPlatform``.
+    while it starts up is for it. Raises ``NarrationError(DAEMON_UNAVAILABLE)`` when the daemon cannot leave
+    this process's Job Objects (breakaway refused, or the daemon left in an enclosing job and ended before it
+    ran), and never falls back to a daemon that is not detached; on an OS v1 does not support,
+    ``UnsupportedPlatform``.
+
+    The launch is recorded in ``run/launch.json`` (``record_launch``) only once ``spawn_detached`` has returned,
+    that is, for a daemon the platform let run (on Windows, resumed once it was found in no Job Object). A
+    refused start records nothing, so it holds back no later launch (``launch_in_progress``).
     """
     if platform is None:
         from narration.platform import get_platform

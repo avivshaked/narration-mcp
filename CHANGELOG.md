@@ -10,6 +10,22 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices] allow_sha256`,
+  instead of hashing it and editing `narration.toml` by hand.
+  - It makes the clip's path absolute (so a relative path is taken from the working folder), checks it
+    with the service's path check, and refuses a file that is not a WAV.
+  - It prints the clip's path, length and sha256, and asks you to confirm that the clip is synthetic, not
+    a recording of a real person. Only `yes`, typed in full, goes on; no answer changes nothing. A person
+    must confirm: `--yes` is only for the operator's own scripts.
+  - The hash goes into the configuration file with a comment naming the clip. Every other line, comment
+    and line ending is kept. The file is replaced whole, and not if it changed while the command ran; that
+    is checked just before the rename, so a short window remains (do not run two at once). The new file
+    keeps the old one's POSIX mode bits, but not its owner or ACL.
+  - It ends by saying to stop the daemon and then restart `narration-mcp`: both read the list only when
+    they start.
+
+  `narration-admin voices list` prints the list. Neither is an MCP tool: only someone who can run
+  `narration-admin` on this machine, or edit its configuration, can change the list.
 - `measure_voice`'s job (`narration.measure`): it checks the clip's transcript with the speech recogniser
   (`REF_TEXT_MISMATCH` if the clip does not say it), renders the calibration set and builds the voice's
   anchor and similarity baseline, then climbs the length ladder from the shortest rung, fits the pace
@@ -274,7 +290,7 @@ are tracked here but no version is tagged; nothing described below is installabl
   `submit_job`). A daemon that stopped because it failed, or a stop asked before the job was queued, does not
   hold the job back.
 - A daemon launched by `get_job`, `cancel_job` or `submit_job` is recorded in the store (`run/launch.json`: when
-  it was launched, and its pid). While that daemon is starting (90 s at most, and until it writes its status),
+  it was launched, and its pid), once the platform has let it run; a refused start records nothing. While that daemon is starting (90 s at most, and until it writes its status),
   `get_job` and `cancel_job` ask for no other, so repeated polls during a start launch one daemon, and a start
   that hangs costs at most one launch every 90 s.
 - `get_job` states the backoff rule in its description, as the tools that write do: it answers
@@ -297,6 +313,32 @@ are tracked here but no version is tagged; nothing described below is installabl
   a trailing newline the measured transcript had. Not caught, so still only the general hint: other whitespace
   the measured transcript had (a double space, a leading space), and a typographic dash or ellipsis it had
   where the one sent has a plain one.
+- `DAEMON_UNAVAILABLE`'s `retry_after_s` is 60 s at every level when the daemon could not be detached (it
+  was 30 s at the MCP tool level and 60 s in the platform's own error): the fix needs a person to run
+  `narration-admin daemon start`, and a retry sooner than that fails the same way.
+- `PACE_FAST` only warns; it never fails a take and never triggers a retake (the QA profile is now
+  `default.v4`, DC-19). The words-per-minute pace model failed short paragraphs that listened fine, and
+  wasted their retakes. `PACE_SLOW` is unchanged (it only warns). The flag's `details.fast_fail_above` is
+  null. A voice measured before stays measured, and cached renders and takes are reused: only their QA
+  runs again, on the next request that asks for them.
+- The MCP server now tells the calling agent what decides whether real use goes well. Its instructions
+  and the `submit_job` and `check_text` descriptions say to send every invented or unusual name as a hint:
+  the term alone is enough, and a name without one is scored as misheard words that can fail a take
+  (`WER_HIGH`). They also say to keep a job to a scene (about 8 to 10 segments), to call `get_results` with
+  `include_words: false` unless word times are needed, and to use each segment's `suggested_take_id`. They
+  point to `narration://jobs/{job_id}/report` and name `submit_job`'s options (`dry_run`, `strict_text`,
+  `takes`, `max_retakes`, `priority`). A suggestion of tier 4 is a failed take, to resolve or redo before
+  keeping it. The voice's transcript must be copied, never retyped. Every tool parameter now has a
+  description. The instructions and every tool description fit in 2048 characters, where Claude Code cuts
+  server instructions. `design_voice`, `profile_voice` and `audition_pronunciation` are marked "not in this
+  build yet" wherever they are advertised, until their handlers land; the prompts show how to hear a
+  respelling with `submit_job` meanwhile. `VOICE_NOT_SYNTHETIC`'s hint says that only a person allows a
+  clip, with `narration-admin voices allow`, and that the daemon is restarted first, then the client
+  reconnected. An upper-case `sha256` is told to lower-case it, and a top-level option such as `takes` is
+  pointed to `options.takes`; a field sent inside `controls` is told to leave `controls` out. The README
+  starts the server with the environment's Python (`-m narration.mcp`) and says to start the daemon from
+  a terminal when the client cannot. Nothing that enters a cache key changed, so no voice needs
+  measuring again.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
@@ -363,3 +405,23 @@ are tracked here but no version is tagged; nothing described below is installabl
   place; a daemon started by hand without `-P` logs a warning saying so. Its workers start with
   `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so on a machine with two GPUs `[gpu] device` names the same GPU for the
   free-memory check and for the models.
+
+### Fixed
+
+- A daemon started from an MCP session could die with the session, without a stop, on Windows. When the
+  client runs the server in a Job Object that forbids breakaway (the MCP Python SDK does) and the server is
+  the venv's `python.exe`, a launcher that puts the interpreter in a nested job of its own, Windows accepted
+  the daemon's breakaway from the inner job but left it in the client's; the client's exit then killed it.
+  The daemon is now created suspended and runs only once Windows confirms it is in no Job Object at all.
+  One left in a job is ended before it runs, and the caller gets `DAEMON_UNAVAILABLE` (retryable; its
+  `details.reason` is `left_in_job`, `breakaway_refused` or `job_check_failed`) with the hint to run
+  `narration-admin daemon start` in a terminal. The rule is deliberate: any enclosing job that forbids
+  breakaway refuses the detached start, even one that would not end the daemon, since the service cannot
+  read such a job's limits or know who will close it. A CI runner is the known case (measured on GitHub's
+  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, run
+  `narration-admin daemon start --foreground` as its own process, or use a host whose jobs allow breakaway.
+  Under clients that spawn through libuv, whose job allows breakaway, the daemon leaves every job and keeps
+  running (Node.js, measured with Node v22; Claude Code, we believe, since it spawns through libuv too;
+  spike k). `narration-admin daemon start` now names only the cause Windows established, and says when the
+  daemon exits for want of work (`[daemon] idle_exit_min`), so a client that cannot start the daemon itself
+  knows to start it again.

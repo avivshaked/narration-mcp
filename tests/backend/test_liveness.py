@@ -382,6 +382,19 @@ def test_a_daemon_that_started_then_died_is_replaced_at_once_s4_1(
     assert len(platform.spawned) == 2
 
 
+def test_a_refused_start_holds_back_no_later_launch_s4_1(
+    service: Service, platform: StandInPlatform, launching: NarrationBackend
+) -> None:
+    job_id = left_running(service)  # submitted through the fake launcher: no launch recorded
+    platform.refuse_spawn = NarrationError(codes.DAEMON_UNAVAILABLE, "left in a job", retry_after_s=60.0)
+    error = refused(lambda: get_job(launching, {"job_id": job_id}))
+    assert error.code == codes.DAEMON_UNAVAILABLE
+    assert daemon_start.read_launch(service.world.store.root) is None, "the platform let no daemon run"
+    platform.refuse_spawn = None
+    get_job(launching, {"job_id": job_id})
+    assert len(platform.spawned) == 1, "the next poll launches at once"
+
+
 def test_the_start_window_covers_a_takeover_wait_s4_1(tmp_path: Path) -> None:
     takeover = DaemonSettings(store_root=tmp_path).takeover_wait_s
     window = daemon_start.START_WINDOW_S

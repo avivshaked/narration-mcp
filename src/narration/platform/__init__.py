@@ -3,8 +3,9 @@
 ``get_platform()`` returns the ``narration.contracts.interfaces.Platform`` for this OS:
 
 * on Windows, ``WindowsPlatform``: the daemon's singleton (a named mutex keyed on the store path), detached
-  start with breakaway, kill-on-close Job Objects for workers, below-normal priority, the path rules of
-  sections 17.2 and 17.3, and the free-disk check;
+  start with breakaway (the daemon runs only once Windows confirms it is in no Job Object), kill-on-close
+  Job Objects for workers, below-normal priority, the path rules of sections 17.2 and 17.3, and the
+  free-disk check;
 * on any other OS, ``UnsupportedOsPlatform``, whose every call raises
   ``narration.contracts.errors.UnsupportedPlatform`` (v1 is Windows only, plan.md Q2).
 
@@ -35,6 +36,26 @@ from ._unsupported import UnsupportedOsPlatform
 
 SUPPORTED_PLATFORMS: Final[tuple[str, ...]] = ("win32",)
 """The values of ``sys.platform`` that have a real implementation."""
+
+DAEMON_RETRY_AFTER_S: Final = 60.0
+"""``retry_after_s`` of every ``DAEMON_UNAVAILABLE`` raised because the daemon could not be detached (DC-2 asks
+every retryable error for one). The fix needs a person: someone must read the hint, run ``narration-admin
+daemon start`` in a terminal, and let the daemon come up. A retry sooner than that fails the same way (lead
+ruling, WP19 review). The platform raises it with this value and the front-end (``narration.backend.launch``)
+keeps it, so an MCP client sees the figure the operator's terminal does."""
+
+BREAKAWAY_REFUSED: Final = "breakaway_refused"
+"""``DAEMON_UNAVAILABLE``'s ``details["reason"]`` when the OS refused the breakaway (on Windows, ``CreateProcess``
+with access denied): this process's innermost Job Object forbids it."""
+
+LEFT_IN_JOB: Final = "left_in_job"
+"""``DAEMON_UNAVAILABLE``'s ``details["reason"]`` when the OS accepted the breakaway but the daemon was still in
+a Job Object: one around this process's innermost job forbids breakaway (``WindowsPlatform.spawn_detached``,
+"Nested jobs"). The daemon was ended before it ran its first instruction."""
+
+JOB_CHECK_FAILED: Final = "job_check_failed"
+"""``DAEMON_UNAVAILABLE``'s ``details["reason"]`` when the OS could not say whether the daemon was in a job. It
+was ended before it ran: a daemon that may die with its client is never let run."""
 
 
 class ProcessPlatform(Platform, Protocol):
@@ -99,6 +120,10 @@ def real_path(path: str | os.PathLike[str]) -> str:
 
 
 __all__ = [
+    "BREAKAWAY_REFUSED",
+    "DAEMON_RETRY_AFTER_S",
+    "JOB_CHECK_FAILED",
+    "LEFT_IN_JOB",
     "SUPPORTED_PLATFORMS",
     "ProcessPlatform",
     "UnsupportedOsPlatform",

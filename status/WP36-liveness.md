@@ -74,6 +74,19 @@ Done:
   `planning.analysis_key_inputs`. Tests: a parity test over the real `Stages.key_inputs` (with hints and an exact
   span), and one key pinned at the value the code computed before the refactor.
 
+- **Merged origin/main** (1b05644: PRs #40, #42 and #37) in one merge, no rebase. Conflicts:
+  - `descriptions.py`: the module docstring keeps #40's paragraphs, with the explicit `RETRYABLE_TOOLS`
+    paragraph first; get_job's text is #40's, plus the one clause. Every tool description stays within
+    `CLIENT_TEXT_LIMIT` (2048; get_job is 1333 characters, the longest is get_results at 2012, as on main).
+  - `daemon/start.py`: #37's docstring for `start_detached`, plus a paragraph on the launch marker.
+    `record_launch` runs only after `spawn_detached` has returned, and #37's `spawn_detached` returns only
+    after it has resumed the daemon: every refusal (breakaway refused, left in a job, the job check failed)
+    raises first. So a refused start records no launch and holds back no later one. Tests:
+    `test_a_launch_is_recorded_only_for_a_daemon_the_platform_let_run_s4_1` (tests/daemon/test_start.py),
+    one assertion added to #37's `test_breakaway_refused_...`, and
+    `test_a_refused_start_holds_back_no_later_launch_s4_1` (tests/backend/test_liveness.py).
+  - No contract changed on this branch, so there is no contracts version to take.
+
 ### Design text proposals (docs/design.md is the lead's; nothing edited there)
 - **§4, who starts the daemon.** Now: "by the first submission, or by `narration-admin daemon start`". Proposed:
   "by a submission, by `narration-admin daemon start`, or by `get_job` or `cancel_job` for an active job that no
