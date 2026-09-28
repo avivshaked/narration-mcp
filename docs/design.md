@@ -99,11 +99,11 @@ applied here, each listed in the revision history below.*
 - *Revision 5.16 (2026-09-28) describes what was built since revision 5.15.
   - **A job whose daemon has gone** (PR #41). `get_job`, and `cancel_job` for a job it leaves
     `cancelling`, ask for a daemon when none serves an active job. A launch is recorded in
-    `run\launch.json`. For 90 s after it (BELIEVE), while no daemon has started, no other is asked for as
-    long as the launched process runs; once that process has gone, the start failed, and `get_job` answers
-    `DAEMON_UNAVAILABLE` with the daemon's log. A stop answered `stopped: true`, by `daemon stop` or by
-    `install` after a repair (the lead's decision), holds for the jobs queued before it (sections 4, 4.1,
-    7.4, 7.6, 14 and 15).
+    `run\launch.json`. For 90 s after it (BELIEVE), while `run\daemon.json` shows no start since, no
+    other is asked for as long as the launched process runs; once that process has gone, `get_job` answers
+    `DAEMON_UNAVAILABLE` with the daemon's log until the window ends, also after a daemon that started and
+    then failed. A stop answered `stopped: true`, by `daemon stop` or by `install` after a repair (the
+    lead's decision), holds for the jobs queued before it (sections 4, 4.1, 7.4, 7.6, 14 and 15).
   - **A transcript that differs from the measured one** only in whitespace or punctuation is named in
     `VOICE_NOT_MEASURED`, with the rewrites that give the measured one (PR #41; sections 3.2, 7.3 and
     14).
@@ -467,13 +467,20 @@ heavy work runs is the caller's decision, so it never starts inside another job.
 
 The voice hash covers the transcript character for character (after NFC), so a clip measured under one
 transcript and sent with another spelling of it is another voice, and is not measured. The measurement
-keeps no transcript, so the service tries the spellings a slip in sending makes: the edges trimmed, the
-whitespace collapsed, a trailing newline added, typographic quotes, dashes and ellipses made plain,
-straight quotes made typographic, and each whitespace rewrite with each punctuation one (at most 9
-lookups). When one of them is measured for the clip, `VOICE_NOT_MEASURED` says which rewrites give the
-measured transcript, and not to measure again (section 7.3; revision 5.16, PR #41). Two slips the other
-way are not found: whitespace the measured transcript had and the one sent lacks (other than a trailing
-newline), and a typographic dash or ellipsis the measured one had where the one sent has a plain one.
+keeps no copy of the transcript sent, only its transcript check {heard, wer, ok}, and measurements are
+found only by `voice_hash`. So the service tries the spellings a slip in sending makes, each rewrite on
+its own: the edges trimmed, the whitespace collapsed, a trailing newline added, typographic quotes,
+primes, dashes and ellipses made plain, and straight quotes made typographic (every `'` becomes `’`,
+and each `"` becomes `“` and `”` in turn). It then pairs only the trim or the collapse with each
+punctuation rewrite: 2 + 1 + 2 + 4 = 9 lookups at most. When one of them is measured for the clip,
+`VOICE_NOT_MEASURED` says which rewrites give the measured transcript, and not to measure again (section
+7.3; revision 5.16, PR #41). Only those spellings are tried, so any other difference is not found, for
+example:
+- whitespace the measured transcript had and the one sent lacks, other than a trailing newline;
+- a trailing newline the measured one had, together with a punctuation difference;
+- a typographic dash or ellipsis the measured one had where the one sent has a plain one;
+- typographic quotes other than the ones the rewrite makes, or a mix of plain and typographic marks in
+  the measured one.
 
 Measuring first checks the transcript: Whisper transcribes the clip, and a transcript that does not
 match is refused (`REF_TEXT_MISMATCH`), because a wrong transcript in ICL mode causes the reference to
@@ -813,7 +820,8 @@ provides:
     does, even while the stop's in-flight segment finishes.
     - A `stopped` status alone is not an operator's decision. A daemon whose control loop or worker
       supervisor failed writes it too, as does one that exited for being idle, and their queued jobs get
-      a daemon.
+      a daemon. After a daemon that failed within 90 s of its launch, they get one only once that window
+      has passed: until then `get_job` reads the exit as a failed start (below).
     - The front-end tells them apart from the store alone. A queued job waits only for a `stop` or
       `stop --now` answered `stopped: true` that was posted after the job was created (a stop in the
       job's own millisecond counts as after it) and answered within 30 s of the time the `stopped` status
@@ -822,8 +830,9 @@ provides:
       start time, so the answer stands in for "since the last daemon started" (BELIEVE: the 30 s is not
       measured).
     - What remains: a daemon launched by a later submission that fails within 30 s of the stop's answer
-      makes the older jobs read as stopped. The later submission's own job still asks for a daemon on its
-      next `get_job`, and that daemon runs them all.
+      makes the older jobs read as stopped. The later submission's own job answers `DAEMON_UNAVAILABLE`
+      (a failed start, with `details.log`) until 90 s after that launch; the first `get_job` after the
+      window asks for a daemon, and that daemon runs them all.
   - **A stop is for every daemon launched before it was asked.** A daemon honours a stop only if it was
     posted after that daemon was launched. It honours it whether the stop is still pending or an exiting
     daemon has already answered it `stopped: true`. The launcher passes the launch time (`--launched-at`),
@@ -863,16 +872,26 @@ provides:
     start`, is recorded in `run\launch.json`: the pid it got back (the launcher's, under a venv) and the
     launch time. A refused start records nothing, so it holds back no later launch.
   - **The start window** is 90 s: the singleton's takeover wait of 60 s, plus 30 s to start an interpreter
-    and import the service (BELIEVE: not measured). While the last launch is younger than that and no
-    daemon has recorded a start since, no other daemon is asked for as long as the launched process runs.
-  - **A failed start.** Once the launched process has gone without a daemon having started, the start
-    failed: the daemon died before it held the singleton, or failed through its `finally`, or gave up
-    waiting for one that was exiting. `get_job` then answers `DAEMON_UNAVAILABLE`, retryable, with
-    `retry_after_s` the rest of the window (at least 60 s), `details` {job_id, job_status, daemon_state,
-    log (the store's `logs\daemon.log`), launched_pid, launched_at}, and the hint to run `narration-admin
-    daemon start` in a terminal, or with `--foreground` to see why it exits. It launches none again at
-    once, since the next would most likely fail the same way; past the window, the next call launches
-    one. So a start that hangs or fails costs at most one launch per window.
+    and import the service (BELIEVE: not measured). The check reads only the current `run\daemon.json`.
+    While the last launch is younger than the window and that status shows no start at or after the
+    launch, no other daemon is asked for as long as the launched process runs. A `stopped` status keeps
+    no start time, so it never shows one.
+  - **A failed start.** Once the launched process has gone and the status shows no start since the
+    launch, the start counts as failed: the daemon died before it held the singleton, or failed through
+    its `finally`, or gave up waiting for one that was exiting. `get_job` then answers
+    `DAEMON_UNAVAILABLE`, retryable, with `retry_after_s` the rest of the window (at least 60 s),
+    `details` {job_id, job_status, daemon_state, log (the store's `logs\daemon.log`), launched_pid,
+    launched_at}, and the hint to run `narration-admin daemon start` in a terminal, or with
+    `--foreground` to see why it exits. It launches none again at once, since the next would most likely
+    fail the same way; past the window, the next call launches one. So a start that hangs or fails costs
+    at most one launch per window.
+    - The same holds for any daemon of the last launch that exits within the window, even one that
+      started and served. A daemon whose control loop or worker supervisor fails exits through its
+      `finally` and writes `stopped`, which keeps no start time. Until the window ends, `get_job` on any
+      active job that no daemon serves (unless step 1 or 3 above applies) answers `DAEMON_UNAVAILABLE`
+      with the log, saying that the daemon exited before it served; the first `get_job` after the
+      window asks for a daemon. The approved follow-up that records the daemon's launch time, or why it
+      stopped, in `run\daemon.json` would narrow this.
   - The launched process counts only if it was created at the launch, from 2 s before the launch time to
     10 s after it: one created outside that span reused the pid. One whose creation time cannot be read
     counts as running, since the window still bounds the wait. A `stopped` status written after the launch
@@ -930,7 +949,7 @@ records a caller's script, choices or approvals.
 | **Candidate** | `design_id`, index, clip {path, sha256}, exact transcript, verbatim description, seed, engine profile, lint, profile. Kept for the retention period; the caller copies the clip it chooses. |
 | **Provenance entry** ⊘ | clip sha256, `design_id`, date. One per clip the service designed; never pruned (section 17). |
 | **Voice** *(not stored)* | What a request sends: clip path + sha256 + transcript. `voice_hash` is computed from them on every request (section 10.2). |
-| **Measurement** ⊘ | (`voice_hash`, `engine_profile_id`); verified transcript; **anchor**; **similarity baseline** {anchor p5/p50, consistency p5}; **pace model** {method, trend, tol, curve, speaking share} (DC-18); **`max_segment_chars`**, **`max_segment_seconds`**; ladder table; calibration takes; corpus version. Returned in full to the caller as well. |
+| **Measurement** ⊘ | (`voice_hash`, `engine_profile_id`); transcript check {heard, wer, ok} (no copy of the transcript sent); **anchor**; **similarity baseline** {anchor p5/p50, consistency p5}; **pace model** {method, trend, tol, curve, speaking share} (DC-18); **`max_segment_chars`**, **`max_segment_seconds`**; ladder table; calibration takes; corpus version. Returned in full to the caller as well. |
 | **Render** ⊘ | `render_id` = `rn_` + 16 hex of `render_key`; seed, attempt; raw audio {path, sha256, samples, sample_rate}; `hit_token_cap`; gen timings. |
 | **Take** ⊘ *(the delivery layer)* | `take_id` = `tk_` + 16 hex of `delivery_key`; `render_id`; delivery {path, sha256, samples, sample_rate, duration_s}; **trim** {head_s, tail_s, pad_s}; **loudness** {measured_lufs, gain_db, true_peak_dbtp, ceiling_applied}; `post_stretched` (always false in v1). |
 | **Analysis** ⊘ | `analysis_id` = `an_` + 16 hex of `analysis_key`; `take_id`; QA verdict + flags + metrics + exact-span results; **cue alignment** {cues, words, method, model rev, cross-check, flags}. A take can have several analyses (e.g. with different hints' aliases or exact spans); a request uses the one matching its inputs. |
@@ -990,7 +1009,7 @@ is an audit of failed takes across jobs:
   the take that finally filled its slot, with its verdict; and the segment's text as the request sent it.
 - "Replaced" follows one rule, the job report's too (section 11.1): an attempt is replaced only when a
   later attempt of its slot has a take, and the take that filled the slot is the slot's last attempt that
-  has one. A retake whose render failed replaces nothing.
+  has one. A retake whose render failed, or whose take is no longer in the store, replaces nothing.
 - The filters combine. `--code` takes a fail or warn code that QA or the aligner raises.
 - `--json` prints the list as `narration.failures/v1`. `--export <dir>` copies each listed take's WAV
   beside a JSON sidecar of its reasons, and writes an `index.csv`. The bundle never names a store path,
@@ -1161,9 +1180,9 @@ comments below mark where a fragment goes.
     `rewrites`, `differs_in`, `first_difference`, `sent`, `measured`, `sent_chars`, `measured_chars`}.
     `rewrites` names the rewrites of the transcript sent that give the measured one (`trim_edges`,
     `collapse_whitespace`, `add_trailing_newline`, `plain_punctuation`, `typographic_quotes`), and
-    `differs_in` says `whitespace`, `punctuation`, or both. The hint gives the rewrites as steps, and says
-    not to measure again, since a measurement under this transcript would make the same clip a second
-    voice with a cache of its own;
+    `differs_in` is `"whitespace"`, `"punctuation"` or `"whitespace and punctuation"`. The hint gives the
+    rewrites as steps, and says not to measure again, since a measurement under this transcript would
+    make the same clip a second voice with a cache of its own;
   - otherwise `field` is `voice`, and the hint is to measure the clip first with `measure_voice`, or, if
     it was measured before, to send the transcript it was measured with, exactly as then.
 
@@ -1233,9 +1252,10 @@ The exact span is "three thousand two hundred".
     `segments[]` {segment_id, state, takes_ok, retakes_used}, `error`, `updated_at`.
 - **A job whose daemon has gone** (revision 5.16, PR #41). Before it waits, `get_job` checks that a
   daemon serves an active job, and asks for one when none does (section 4.1); `message` then says what was
-  found and done. When none can be started, or the one launched for the job exited before it served, the
-  call is `DAEMON_UNAVAILABLE` (retryable). `get_job` stays read-only (`readOnlyHint`), and its
-  description states the backoff rule (section 7.1).
+  found and done. When none can be started, or the daemon of the last launch has exited within its 90 s
+  start window (before it served, or after: the check cannot tell them apart), the call is
+  `DAEMON_UNAVAILABLE` (retryable). `get_job` stays read-only (`readOnlyHint`), and its description
+  states the backoff rule (section 7.1).
 
 ```json
 {"jsonrpc": "2.0", "method": "notifications/progress",
@@ -1362,7 +1382,8 @@ The `measured_error` values are Phase 0 output and unknown today.
 - **`profile_voice`** `{audio: {path, sha256}}` → `{job_id}`. The results give the measurements and
   picture paths (section 3.6). The job runs on the CPU and finishes in seconds.
 - **`measure_voice`** `{voice}` → `{job_id}`, or at once the cached measurement if one exists for this
-  voice and engine profile. The results give the verified transcript, the ladder table (per rung and
+  voice and engine profile. The results give the transcript check {heard, wer, ok} (the measurement
+  keeps no copy of the transcript sent), the ladder table (per rung and
   seed: pace in spoken characters per second of speaking time, `wer_adj`, similarity, verdict; DC-18),
   `max_segment_chars`, `max_segment_seconds`, the pace curve, trend and speaking share, the similarity
   baseline, and the path of the measurement JSON for the caller to keep.
@@ -1843,8 +1864,9 @@ and every take's is in `report.md`.
 - `report.md` lists every flag, including replaced attempts, plus each cue's received → engine text.
   Its **Failures** section, between "Listen first" and "Segments" (revision 5.16, PR #45), gathers every
   take that failed QA or that a retake replaced, with its fail and warn flags and the take that finally
-  filled its slot; an attempt is replaced only when a later attempt of its slot has a take. `report.json`
-  has the same list under `failures`. Neither names a file path. `narration-admin failures` lists the
+  filled its slot; an attempt is replaced only when a later attempt of its slot has a take, and a retake
+  whose render failed, or whose take is no longer in the store, replaces nothing. `report.json` has the
+  same list under `failures`. Neither names a file path. `narration-admin failures` lists the
   same takes across jobs, by the same rule (section 7.1).
 - `listen_first` is what QA found, in this order:
   1. fails;
@@ -2125,7 +2147,7 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 | `TEXT_REFUSED` | no | markup characters, or `strict_text` with text warnings left; every offender listed |
 | `ENGINE_DRIFT` | no | fingerprint mismatch, or the canary similarity is below threshold |
 | `BACKEND_NOT_INSTALLED` | no | weights or worker env missing |
-| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1); `retry_after_s` 60; hint: `narration-admin daemon start`. `get_job` returns it too, for an active job that no daemon serves: when none can be started (`details` job_id, job_status, daemon_state), or when the daemon launched for it exited before it served (`details.log`, launched_pid, launched_at; `retry_after_s` the rest of the 90 s start window, at least 60; revision 5.16, section 4.1) |
+| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1); `retry_after_s` 60; hint: `narration-admin daemon start`. `get_job` returns it too, for an active job that no daemon serves: when none can be started (`details` job_id, job_status, daemon_state), or when the daemon of the last launch exited within the 90 s start window, before it served or after (`details.log`, launched_pid, launched_at; `retry_after_s` the rest of the window, at least 60; revision 5.16, section 4.1) |
 | `GPU_UNAVAILABLE` | yes | the VRAM wait timed out |
 | `STORE_FULL` | yes | free disk below the minimum |
 | `JOB_NOT_CANCELLABLE` | no | the job is already terminal |
@@ -2162,7 +2184,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `ALIGNMENT_ERROR` | fail | ✓ | the aligner raised or could not run (frames < tokens + repeats) |
 | `FIT_TIGHT` / `OVER_SCENE` | warn | | only with `scene_seconds`; reported, not remedied |
 | `CANARY_MISMATCH` | info | | canary hash differed but similarity passed (`bit_exact` tier only) |
-| `CLIP_TOO_LONG` | fail | never | a designed candidate (section 3.1) is longer than `[limits] max_clip_seconds`, so `measure_voice` would refuse its clip (`UNSUPPORTED_AUDIO`); `details` {candidate, duration_s, max_clip_seconds}; hint: design again with a shorter `design_text`. The candidate is still published and on the provenance list, and the design job's outcome is `needs_attention`. It never triggers a retake: a candidate is never retaken (revision 5.16, WP34) |
+| `CLIP_TOO_LONG` | fail | never | a designed candidate (section 3.1) is longer than `[limits] max_clip_seconds`, so `measure_voice` would refuse its clip (`UNSUPPORTED_AUDIO`); `details` {candidate, duration_s, max_clip_seconds}; its message says to design again with a shorter `design_text`. The candidate is still published and on the provenance list, and the design job's outcome is `needs_attention`. The flag carries `retake_trigger: false`, because a design job has no take slots to retake (revision 5.16, WP34) |
 | `LOUDNESS_UNDER_TARGET` / `GAIN_HIGH` | info | | the true-peak ceiling lowered the gain / gain above +12 dB |
 | `RETAKEN` | info | | an earlier attempt of this slot failed (listed) |
 | `RENDER_FAILED`, `WORKER_CRASHED`, `GPU_OOM`, `QA_UNAVAILABLE`, `CANCELLED` | error | | segment-level execution problems |
