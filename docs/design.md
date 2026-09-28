@@ -517,8 +517,9 @@ shortest up. The corpus marks its number words as exact spans (section 11.3).
   rushing pass (PR #44's review of the rate model, reproduced with WP47's own functions). The rise
   of pace with length in section 1 was measured in words per minute.
 - **Tolerance**: `tol = max(0.10, the largest per-rung seed spread observed at ≤ 300 characters)`,
-  never below the measured seed-to-seed spread (up to 17 % within one voice in the probe). The spread is
-  relative, so it is derived the same way in characters per second.
+  never below the measured seed-to-seed spread (up to 17 % within one voice in the probe, measured in
+  words per minute until a voice is measured again under DC-18). The spread is relative, so it is
+  derived the same way in characters per second.
 - **The speaking share**: the median over the band's takes of speaking time over the voiced span (1 when
   none has both). It turns the curve into durations for estimates (sections 7.3, 7.6 and 12), never
   into a verdict.
@@ -1848,7 +1849,7 @@ which made verdicts depend on render order and leak from one script to another.)
 | terms | unverified | never | The probe heard stable, unstable and split variants of names (section 1). |
 | spk_sim vs anchor | < **voice `anchor_p5` − 0.01** | < **0.90** (absolute floor, ASSUME) | Per-voice thresholds from the voice's measurement: the probe's d4 scored 0.966–0.969 vs its clip and d2 0.978–0.984, so a fixed 0.975 would flag every d4 take. The floor only catches gross failure; unseeded VoiceDesign drift sat at 0.898–0.932. |
 | consistency across the request | — (report only: `SPK_OUTLIER`, info) | — | Probe `spk_consist` 0.981–0.992. |
-| pace (characters per second of speaking time; DC-18) vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | — (`PACE_FAST` and `PACE_SLOW` warn only; DC-19) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe). `default.v3` failed above curve × (1 + 2·tol). In the first real narration session 24 takes failed on pace alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast; so pace never fails and never triggers a retake. |
+| pace (characters per second of speaking time; DC-18) vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | — (`PACE_FAST` and `PACE_SLOW` warn only; DC-19) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe, measured in words per minute until a voice is measured again under DC-18). `default.v3` failed above curve × (1 + 2·tol). In the first real narration session 24 takes failed on pace alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast; so pace never fails and never triggers a retake. |
 | head / end insertion | ≥ 1 word | ≥ 3 words, or a match of the voice's transcript at the head | Reference bleed; hallucinated tail. |
 | longest internal silence | > 1.2 s | > 2.5 s | Dropout or hang. |
 | clipping (raw) | > 0.01 % of samples at full scale | — | Gain problem. |
