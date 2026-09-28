@@ -676,7 +676,7 @@ Updated by the lead on `main` only.
 | WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
 | WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `done` | PRs #34, #36 | 2026-09-27; review, re-verification workflow and a check of its fixes (all hold); DC-16 in; its five Low follow-ups merged (PR #36) |
 | WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
-| WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `active` | `wp/34-design` | 2026-09-27; started after M1; must not change the engine's identity while the owner narrates |
+| WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `done` | PR #39 | 2026-09-28; review, fix round and a two-lens verification (16 of 18 fixed; a cache for repeated designs and a WER warn level left as follow-ups); contracts 1.6.8; engine identity unchanged |
 | WP35 | `audition_pronunciation` | 2 | WP31 | yes | `todo` | – | |
 | WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `done` | PR #32, #40 | 2026-09-27; the caller's guidance in the tool texts merged (PR #40); Fable review and re-verification (merge with follow-ups; all fixed); `narration-admin render` included; follow-ups: `AnalysisPins` in `backend_for`, §7.3's all-cached submit |
 | WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `done` | PR #30 | 2026-09-27; daemon, doctor, gc, verify, install (review fixes incl. a path-traversal hole); `engine` from WP32, `render` after WP36, `bench` after WP38 |
@@ -690,8 +690,8 @@ Updated by the lead on `main` only.
 | WP45 | `narration-admin voices allow` | 3 | WP37 | – | `done` | PR #38 | 2026-09-27; a careful text edit (tomlkit rejected: it broke one-line arrays and CRLF files); adversarial review; merged 2026-09-27 |
 | WP46 | Frontend (plan first) | later | the other packages | – | `later` | – | the owner asked 2026-09-27: plan it when the other work is done; nothing is built before the owner approves the plan |
 | WP47 | Pace in characters per second (D2) | 3 | WP33, WP22 | – (re-measure after merge) | `active` | PR #42 (hotfix, merged) | 2026-09-27; the owner's decision D2, after short segments failed `PACE_FAST` falsely in the first real job. The hotfix (`PACE_FAST` warns only, `wp/47-pace-warn`) merges first; the rate model follows, then the voice is measured again (cached renders, QA only) |
-| WP48 | Failure audit | 3 | WP37, WP36 | – | `active` | – | the owner asked 2026-09-27: collect failed and retaken takes with their reasons, for auditing; started 2026-09-28 |
-| WP49 | Small follow-ups | 3 | WP37, WP31, WP30 | – | `active` | – | 2026-09-28: doctor warns on a QA-profile mismatch, a log line per finished job, PR #37's follow-ups |
+| WP48 | Failure audit | 3 | WP37, WP36 | – | `review` | PR #45 | the owner asked 2026-09-27: collect failed and retaken takes with their reasons, for auditing; started 2026-09-28 |
+| WP49 | Small follow-ups | 3 | WP37, WP31, WP30 | – | `review` | PR #46 | 2026-09-28: doctor warns on a QA-profile mismatch, a log line per finished job, PR #37's follow-ups |
 
 **Phase 0 spikes → where they live:** (a) WP38 · (b) WP15 · (c) WP39 · (d) (e) (f) (h) (i) WP20, with the
 QA half of (h) in WP22 · (g) WP30 · (j) WP17.
