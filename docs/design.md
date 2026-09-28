@@ -106,7 +106,11 @@ applied here, each listed in the revision history below.*
     7.4, 7.6, 14 and 15).
   - **A transcript that differs from the measured one** only in whitespace or punctuation is named in
     `VOICE_NOT_MEASURED`, with the rewrites that give the measured one (PR #41; sections 3.2, 7.3 and
-    14).*
+    14).
+  - **`narration-admin failures`** (PR #45) lists every take that failed QA or that a retake replaced,
+    across jobs, with its reasons; it only reads the store, and is never an MCP tool. `report.md` gains a
+    Failures section by the same rule, and `gc` lists the failed takes it would remove (sections 7.1,
+    11.1, 15 and 17 item 10).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -934,14 +938,36 @@ send the identical request again, which is deduplicated. The service suggests; t
 
 **Operator CLI (`narration-admin`)**, for the machine, not for any use of it: `install`, `engine
 pin|repin|bridge` (section 10.1), `gc` (dry-run default), `verify`, `bench alignment` (section 11.2),
-`daemon start [--foreground]|stop [--now]|status` (section 4.1), `doctor`, `render`, and `voices allow
-<clip.wav>|list` (revision 5.15, DC-17; section 17.4). `render` speaks one text in a voice from the
-terminal, as a thin client of the same backend: one `submit_job` request with the tool's own checks, then
-`get_job` and `get_results`, and `--out` copies the suggested take's delivery WAV. None of them approves
-anything; the service has no approvals. `voices allow` records the owner's own configuration of the
-machine (which clips designed elsewhere may be cloned) and approves no caller's work. It is **never an
-MCP tool**: the allowlist is the synthetic-voices gate, and a tool would let any caller allow a recording
-of a real person.
+`daemon start [--foreground]|stop [--now]|status` (section 4.1), `doctor`, `render`, `voices allow
+<clip.wav>|list` (revision 5.15, DC-17; section 17.4), and `failures` (revision 5.16, PR #45). `render`
+speaks one text in a voice from the terminal, as a thin client of the same backend: one `submit_job`
+request with the tool's own checks, then `get_job` and `get_results`, and `--out` copies the suggested
+take's delivery WAV. None of them approves anything; the service has no approvals. `voices allow`
+records the owner's own configuration of the machine (which clips designed elsewhere may be cloned) and
+approves no caller's work. It is **never an MCP tool**: the allowlist is the synthetic-voices gate, and a
+tool would let any caller allow a recording of a real person.
+
+`failures [--since <date>] [--job <job_id>] [--voice <sha256>] [--code <flag>] [--json] [--export <dir>]`
+is an audit of failed takes across jobs:
+- It lists every take of a `generate` or `analyse` job that failed QA, or that a retake replaced, newest
+  job first and then in the request's order. A `measure` job's calibration and ladder takes are the
+  measurement's own probes, and are not listed.
+- Each take comes with its job, segment, attempt and seed; its delivery WAV in the store (and whether the
+  file is still there); each fail and warn flag; the QA metrics and the thresholds they were judged by;
+  the take that finally filled its slot, with its verdict; and the segment's text as the request sent it.
+- "Replaced" follows one rule, the job report's too (section 11.1): an attempt is replaced only when a
+  later attempt of its slot has a take, and the take that filled the slot is the slot's last attempt that
+  has one. A retake whose render failed replaces nothing.
+- The filters combine. `--code` takes a fail or warn code that QA or the aligner raises.
+- `--json` prints the list as `narration.failures/v1`. `--export <dir>` copies each listed take's WAV
+  beside a JSON sidecar of its reasons, and writes an `index.csv`. The bundle never names a store path,
+  and a folder inside the store is refused.
+- It only reads: no row, file or last-use time in the store changes, so listing a take never keeps it
+  from `gc`, and the list exists only in the command's output. The segment's text is printed and
+  exported, never logged.
+- It is never an MCP tool: it is an operator's view of this machine's cache, as `gc` and `verify` are.
+  `gc` lists the failed or replaced takes a run would take out of this audit, so an audit can finish, or
+  `failures --export` copy them, first (section 15).
 
 ### 7.2 Shared definitions
 
@@ -1763,6 +1789,11 @@ and every take's is in `report.md`.
 **Report and listen-first.**
 
 - `report.md` lists every flag, including replaced attempts, plus each cue's received → engine text.
+  Its **Failures** section, between "Listen first" and "Segments" (revision 5.16, PR #45), gathers every
+  take that failed QA or that a retake replaced, with its fail and warn flags and the take that finally
+  filled its slot; an attempt is replaced only when a later attempt of its slot has a take. `report.json`
+  has the same list under `failures`. Neither names a file path. `narration-admin failures` lists the
+  same takes across jobs, by the same rule (section 7.1).
 - `listen_first` is what QA found, in this order:
   1. fails;
   2. exact-span and term flags;
@@ -2118,7 +2149,10 @@ the service's own or a cache of work done; nothing in it is a caller's record.
   (`measurement_retention_days`, default 365), since they cost 20–50 minutes of GPU time each.
   `provenance.jsonl`, `engines\` and `alignment\` are never collected.
 - Immutable files are read-only and re-hashed by `verify`.
-- `gc` is an operator command and a dry run by default.
+- `gc` is an operator command and a dry run by default. It also lists, apart, the failed or replaced
+  takes in the store (`narration-admin failures`, section 7.1): which ones a run would take out of that
+  audit, and which would only lose their flags and metrics (revision 5.16, PR #45). What it removes is
+  unchanged.
 - The service's own material (the canary's description, text and seed, the calibration corpus, the
   ladder texts, the alignment benchmark's text and hand marks, the text-check and QA fixtures) ships with
   its source, versioned and hashed. None of it comes from a caller. Audio is not shipped: the canary is
@@ -2318,6 +2352,8 @@ Client launch configuration, e.g. a `.mcp.json` for Claude Code:
 10. **No approvals to protect.** The service keeps no lock, no voice registry and no approval, so there
     is nothing an agent could approve for itself. The operator commands (install, engine pins, gc,
     bench, daemon stop) are machine chores that change no caller's result; `gc` is a dry run by default.
+    `failures` changes nothing: it reads the store, and prints or exports the text a job's request sent,
+    never logging it (section 7.1).
     `voices allow` changes which clips may be cloned: it records the owner's own configuration, and asks
     a person to confirm that the clip is synthetic (item 4). Whether an agent may run any of them is
     governed by that agent's own permissions.
