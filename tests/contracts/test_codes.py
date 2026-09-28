@@ -57,7 +57,7 @@ FLAG_TABLE = {
     "FIT_TIGHT": ({"warn"}, "never"),
     "OVER_SCENE": ({"warn"}, "never"),
     "CANARY_MISMATCH": ({"info"}, "never"),
-    "CLIP_TOO_LONG": ({"fail"}, "always"),  # contracts 1.6.7 (WP34): a designed candidate over the clip limit
+    "CLIP_TOO_LONG": ({"fail"}, "always"),  # contracts 1.6.8 (WP34): a designed candidate over the clip limit
     "LOUDNESS_UNDER_TARGET": ({"info"}, "never"),
     "GAIN_HIGH": ({"info"}, "never"),
     "RETAKEN": ({"info"}, "never"),

@@ -172,7 +172,7 @@ def test_a_used_analysis_keeps_its_take_and_an_unused_one_goes_s15(store: Narrat
     items = populate(store)
     old_analysis = items["analysis"]
     clock.advance(10 * DAY)
-    newer = store.put_analysis(analysis_record(items["take"], qa_profile="default.v4"))
+    newer = store.put_analysis(analysis_record(items["take"], qa_profile="test.another-profile"))
     clock.advance(25 * DAY)  # the take and the first analysis are 35 days old, the newer one 25
     report = store.gc(dry_run=False)
     assert report["items"]["takes"] == []

@@ -1,4 +1,4 @@
-"""Signal, speaker, pace and cue-alignment checks (design section 11.1 steps 1, 3, 8, 9): every default.v3 edge,
+"""Signal, speaker, pace and cue-alignment checks (design section 11.1 steps 1, 3, 8, 9): every default.v4 edge,
 just below, at and just above."""
 
 from __future__ import annotations
@@ -171,8 +171,8 @@ def test_expected_pace_follows_the_curve_at_this_length_s11_1() -> None:
 
 EXPECTED, TOL = 150.0, 0.10
 FAST_WARN = EXPECTED * (1 + TOL)  # warn above curve x (1 + tol)
-FAST_FAIL = EXPECTED * (1 + 2 * TOL)  # fail above curve x (1 + 2 tol)
-SLOW_WARN = EXPECTED * (1 - TOL)  # warn below curve x (1 - tol); default.v3 has no slow fail
+V3_FAST_FAIL = EXPECTED * (1 + 2 * TOL)  # default.v3 failed above curve x (1 + 2 tol); default.v4 never fails
+SLOW_WARN = EXPECTED * (1 - TOL)  # warn below curve x (1 - tol); no profile has a slow fail
 
 
 @pytest.mark.parametrize(
@@ -181,9 +181,11 @@ SLOW_WARN = EXPECTED * (1 - TOL)  # warn below curve x (1 - tol); default.v3 has
         (FAST_WARN - 1e-6, []),
         (FAST_WARN, []),
         (FAST_WARN + 1e-6, [(codes.PACE_FAST, "warn")]),
-        (FAST_FAIL - 1e-6, [(codes.PACE_FAST, "warn")]),
-        (FAST_FAIL, [(codes.PACE_FAST, "warn")]),
-        (FAST_FAIL + 1e-6, [(codes.PACE_FAST, "fail")]),
+        (V3_FAST_FAIL - 1e-6, [(codes.PACE_FAST, "warn")]),
+        (V3_FAST_FAIL, [(codes.PACE_FAST, "warn")]),
+        (V3_FAST_FAIL + 1e-6, [(codes.PACE_FAST, "warn")]),
+        (EXPECTED * 1.5, [(codes.PACE_FAST, "warn")]),
+        (EXPECTED * 4, [(codes.PACE_FAST, "warn")]),
         (SLOW_WARN + 1e-6, []),
         (SLOW_WARN, []),
         (SLOW_WARN - 1e-6, [(codes.PACE_SLOW, "warn")]),
@@ -193,7 +195,30 @@ SLOW_WARN = EXPECTED * (1 - TOL)  # warn below curve x (1 - tol); default.v3 has
 def test_pace_edges_s11_1(wpm: float, expected: list[tuple[str, str]]) -> None:
     flags = pace_flags(wpm, EXPECTED, TOL, P)
     assert [(f.code, f.severity) for f in flags] == expected
-    assert all(f.retake_trigger == (f.severity == "fail") for f in flags)
+    assert all(f.retake_trigger is False for f in flags)  # a pace warning is never a retake trigger
+
+
+def test_pace_fast_warns_and_never_fails_in_default_v4_dc19() -> None:
+    """The owner's decision (2026-09-27): PACE_FAST warns only, so it never triggers a retake."""
+    assert (P.name, P.pace_fail_tol_factor) == ("default.v4", None)
+    (flag,) = pace_flags(EXPECTED * 1.5, EXPECTED, TOL, P)
+    assert (flag.code, flag.severity, flag.retake_trigger) == (codes.PACE_FAST, "warn", False)
+    assert not codes.is_retake_trigger(flag.code, flag.severity, flag.details)
+    assert flag.details is not None
+    assert flag.details["fast_warn_above"] == round(FAST_WARN, 3)
+    assert flag.details["fast_fail_above"] is None  # there is no fail line
+    assert flag.details["slow_warn_below"] == round(SLOW_WARN, 3)
+    assert "fail" not in flag.message
+
+
+def test_a_profile_with_a_pace_fail_factor_fails_above_it_dc19() -> None:
+    """The factor is still honoured when a profile sets one (default.v3 had 2)."""
+    v3 = dataclasses.replace(P, name="default.v3", pace_fail_tol_factor=2.0)
+    assert [f.severity for f in pace_flags(V3_FAST_FAIL, EXPECTED, TOL, v3)] == ["warn"]
+    (flag,) = pace_flags(V3_FAST_FAIL + 1e-6, EXPECTED, TOL, v3)
+    assert (flag.code, flag.severity, flag.retake_trigger) == (codes.PACE_FAST, "fail", True)
+    assert flag.details is not None and flag.details["fast_fail_above"] == round(V3_FAST_FAIL, 3)
+    assert [f.severity for f in pace_flags(40.0, EXPECTED, TOL, v3)] == ["warn"]  # still no slow fail
 
 
 def test_pace_counts_spoken_words_over_the_voiced_span_s11_1() -> None:
