@@ -113,6 +113,10 @@ applied here, each listed in the revision history below.*
     11.1, 15 and 17 item 10).
   - **`[qa] profile` is informational** (PR #46): every take is scored with the QA profile the build
     pins, and `doctor` warns when the line differs (section 16).
+  - **Corrections to stale text.** `run\daemon.json` stays behind with state `stopped` (sections 4.1 and
+    15). On a designed candidate, `TOKEN_CAP_HIT` and `WER_HIGH` fail and never trigger a retake (section
+    14). Appendix B's QA metrics show `clipping_fraction`. Sections 0 and 20 point to section 7.1's list
+    of operator commands.
   - **`CLIP_TOO_LONG`** (WP34, PR #39) is in the flag table: a designed candidate longer than `[limits]
     max_clip_seconds` fails, and never triggers a retake (section 14).
   - **DC-18** (the owner's decision D2; built by WP47, PR #44): pace is spoken characters per second of
@@ -225,9 +229,10 @@ written-text normaliser are later phases (sections 9.2, 13.1 and 20).
     `sample_rate`, trim record, loudness record, path and sha256. The caller owns all padding.
 11. **Process model.** A thin stdio front-end per client, and a detached singleton daemon (SQLite + files,
     no sockets). One Qwen worker and one QA worker (Whisper and WavLM on the GPU, the aligner and
-    profiling on the CPU). CPU thread caps, documented process
-    identity, `narration-admin daemon start|stop|status`. **The service does not detect other
-    workloads**; the caller decides using `get_server_status`, and can free the GPU with `release_gpu`.
+    profiling on the CPU). CPU thread caps, documented process identity, `narration-admin daemon
+    start|stop|status` and the other operator commands of section 7.1. **The service does not detect
+    other workloads**; the caller decides using `get_server_status`, and can free the GPU with
+    `release_gpu`.
 12. **Takes and retakes.**
     - `takes` (1–3) asks for that many **distinct deliveries** per segment, rendered in one model load;
       or a segment names its `attempts` explicitly.
@@ -800,11 +805,12 @@ provides:
 | Qwen worker | `python.exe` (worker venv) | `-P -m narration_worker --role qwen3 --store <store_root>` |
 | QA worker | `python.exe` (worker venv) | `-P -m narration_worker --role qa --store <store_root>` |
 
-  The marker to match is `-m <module> --store <store_root>`. `store_root\run\daemon.json` (pid, start
-  time, workers) exists while the daemon runs. A recorded daemon counts as running only if a process with
-  its pid was created no later than its start time (within 2 s), so a later process that reuses the pid is
-  never taken for it. The service never acts on a process by a bare pid: it stops the workers it started
-  through their own process handles and the daemon's Job Object.
+  The marker to match is `-m <module> --store <store_root>`. `store_root\run\daemon.json` (state, pid,
+  start time, workers) is written while the daemon runs, and stays behind when it exits, with state
+  `stopped` and no pid, start time, workers or job. A recorded daemon counts as running only if a process
+  with its pid was created no later than its start time (within 2 s), so a later process that reuses the
+  pid is never taken for it. The service never acts on a process by a bare pid: it stops the workers it
+  started through their own process handles and the daemon's Job Object.
 - **Stop.**
   - `narration-admin daemon stop`: stop claiming work, finish the in-flight segment, unload, exit.
     Queued jobs resume on the next start.
@@ -2165,7 +2171,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `WRITTEN_FORM_TOKEN` | warn (info for a lone `letter`) | | text check: a digit, symbol or unit-like token in spoken text (section 9.1) |
 | `TERM_SPLIT_ACROSS_CUES` | warn | | text check: a term would match only across a cue boundary, so no hint was applied |
 | `SEGMENT_TOO_LONG` | warn | | the segment is longer than the voice's reliable length; it is still rendered (section 3.2) |
-| `WER_HIGH` | warn / fail | fail | `wer_adj` above the threshold, with the word-count rule |
+| `WER_HIGH` | warn / fail | fail | `wer_adj` above the threshold, with the word-count rule. On a designed candidate (section 3.1) it is a fail that never triggers a retake: the clip does not say its design text as the recogniser heard it, so `measure_voice` would refuse it (`REF_TEXT_MISMATCH`) |
 | `EXACT_SPAN_MISMATCH` | fail | ✓ | a different value or different words inside a span the caller marked exact (R14, section 11.3) |
 | `TERM_UNVERIFIED` | warn | | ASR did not match a hinted term |
 | `SPK_SIM_LOW` | warn / fail | fail | similarity to the voice's anchor below the measured warn threshold / the floor |
@@ -2176,7 +2182,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `SILENCE_LONG` | warn / fail | fail | longest internal silence |
 | `CLIPPING` | warn | | raw samples at full scale |
 | `SIGNAL_INVALID` | warn / fail | fail | non-finite samples in the raw take (fail), or a DC offset (warn); revision 5.3, DC-5 |
-| `TOKEN_CAP_HIT` | fail | ✓ | generation stopped at `max_new_tokens` |
+| `TOKEN_CAP_HIT` | fail | ✓ | generation stopped at `max_new_tokens`. On a designed candidate (section 3.1) it is a fail that never triggers a retake, since a design job has no take slots to retake |
 | `CUE_UNALIGNED` | warn | ✓ | cue not placed; times null; never interpolated |
 | `CUE_LOW_CONFIDENCE` | warn | | alignment posterior below threshold |
 | `CUE_ALIGNMENT_DISAGREE` | warn | | CTC vs Whisper boundary differ > threshold |
@@ -2200,7 +2206,7 @@ the service's own or a cache of work done; nothing in it is a caller's record.
 ```
 <store_root>\
   narration.sqlite                   jobs, queue, cache index, retention (WAL)
-  run\daemon.json                    pid, workers (while running)
+  run\daemon.json                    state, pid, start time, workers; stays with state `stopped` (4.1)
   run\launch.json                    the last daemon launch: pid, time (advice to the next launcher; 4.1)
   engines\<engine_profile_id>.json   ⊘ (+ the canary's raw hash and embedding)
   alignment\<method_id>.json         ⊘ measured cue-boundary error on the benchmark (R1)
@@ -2541,6 +2547,10 @@ owner reverses it.
 | **5: design and profile** | `design_voice` with the provenance list and the positive-only lint; `profile_voice` (measurements and pictures); the allowlist; operator CLI (install, engine pin/repin/bridge, gc, verify, bench). | Flows A–F end to end, including a "weeks later" batch with `expect_engine_profile` and the canary gate. |
 | **6: later** | Stitching and fit remedies, when a picture-first caller exists; a written-text normaliser (Q20); the Tasks extension; a stronger SV model (Q11); a listening model for voice descriptions (Q22); unspoken context if a backend supports it; the aligner on the GPU if CPU time matters. | Each item separately justified. |
 
+The operator commands in the rows above are the plan's. Section 7.1 lists every `narration-admin`
+command as built, including those the plan did not name (`doctor`, `voices allow|list` and `failures`
+among them).
+
 ---
 
 ## 21. Response to `story-narration.md`
@@ -2701,7 +2711,8 @@ daemon computes the hashes. All times are in seconds.
         "metrics": {"wer_raw": 0.0, "wer_adj": 0.0, "word_errors": 0, "exact_ok": true, "spk_sim_anchor": 0.981,
                     "spoken_wpm": 158, "expected_spoken_wpm": 150, "spoken_cps": 14.8,
                     "articulation_cps": 15.8, "expected_articulation_cps": 15.2, "pause_s": 0.56,
-                    "head_insertion_words": 0, "end_insertion_words": 0, "longest_silence_s": 0.61},
+                    "head_insertion_words": 0, "end_insertion_words": 0, "longest_silence_s": 0.61,
+                    "clipping_fraction": 0.0},
         "thresholds": {"spk_warn": 0.972, "spk_fail": 0.90, "pace_tol": 0.17},
         "flags": []},
  "licence": {"aligner": "apache-2.0", "asr": "per model card", "sv": "per model card"}}
