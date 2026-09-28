@@ -10,6 +10,8 @@ with the service's defaults (``[defaults]``). Everything the engine plans follow
 - **The hints used** in a segment: the request's hints whose term the text pipeline applied in one of its
   cues (``hints_applied``), with the term as it matched there. They are what QA and the analysis key see
   (``QaInputs.hints``); a hint the segment does not use never changes its cached verdict.
+- **The analysis key's inputs** for a take (``analysis_key_inputs``): the one builder, which the engine keys
+  its analyses with and a front-end plan looks them up with, so the two cannot name different keys.
 """
 
 from __future__ import annotations
@@ -19,7 +21,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from narration.config import DefaultsConfig
-from narration.contracts.models import Hint, MeasurementRecord, SegmentIn, SegmentText
+from narration.contracts.interfaces import AnalysisKeyInputs
+from narration.contracts.models import Hint, MeasurementRecord, SegmentIn, SegmentText, TakeRecord
 from narration.contracts.names import Priority
 from narration.contracts.serial import ContractError, from_json
 from narration.qa.checks import expected_wpm
@@ -134,6 +137,43 @@ def hints_used(segment: SegmentText, hints: Sequence[Hint]) -> tuple[Hint, ...]:
     return tuple(used)
 
 
+def analysis_key_inputs(
+    *,
+    take: TakeRecord,
+    text: SegmentText,
+    hints: Sequence[Hint],
+    text_checks_version: str,
+    qa_profile: str,
+    number_reader: str,
+    asr_model: str,
+    sv_model: str,
+    aligner_method_id: str,
+    measurement_key: str | None,
+) -> AnalysisKeyInputs:
+    """The analysis key's inputs (section 10.2) for one take of a segment: the take's delivery, what the text
+    pipeline made of the segment (its spoken text, each cue's span in it, and each exact span as a cue and a
+    word range), the hints the segment uses (``hints_used``) as QA sees them, and the given versions and pins.
+
+    The one place these are built: the job engine keys its analyses with it
+    (``narration.jobs.stages.Stages.key_inputs``) and a front-end plan looks them up with it
+    (``narration.backend.planning.analysis_key_inputs``). The key itself is ``narration.keys.analysis_key``.
+    """
+    return AnalysisKeyInputs(
+        delivery_sha256=take.delivery.sha256,
+        spoken_text=text.spoken_text,
+        cue_spans=tuple(c.spoken_span for c in text.cues),
+        exact_spans=tuple((c.index, e.words[0], e.words[1]) for c in text.cues for e in c.exact),
+        hints_qa=tuple((h.term, h.asr_aliases, h.align_as) for h in hints),
+        qa_profile=qa_profile,
+        text_checks_version=text_checks_version,
+        number_reader=number_reader,
+        asr_model=asr_model,
+        sv_model=sv_model,
+        aligner_method_id=aligner_method_id,
+        measurement_key=measurement_key,
+    )
+
+
 def estimated_audio_s(segment: SegmentText, measurement: MeasurementRecord | None) -> float:
     """The audio seconds one take of the segment should last: its spoken words at the voice's pace curve for
     this length, or ``CHARS_PER_AUDIO_S`` without one. Only for progress and estimates, never for a verdict."""
@@ -149,6 +189,7 @@ __all__ = [
     "GenerateRequest",
     "RequestError",
     "VoiceSpec",
+    "analysis_key_inputs",
     "estimated_audio_s",
     "hints_used",
     "next_attempt",

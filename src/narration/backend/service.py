@@ -30,8 +30,9 @@ import os
 import secrets
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, ParamSpec, TypeVar
+from typing import Any, Final, Literal, ParamSpec, TypeVar
 
 import anyio
 import anyio.to_thread
@@ -43,6 +44,7 @@ from narration.contracts import codes, names
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Platform, ProgressCallback, ResourceContent, Store, TextPlanner
 from narration.contracts.models import (
+    DaemonCommand,
     EngineProfile,
     EngineRef,
     Flag,
@@ -51,21 +53,26 @@ from narration.contracts.models import (
     Progress,
     SegmentText,
 )
-from narration.contracts.names import TERMINAL_JOB_STATUSES, EngineKind, JobKind, Priority
+from narration.contracts.names import TERMINAL_JOB_STATUSES, EngineKind, JobKind, JobStatus, Priority
 from narration.contracts.serial import to_json
+from narration.daemon import start as daemon_start
+from narration.daemon.service import posted_after_launch
+from narration.daemon.settings import LOG_NAME
+from narration.daemon.sweep import StatusUnreadable, read_status
 from narration.jobs import admission
 from narration.jobs.plan import VoiceSpec, estimated_audio_s
 from narration.lint import NegationLinter
 from narration.post import delivery_tools
 from narration.qa import Scorer
-from narration.store.store import utc_iso
+from narration.store.layout import LOGS
+from narration.store.store import parse_iso, utc_iso
 from narration.text import TextPipeline, segment_too_long
 
 from . import views
 from .assemble import assemble, consistency_of, measured_error
 from .clips import ClipRef, admit_clip, check_synthetic, refield
 from .launch import DAEMON_RETRY_S, DaemonLauncher, DetachedLauncher
-from .measures import Measurements, StoreMeasurements
+from .measures import Measurements, StoreMeasurements, measured_nearby, not_measured
 from .planning import AnalysisPins, plan_request
 from .requests import (
     check_controls,
@@ -87,6 +94,19 @@ POLL_S: Final = 0.5
 """How often ``get_job``'s long-poll reads the job again."""
 RELEASE_WAIT_S: Final = 10.0
 """How long ``release_gpu`` waits for the daemon to answer its command (well inside the write deadline)."""
+DAEMON_START_GRACE_S: Final = 30.0
+"""How long after a queued job was written ``get_job`` and ``cancel_job`` leave it to the daemon its submission
+asked for, which may still be starting up (``NarrationBackend._revive``). BELIEVE, not measured: a detached
+daemon is a new interpreter that imports the service and opens the store before it writes its status, which
+takes seconds, longer when a virus scanner inspects it first (a follow-up measures launch-to-status time). A
+launch the platform made is also told apart by ``run/launch.json`` (``daemon.start.launch_in_progress``); the
+grace still covers a daemon started by a launcher that records no launch."""
+STOP_TO_STOPPED_S: Final = 30.0
+"""How long before a ``stopped`` daemon status a stop answered ``stopped: true`` may have been answered and still be
+the stop that daemon ended on (``operator_stop``). A daemon answers its stop commands just before it writes
+``stopped``, in the same ``finally``; a daemon that took over and honoured a stop the one before it answered
+writes ``stopped`` once it has started, having done no work. BELIEVE, not measured: both take seconds, the second
+bounded by a daemon's start-up (the follow-up that measures launch-to-status time bounds it)."""
 GIB: Final = 1024**3
 REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
@@ -197,9 +217,17 @@ class NarrationBackend:
             )
         return profile
 
-    def _measurement(self, voice_hash: str, profile: EngineProfile) -> MeasurementRecord:
-        """The measurement the request is judged against; ``VOICE_NOT_MEASURED`` when there is none."""
-        return self.measurements.require(voice_hash, profile)
+    def _measurement(self, voice: VoiceSpec, voice_hash: str, profile: EngineProfile) -> MeasurementRecord:
+        """The measurement the request is judged against; ``VOICE_NOT_MEASURED`` when there is none, saying
+        where the transcript differs when this clip is measured under a near spelling of it
+        (``measures.measured_nearby``), and otherwise to measure it."""
+        try:
+            return self.measurements.require(voice_hash, profile)
+        except NarrationError as exc:
+            if exc.code != codes.VOICE_NOT_MEASURED:
+                raise
+            nearby = measured_nearby(self.measurements, voice, profile)
+            raise not_measured(exc, voice, voice_hash, profile, nearby) from exc
 
     def _check_disk(self) -> None:
         """``STORE_FULL`` (retryable) when the store's disk has less free space than ``min_free_disk_gb``."""
@@ -338,6 +366,78 @@ class NarrationBackend:
                 retry_after_s=exc.retry_after_s if exc.retryable else None,
             ) from exc
 
+    # ================================================================ an active job with no daemon (sections 4, 4.1)
+    def _revive(self, job: JobRecord) -> Revival | None:
+        """Make sure a daemon serves an active job that ``get_job`` or ``cancel_job`` reads: what was found and
+        done when none was running (``Revival``), or None when one runs (or the job has finished).
+
+        A job stays ``queued``, ``running`` or ``cancelling`` in the store after its daemon has gone (a crash, a
+        machine restart, a daemon killed with its client), and nothing but a daemon moves it on. So when the
+        launcher says no daemon runs, this asks it for one (``ensure``: idempotent; with ``[daemon] autostart``
+        off it starts nothing). The new daemon's start-up sweep (``narration.daemon.sweep``) puts a job left
+        ``running`` back on the queue, keeping its items (the job engine then takes it again and finds what it
+        finished in the cache), and finishes a job left ``cancelling`` as ``cancelled``; a ``queued`` job is
+        simply run in its turn. A daemon that is ``stopping`` still runs, and is left alone: one exiting for
+        being idle looks for work once more, and one asked to stop by the operator is let stop.
+
+        A ``queued`` job that an operator's stop left in the queue (``operator_stop``: a stop posted after the job
+        was queued, by ``narration-admin daemon stop`` or ``narration-admin install``) starts no daemon: the stop
+        was the operator's decision, and the job runs on the next start (``narration-admin daemon start``, or the
+        next ``submit_job``). Every other queued job
+        whose daemon has gone gets one, whatever ``run/daemon.json`` says: ``stopped`` is also written by a daemon
+        whose control loop or worker supervisor failed, and after a stop that was asked before the job was queued.
+        A job left ``running`` or ``cancelling`` always gets one: its daemon gave it back or lost it.
+
+        No daemon is asked for while one is starting: a daemon writes its status only once it holds the
+        singleton, so until then no daemon "runs", and each poll would launch another. So a launch recorded
+        less than ``daemon.start.START_WINDOW_S`` ago, with no status written since, is left to start while its
+        process runs (``daemon.start.check_launch``): at most one launch per window, even when a start is stuck.
+        Once that process has gone without writing a status, the start failed: ``DAEMON_UNAVAILABLE`` names the
+        daemon's log instead of launching again at once, since a new daemon would most likely fail the same way
+        (past the window, the next call launches one again). ``run/launch.json`` is the service's own
+        operational state, never a caller's (sections 0.2, 2). A ``queued`` job written less than
+        ``DAEMON_START_GRACE_S`` ago is also left to the daemon its submission asked for. A job ``running`` or
+        ``cancelling`` was taken by a daemon that had written its status, so none running means it has gone.
+
+        Raises ``DAEMON_UNAVAILABLE`` (with the job, its status and what to do) when no daemon could be started,
+        or the one launched for it exited before it served.
+        """
+        if job.status in TERMINAL_JOB_STATUSES:
+            return None
+        if job.status == "queued" and self._just_written(job):
+            return None
+        daemon = self.launcher.running(self.store)
+        if daemon is not None and daemon.state != "stopped":
+            return None
+        if job.status == "queued" and operator_stop(self.store, job) is not None:
+            return Revival(action="stopped", status=job.status)
+        now = self.clock()
+        launch = daemon_start.check_launch(self.store, now=now)
+        if launch is not None and launch.state == "starting":
+            return Revival(action="starting", status=job.status, since_s=max(0.0, now - launch.launch.launched_at))
+        if launch is not None:
+            raise _failed_start(job, launch.launch, now=now, log_path=self.store.root / LOGS / LOG_NAME)
+        try:
+            self.launcher.ensure(self.store)
+        except NarrationError as exc:
+            if exc.code != codes.DAEMON_UNAVAILABLE:
+                raise
+            raise _no_daemon_for(job, exc) from exc
+        if not self.config.daemon.autostart:
+            return Revival(action="off", status=job.status)
+        log.info("job %s is %s and no daemon was running; asked the launcher for one", job.job_id, job.status)
+        return Revival(action="asked", status=job.status)
+
+    def _just_written(self, job: JobRecord) -> bool:
+        """Whether the job was written less than ``DAEMON_START_GRACE_S`` ago by this clock. A stamp up to the
+        grace in the future (a clock stepped back) counts as just written; one further out is not trusted, so a
+        large step back holds no job, and ``run/launch.json`` still bounds the launches."""
+        try:
+            age = self.clock() - parse_iso(job.updated_at)
+        except ValueError:
+            return False
+        return -DAEMON_START_GRACE_S < age < DAEMON_START_GRACE_S
+
     # ================================================================ text (sections 3.2, 7.2, 9.1)
     def _text_json(self, text: SegmentText, measurement: MeasurementRecord | None) -> dict[str, Any]:
         """One segment's text echo and length check (``check_text``, ``submit_job``'s dry run; R7, R8)."""
@@ -406,7 +506,8 @@ class NarrationBackend:
         clip = ClipRef(path=request.voice.path, sha256=request.voice.sha256)
         check_synthetic(self.store, config.voices.allow_sha256, clip, field="voice")
         voice_hash = self._voice_hash(request.voice)
-        measurement = self._measurement(voice_hash, profile)  # before the clip is read: nothing to copy if unmeasured
+        # Before the clip is read: nothing to copy if unmeasured.
+        measurement = self._measurement(request.voice, voice_hash, profile)
         dry_run = request.options.dry_run
         if not dry_run:
             self._check_disk()
@@ -469,14 +570,21 @@ class NarrationBackend:
     # ================================================================ get_job (section 7.4)
     async def get_job(self, args: Mapping[str, Any], progress: ProgressCallback | None) -> dict[str, Any]:
         """``get_job``: the job now, or after a long-poll of up to ``wait_s`` that ends when its status
-        changes; progress notifications while it waits."""
+        changes; progress notifications while it waits.
+
+        An active job whose daemon has gone would read the same forever, so when no daemon runs, a daemon is
+        asked for first (``_revive``), within ``wait_s``, and the reply's ``message`` says so. When none can be
+        started, the call is ``DAEMON_UNAVAILABLE`` (retryable), naming the job and what to do."""
         job_id = str(args["job_id"])
         wait_s = float(args.get("wait_s", 0) or 0)
         include = bool(args.get("include_segments", False))
+        deadline = anyio.current_time() + wait_s
         job = await self._thread(self._job, job_id)
+        revival = await self._thread(self._revive, job)
+        if revival is not None and revival.action == "asked":
+            job = await self._thread(self._job, job_id)  # a daemon started meanwhile may have moved it on
         if progress is not None and job.status not in TERMINAL_JOB_STATUSES:
             await _report(progress, job)
-        deadline = anyio.current_time() + wait_s
         while job.status not in TERMINAL_JOB_STATUSES:
             remaining = deadline - anyio.current_time()
             if remaining <= 0:
@@ -491,7 +599,11 @@ class NarrationBackend:
             if status_changed:
                 break
         queued = await self._thread(self.store.queued_jobs)
-        return views.job_json(job, queued, include_segments=include)
+        out = views.job_json(job, queued, include_segments=include)
+        if revival is not None and job.status not in TERMINAL_JOB_STATUSES:
+            note = revival.note(status_now=job.status)
+            out["message"] = f"{job.message}. {note}" if job.message else note
+        return out
 
     # ================================================================ get_results (section 7.5)
     def get_results_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
@@ -620,7 +732,11 @@ class NarrationBackend:
     # ================================================================ cancel_job (sections 7.6, 8)
     def cancel_job_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:
         """``cancel_job``: a queued job is cancelled at once; a running one is ``cancelling`` until the daemon
-        stops it between two pieces of work. Finished renders, takes and analyses stay in the cache."""
+        stops it between two pieces of work. Finished renders, takes and analyses stay in the cache.
+
+        Only a daemon finishes a cancel, so when none runs, one is asked for (``_revive``): its start-up sweep
+        finishes the cancel. The cancel is recorded either way; if no daemon can be started, the answer is still
+        ``cancelling``, and ``get_job`` says why and what to do."""
         job_id = str(args["job_id"])
         reason = args.get("reason")
         message = f"cancelled: {reason}" if reason else "cancelled"
@@ -634,14 +750,28 @@ class NarrationBackend:
                     details={"status": job.status},
                 )
             if job.status == "cancelling":
-                return {"status": "cancelling", "completed": False}
+                return self._cancelling(job)
             if job.status == "queued":
                 if self.store.update_job(job_id, expect_status="queued", status="cancelled", message=message):
                     return {"status": "cancelled", "completed": True}
-            elif self.store.update_job(job_id, expect_status="running", status="cancelling", message=message):
-                return {"status": "cancelling", "completed": False}
+            else:
+                changed = self.store.update_job(job_id, expect_status="running", status="cancelling", message=message)
+                if changed is not None:
+                    return self._cancelling(changed)
         job = self._job(job_id)
+        if job.status == "cancelling":
+            return self._cancelling(job)
         return {"status": job.status, "completed": job.status == "cancelled"}
+
+    def _cancelling(self, job: JobRecord) -> dict[str, Any]:
+        """``cancel_job``'s answer for a job left ``cancelling``, once a daemon is asked for if none runs."""
+        try:
+            self._revive(job)
+        except NarrationError as exc:
+            if exc.code != codes.DAEMON_UNAVAILABLE:
+                raise
+            log.warning("job %s is cancelling, but no daemon could be started to finish it: %s", job.job_id, exc)
+        return {"status": "cancelling", "completed": False}
 
     async def cancel_job(self, args: Mapping[str, Any]) -> dict[str, Any]:
         """``cancel_job`` (section 7.6)."""
@@ -759,7 +889,8 @@ class NarrationBackend:
 
     def _alignment_json(self) -> dict[str, Any]:
         """``get_server_status``'s ``alignment`` (R1, section 11.2): the method in use and its measured error,
-        null until the alignment benchmark has been run."""
+        null until the alignment benchmark has been run. The model and revision are the benchmark's, or before
+        it has run, those of the aligner this installation pins (``AnalysisPins.aligner_revision``)."""
         pins = self._pins()
         method_id = pins.aligner_method_id if pins is not None else None
         bench = None
@@ -772,7 +903,7 @@ class NarrationBackend:
         return {
             "method_id": method_id,
             "model": bench.model if bench is not None else self.config.alignment.model,
-            "revision": bench.revision if bench is not None else None,
+            "revision": bench.revision if bench is not None else pins.aligner_revision if pins is not None else None,
             "measured_error": {
                 "p50_s": error.p50_s if error is not None else None,
                 "p95_s": error.p95_s if error is not None else None,
@@ -920,14 +1051,203 @@ def with_retry_after(exc: NarrationError) -> NarrationError:
     )
 
 
+class InstalledPins:
+    """The ``AnalysisPins`` of this installation, as the daemon's job engine keys its analyses
+    (``narration.jobs.stages.Stages.key_inputs`` over ``narration.engine.installed``): the QA group's models
+    (``narration.engine.qa.qa_pins``) and the configured aligner's method id (``aligner_method_id``) and pinned
+    revision, with the QA profile and number reader of ``Scorer(config.measurement)``. The daemon runs with the
+    front-end's own configuration file, so both name the same pins; nothing here computes a key or changes one.
+
+    Called with no argument, as ``NarrationBackend``'s ``pins``. None while the QA models are not installed
+    (``BACKEND_NOT_INSTALLED``): a plan then counts every analysis as needed, and the next call looks again.
+    Once found, the pins are kept (the configuration is read once, at start).
+    """
+
+    def __init__(self, config: Config) -> None:
+        self._config = config
+        self._found: AnalysisPins | None = None
+
+    def __call__(self) -> AnalysisPins | None:
+        if self._found is not None:
+            return self._found
+        from narration.engine.qa import aligner_method_id, qa_pins  # numpy; only once a plan needs the pins
+
+        try:
+            qa = qa_pins(self._config)
+            method_id = aligner_method_id(self._config)
+        except NarrationError as exc:
+            if exc.code != codes.BACKEND_NOT_INSTALLED:
+                raise
+            log.debug("no analysis pins yet (%s); plans count every analysis as needed", exc.message)
+            return None
+        scorer = Scorer(self._config.measurement)
+        self._found = AnalysisPins(
+            asr_model=qa.asr.name,
+            sv_model=qa.sv.name,
+            aligner_method_id=method_id,
+            qa_profile=scorer.profile_version,
+            number_reader=scorer.number_reader,
+            aligner_revision=qa.aligner.revision,
+        )
+        return self._found
+
+
 def backend_for(
     config: Config, store: Store, platform: Platform, *, launcher: DaemonLauncher | None = None
 ) -> NarrationBackend:
     """The service's backend over its store, as ``narration-mcp`` and ``narration-admin render`` run it: the
-    daemon is started detached with this configuration file, when ``[daemon] autostart`` says so."""
+    daemon is started detached with this configuration file, when ``[daemon] autostart`` says so, and a plan
+    looks up the analysis layer with this installation's pins (``InstalledPins``)."""
     if launcher is None:
         launcher = DetachedLauncher(config.path, autostart=config.daemon.autostart)
-    return NarrationBackend(config, store, platform, launcher=launcher)
+    return NarrationBackend(config, store, platform, launcher=launcher, pins=InstalledPins(config))
+
+
+RESUMES: Final[dict[str, str]] = {
+    "queued": "the job is kept in the queue and runs once a daemon serves it",
+    "running": "the job is kept, and the new daemon puts it back on the queue, reusing what it finished from the cache",
+    "cancelling": "the cancel is kept, and the new daemon finishes it as it starts",
+}
+"""What happens to an active job once a daemon starts again, by the status it was left in (``_revive``)."""
+
+
+def operator_stop(store: Store, job: JobRecord) -> DaemonCommand | None:
+    """The operator's stop that left a ``queued`` job in the queue, or None (``NarrationBackend._revive``).
+
+    ``run/daemon.json`` says ``stopped`` after every exit: an operator's stop, an idle exit, and a daemon whose
+    control loop or worker supervisor raised (its ``finally`` still writes ``stopped``). A queued job waits only
+    for an operator's stop that applies to it: a ``stop`` or ``stop_now`` answered ``stopped: true``
+    (``narration-admin daemon stop`` posts them, and ``narration-admin install`` after a repair) that
+
+    - was posted after the job was created: it was asked of the service the job was queued in. A job queued
+      after it, even while the stop's in-flight segment finished, belongs to the next start, as the daemon's
+      rule has it: a daemon honours no stop posted before its launch (``narration.daemon.service``). A stop
+      stamped in the job's own millisecond counts as after it, as it does against a launch
+      (``posted_after_launch``: store times are cut to the millisecond);
+    - was answered at most ``STOP_TO_STOPPED_S`` before ``stopped`` was written: the daemon that wrote it is the
+      one that stopped for it, or took over and honoured it, and not a later daemon that served and then failed.
+      A ``stopped`` status keeps no start time (``started_at`` is null), so the stop's answer stands in for "since
+      the last daemon started".
+
+    None when the status is missing, unreadable or not ``stopped``, or no such stop is found. The latest such
+    stop otherwise. Store times only: no clock of this process is read.
+    """
+    try:
+        status = read_status(store)
+    except StatusUnreadable:
+        return None
+    if status is None or status.state != "stopped":
+        return None
+    try:
+        created = parse_iso(job.created_at)
+        stopped_at = parse_iso(status.updated_at)
+        since = store.commands_since(job.created_at)
+    except ValueError:
+        return None
+    for command in reversed(since):
+        if command.kind not in ("stop", "stop_now") or command.done_at is None or command.result is None:
+            continue
+        if command.result.get("stopped") is not True:
+            continue
+        try:
+            after = posted_after_launch(command.requested_at, created)
+            answered = parse_iso(command.done_at)
+        except ValueError:
+            continue
+        if after and abs(stopped_at - answered) <= STOP_TO_STOPPED_S:
+            return command
+    return None
+
+
+def _failed_start(job: JobRecord, launch: daemon_start.Launch, *, now: float, log_path: Path) -> NarrationError:
+    """``DAEMON_UNAVAILABLE`` for an active job whose daemon, launched less than ``daemon.start.START_WINDOW_S``
+    ago, exited before it served (``daemon.start.check_launch`` says ``failed``). No other is launched at once:
+    it would most likely fail the same way. ``details.log`` is the daemon's log in the store (section 14), and
+    the hint says how to see the failure. Retryable, after the rest of the window: then a call launches one
+    again."""
+    age = max(0.0, now - launch.launched_at)
+    return NarrationError(
+        codes.DAEMON_UNAVAILABLE,
+        f"job {job.job_id} is {job.status}, but the daemon launched {round(age)} s ago to serve it exited before "
+        "it served, so no other was launched at once",
+        hint=(
+            "Run 'narration-admin daemon start' in a terminal, which reports whether the daemon comes up, or "
+            "'narration-admin daemon start --foreground' to see why it exits; its log is details.log. Once a "
+            f"daemon serves, call get_job again: {RESUMES[job.status]}."
+        ),
+        details={
+            "job_id": job.job_id,
+            "job_status": job.status,
+            "daemon_state": "stopped",
+            "launched_pid": launch.pid,
+            "launched_at": utc_iso(launch.launched_at),
+            "log": str(log_path),
+        },
+        retryable=True,
+        retry_after_s=float(max(DAEMON_RETRY_S, math.ceil(daemon_start.START_WINDOW_S - age))),
+    )
+
+
+def _no_daemon_for(job: JobRecord, exc: NarrationError) -> NarrationError:
+    """``DAEMON_UNAVAILABLE`` for an active job that no daemon serves and none could be started for: the
+    launcher's reason, the job, its status and the daemon's state, and what to do. A retryable start (the
+    client's Job Object kept the daemon in) needs a person to start the daemon in a terminal; one that can
+    never work here (``UnsupportedPlatform``) keeps its own hint."""
+    what = "finish its cancel" if job.status == "cancelling" else "run it"
+    hint = (
+        f"Run 'narration-admin daemon start' in a terminal, then call get_job again: {RESUMES[job.status]}."
+        if exc.retryable
+        else exc.hint
+    )
+    return NarrationError(
+        codes.DAEMON_UNAVAILABLE,
+        f"job {job.job_id} is {job.status}, but no daemon is running to {what}, and none could be started: "
+        f"{exc.message}",
+        hint=hint,
+        details={**(exc.details or {}), "job_id": job.job_id, "job_status": job.status, "daemon_state": "stopped"},
+        retryable=exc.retryable,
+        retry_after_s=exc.retry_after_s if exc.retryable else None,
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Revival:
+    """What ``_revive`` found for an active job that no daemon was serving, and did: ``asked`` the launcher for
+    a daemon; found one launched ``since_s`` seconds ago still ``starting``, so asked for no other; asked with
+    ``[daemon] autostart`` ``off``, so none was started; or found the queued job ``stopped`` by the operator
+    (``operator_stop``), so asked for none. ``status`` is the job's status then."""
+
+    action: Literal["asked", "starting", "off", "stopped"]
+    status: JobStatus
+    since_s: float | None = None
+
+    def note(self, *, status_now: str) -> str:
+        """``get_job``'s note: the daemon's state, what was done, and what happens to the job. The state is named
+        only while the job's status is still the one seen then: a status that has changed since means a daemon
+        has moved the job on, and "stopped" would no longer be true."""
+        state = " (daemon state: stopped)" if status_now == self.status else ""
+        if self.action == "stopped":
+            if status_now != self.status:
+                return "A stop had been posted after this job was queued; a daemon has started since."
+            return (
+                "A stop was posted after this job was queued (narration-admin daemon stop, or narration-admin "
+                "install), so get_job started no daemon; the job stays in the queue and runs on the next start: "
+                "'narration-admin daemon start' in a terminal, or the next submit_job while [daemon] autostart is on."
+            )
+        if self.action == "off":
+            waits = "finishes this cancel" if self.status == "cancelling" else "runs this job"
+            return (
+                f"No daemon is running{state}, and [daemon] autostart is off, so nothing {waits} until someone "
+                "runs 'narration-admin daemon start' in a terminal."
+            )
+        what = "serving the queue" if self.status == "queued" else "running this job"
+        if self.action == "starting":
+            since = round(self.since_s or 0.0)
+            return (
+                f"No daemon was {what}{state}, but one launched {since} s ago is still starting, so get_job asked "
+                f"for no other; {RESUMES[self.status]}."
+            )
+        return f"No daemon was {what}{state}, so get_job asked for one to start; {RESUMES[self.status]}."
 
 
 async def _report(progress: ProgressCallback, job: JobRecord) -> None:
@@ -952,4 +1272,4 @@ def _publish_text(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
-__all__ = ["POLL_S", "RELEASE_WAIT_S", "NarrationBackend", "backend_for"]
+__all__ = ["POLL_S", "RELEASE_WAIT_S", "InstalledPins", "NarrationBackend", "backend_for"]

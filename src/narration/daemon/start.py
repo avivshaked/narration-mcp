@@ -14,7 +14,16 @@ For the front-end's autostart (WP36) and ``narration-admin daemon start | status
   ``stop`` only when it says a daemon runs (``narration-admin daemon stop``, WP37): a daemon honours only
   the stops posted after it was launched (``service``, "Which stops a daemon honours"), so a stop posted
   with none running stops nothing, and the next daemon answers it ``stopped: false``;
-- ``ensure_daemon`` starts one unless one runs, and can wait until it has written its status.
+- ``ensure_daemon`` starts one unless one runs, and can wait until it has written its status;
+- ``start_detached`` records each launch the platform let run in ``run/launch.json`` (the pid it got back and
+  the launch time; a refused start records nothing), and ``check_launch`` reads it. A daemon launched less
+  than ``START_WINDOW_S`` ago that has not written a status since is ``starting`` while its process runs, and
+  ``failed`` once that process has gone. The front-end asks for no other daemon while one is starting, and
+  reports a failed start rather than launching again at once (WP36: ``get_job`` and ``cancel_job`` on a job no
+  daemon serves). The file is the service's own operational state, like ``run/daemon.json``, and records
+  nothing of a caller (sections 0.2, 2). It is advice, read and written without a lock: two front-ends that
+  poll in the same instant may both launch, and the singleton makes that harmless (the second daemon exits
+  quietly, or waits and takes over).
 
 Starting a daemon when one already runs is harmless: the second one exits quietly (the singleton). One that
 finds the running daemon ``stopping`` waits for it to go, then takes over.
@@ -30,24 +39,127 @@ the daemon starts its workers with ``CREATE_NO_WINDOW``.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from narration.contracts.interfaces import Store
 from narration.contracts.models import DaemonStatus
 from narration.platform import ProcessPlatform
+from narration.store import files
+from narration.store.layout import LAUNCH_JSON, RUN
+from narration.store.store import parse_iso, utc_iso
 
 from .settings import isolated, scrub_python_env
-from .sweep import StatusUnreadable, daemon_alive, read_status
+from .sweep import StatusUnreadable, daemon_alive, launch_alive, read_status
+
+log = logging.getLogger(__name__)
 
 DAEMON_MODULE: Final = "narration.daemon"
 RUNNING_STATES: Final = ("idle", "busy")
 """States of a daemon that serves the queue (``stopping`` is on its way out; ``stopped`` is gone)."""
+START_WINDOW_S: Final = 90.0
+"""How long after a launch a daemon that has written no status yet counts as starting, or as failed once its
+process has gone (``check_launch``).
+
+A launched daemon writes its status only once it holds the store's singleton. One launched while another is
+exiting first waits for the singleton, up to ``DaemonSettings.takeover_wait_s`` (60 s), and before that a new
+interpreter starts and imports the service. So the window is that 60 s wait plus 30 s for the start and the
+imports (BELIEVE: not measured; a follow-up measures launch-to-status time). Past the window, a daemon that has
+still written nothing is taken to have failed or stuck, and one more may be launched: a stuck or failing
+start costs at most one launch per window."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Launch:
+    """A daemon launch as ``run/launch.json`` records it: the pid ``spawn_detached`` got back (a launcher's,
+    under a venv) and the launch time in Unix seconds (the clock ``--launched-at`` passes)."""
+
+    pid: int
+    launched_at: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LaunchCheck:
+    """What became of the last launch while it is recent (``check_launch``): still ``starting``, or ``failed``."""
+
+    launch: Launch
+    state: Literal["starting", "failed"]
+
+
+def launch_path(store_root: Path) -> Path:
+    """``<store_root>/run/launch.json`` (``StoreLayout.launch_json_path``, built from the root alone)."""
+    return Path(os.path.abspath(store_root)) / RUN / LAUNCH_JSON
+
+
+def record_launch(store_root: Path, *, pid: int, launched_at: float) -> None:
+    """Record a launch in ``run/launch.json`` (a temporary file, then a rename). It is advice to other
+    launchers, never needed for a start: a file that cannot be written is logged, not raised."""
+    path = launch_path(store_root)
+    data = json.dumps({"pid": pid, "launched_at": utc_iso(launched_at)}).encode("utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        files.write_atomic(path, data, readonly=False, durable=False)
+    except OSError:
+        log.warning("could not record the daemon's launch in %s", path, exc_info=True)
+
+
+def read_launch(store_root: Path) -> Launch | None:
+    """The last launch ``run/launch.json`` records, or None when there is none or it cannot be read."""
+    try:
+        data = json.loads(files.read_retrying(launch_path(store_root)).decode("utf-8"))
+        return Launch(pid=int(data["pid"]), launched_at=parse_iso(str(data["launched_at"])))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, TypeError, KeyError):
+        log.warning("run/launch.json cannot be read; taken as no launch", exc_info=True)
+        return None
+
+
+def check_launch(store: Store, *, now: float | None = None) -> LaunchCheck | None:
+    """What became of the last launch, while it was made less than ``START_WINDOW_S`` before ``now`` (a stamp up
+    to the window in the future, from a clock stepped back, counts as now; one further out is not trusted):
+
+    - None: no launch in the window, or a daemon status written since it (``run/daemon.json``'s ``started_at``
+      is later): the daemon started, and whether it still runs is ``running_daemon``'s to say;
+    - ``starting``: no status since, and the launched process still runs (``sweep.launch_alive``);
+    - ``failed``: no status since, and the launched process has gone. It died before it held the singleton (an
+      import or configuration error, say), or failed through its ``finally``, which writes ``stopped`` with no
+      start time, or gave up waiting for a daemon that was exiting (``takeover_wait_s``). Its log has why.
+
+    A ``stopped`` status newer than the launch does not decide it: it may be the exiting daemon's, written while
+    the launched one waits for the singleton, so the launched process decides.
+    """
+    launch = read_launch(store.root)
+    if launch is None:
+        return None
+    age = (time.time() if now is None else now) - launch.launched_at
+    if not -START_WINDOW_S < age < START_WINDOW_S:
+        return None
+    try:
+        status = read_status(store)
+    except StatusUnreadable:
+        status = None
+    if status is not None and status.started_at is not None:
+        try:
+            if parse_iso(status.started_at) >= launch.launched_at:
+                return None
+        except ValueError:
+            pass
+    state: Literal["starting", "failed"] = "starting" if launch_alive(launch.pid, launch.launched_at) else "failed"
+    return LaunchCheck(launch=launch, state=state)
+
+
+def launch_in_progress(store: Store, *, now: float | None = None) -> Launch | None:
+    """The last launch while that daemon is still starting (``check_launch`` says ``starting``), else None."""
+    check = check_launch(store, now=now)
+    return check.launch if check is not None and check.state == "starting" else None
 
 
 def daemon_argv(store_root: Path, config_path: Path, *, python: Path, extra: Sequence[str] = ()) -> list[str]:
@@ -80,6 +192,10 @@ def start_detached(
     this process's Job Objects (breakaway refused, or the daemon left in an enclosing job and ended before it
     ran), and never falls back to a daemon that is not detached; on an OS v1 does not support,
     ``UnsupportedPlatform``.
+
+    The launch is recorded in ``run/launch.json`` (``record_launch``) only once ``spawn_detached`` has returned,
+    that is, for a daemon the platform let run (on Windows, resumed once it was found in no Job Object). A
+    refused start records nothing, so it holds back no later launch (``launch_in_progress``).
     """
     if platform is None:
         from narration.platform import get_platform
@@ -88,9 +204,12 @@ def start_detached(
     root = Path(os.path.abspath(store_root))
     root.mkdir(parents=True, exist_ok=True)
     interpreter = platform.python_for(Path(sys.executable) if python is None else python, console=False)
-    launched = ("--launched-at", repr(time.time()))
+    launched_at = time.time()
+    launched = ("--launched-at", repr(launched_at))
     argv = daemon_argv(root, Path(os.path.abspath(config_path)), python=interpreter, extra=(*extra, *launched))
-    return platform.spawn_detached(argv, cwd=root, env=scrub_python_env(os.environ if env is None else env))
+    pid = platform.spawn_detached(argv, cwd=root, env=scrub_python_env(os.environ if env is None else env))
+    record_launch(root, pid=pid, launched_at=launched_at)
+    return pid
 
 
 def running_daemon(store: Store) -> DaemonStatus | None:

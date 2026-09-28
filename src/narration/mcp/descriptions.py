@@ -5,10 +5,11 @@ Every tool description states that the service keeps no caller state, that a par
 caller's decision, and that a respelling is a hint (section 7.1). A tool that returns or takes a handle (a
 job, design or take) states the retention period (sections 5, 15).
 
-A tool that can return a retryable error also states the backoff rule (DC-2, revision 5.2). The retryable
-codes (``DAEMON_UNAVAILABLE``, ``STORE_FULL``, ``QUEUE_FULL``, ``RATE_LIMITED``) come from writing to the
-store or commanding the daemon, which only the tools that are not read-only do; the read-only tools read the
-store. So the rule goes on every tool whose schema is not ``read_only``.
+A tool that can return a retryable error also states the backoff rule (DC-2, revision 5.2): the tools in
+``RETRYABLE_TOOLS``, an explicit set rather than one derived from ``read_only``. The retryable codes
+(``DAEMON_UNAVAILABLE``, ``STORE_FULL``, ``QUEUE_FULL``, ``RATE_LIMITED``) come from writing to the store or
+commanding the daemon, which the tools that are not read-only do, and from ``get_job``: it is read-only, but
+when no daemon serves an active job it starts one, and answers ``DAEMON_UNAVAILABLE`` when it cannot.
 
 The texts also tell a calling agent what decides whether real use goes well, each checked against the code
 it describes:
@@ -34,7 +35,6 @@ from typing import Final
 
 from narration.config import RetentionConfig
 from narration.contracts.names import TOOL_NAMES
-from narration.contracts.schemas import TOOLS_BY_NAME
 
 NO_CALLER_STATE: Final = (
     "The service keeps no caller state: it records nothing of your script, choices, voices or pronunciations, "
@@ -159,7 +159,8 @@ TOOL_TEXTS: Final[dict[str, ToolText]] = {
         "again, with wait_s, until status is completed, failed or cancelled, then read get_results. If the "
         "request carries a progressToken, progress notifications are sent while it waits. Cancelling this "
         "request ends only the wait, never the job (use cancel_job). A failed job is still a successful call: "
-        "the job's error is in error.",
+        "the job's error is in error. If the daemon died, get_job asks for one again (with [daemon] autostart "
+        "on), and its message says what was done.",
         retention=True,
     ),
     "get_results": ToolText(
@@ -264,9 +265,26 @@ def tool_description(name: str, retention: RetentionConfig, *, unbuilt: Collecti
     return " ".join(parts)
 
 
+RETRYABLE_TOOLS: Final = frozenset(
+    {
+        "release_gpu",
+        "cancel_job",
+        "design_voice",
+        "profile_voice",
+        "measure_voice",
+        "audition_pronunciation",
+        "submit_job",
+        "get_job",
+    }
+)
+"""The tools that can return a retryable error, so their descriptions state the backoff rule: every tool that
+writes, and ``get_job`` (see the module docstring)."""
+assert RETRYABLE_TOOLS.issubset(TOOL_NAMES), "only published tools"
+
+
 def can_return_retryable(name: str) -> bool:
-    """Whether a tool can return a retryable error: every tool that is not read-only (see the module doc)."""
-    return not TOOLS_BY_NAME[name].read_only
+    """Whether a tool can return a retryable error (``RETRYABLE_TOOLS``; see the module docstring)."""
+    return name in RETRYABLE_TOOLS
 
 
 def _listed(tools: list[str]) -> str:

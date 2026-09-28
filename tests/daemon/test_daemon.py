@@ -15,10 +15,12 @@ from typing import Any
 
 import pytest
 
+from narration.backend.service import operator_stop
 from narration.contracts.models import DaemonStatus, JobRecord
 from narration.daemon.seam import NullRunner, RunnerHost, ShutdownReason, return_job
-from narration.daemon.service import EXIT_OK, STALE_STOP_REASON
+from narration.daemon.service import EXIT_ERROR, EXIT_OK, STALE_STOP_REASON, Daemon
 from narration.daemon.start import ensure_daemon
+from narration.daemon.supervisor import WorkerSupervisor
 from narration.daemon.sweep import read_status
 from narration.daemon.testing import SCRATCH_DIR, FakeWorkerRunner
 from narration.platform.testing import StandInPlatform
@@ -356,6 +358,8 @@ def test_a_stop_the_exiting_daemon_answered_stops_the_one_waiting_to_take_over_s
     assert b_started is not None, "B took over"
     assert ("idle", b_started) not in written, "B never said it serves"
     assert ("stopping", b_started) in written and written[-1][0] == "stopped", "B stopped as a stop does"
+    found = operator_stop(store, job_status(store, job))
+    assert found is not None and found.command_id == posted.command_id, "the job waits for the next start"
 
 
 def test_a_stop_answered_stopped_false_does_not_stop_a_waiting_daemon_s4_1(
@@ -730,3 +734,64 @@ def test_every_command_is_completed_with_a_result_s4_1(run_daemon: DaemonFactory
         done = store.wait_for_command(posted.command_id, timeout_s=0)
         assert done is not None and done.done_at is not None and done.result is not None
     assert store.pending_commands() == ()
+
+
+# ---------------------------------------------------------------- what each exit leaves for a queued job (WP36, L1)
+# The front-end starts a daemon for a queued job under a stopped status unless an operator's stop left it there
+# (narration.backend.service.operator_stop). These pin what each real exit leaves in the store.
+
+
+def test_an_operators_stop_is_found_for_a_job_queued_before_it_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore
+) -> None:
+    job = make_job(store, "Queued before the stop.")
+    daemon = run_daemon(NullRunner())
+    daemon.wait_serving()
+    stop = daemon.command("stop")
+    assert daemon.join() == EXIT_OK
+    final = store.get_daemon_status()
+    assert final is not None and (final.state, final.started_at) == ("stopped", None), "no start time is kept"
+    found = operator_stop(store, job_status(store, job))
+    assert found is not None and found.command_id == stop.command_id
+
+
+def test_a_daemon_whose_control_loop_failed_leaves_no_operators_stop_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = make_job(store, "Queued before the failure.")
+
+    def fails(self: Daemon) -> None:
+        raise RuntimeError("a bug in the control loop")
+
+    monkeypatch.setattr(Daemon, "_control_loop", fails)
+    daemon = run_daemon(NullRunner())
+    assert daemon.join() == EXIT_ERROR
+    final = store.get_daemon_status()
+    assert final is not None and final.state == "stopped", "its finally still wrote stopped"
+    assert operator_stop(store, job_status(store, job)) is None, "so get_job starts a daemon for the job"
+
+
+def test_a_daemon_whose_supervisor_failed_leaves_no_operators_stop_s4_1(
+    run_daemon: DaemonFactory, store: NarrationStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = make_job(store, "Queued before the failure.")
+
+    def fails(self: WorkerSupervisor) -> WorkerSupervisor:
+        raise RuntimeError("the worker supervisor could not open")
+
+    monkeypatch.setattr(WorkerSupervisor, "__enter__", fails)
+    daemon = run_daemon(NullRunner())
+    with pytest.raises(RuntimeError, match="could not open"):
+        daemon.join()
+    final = store.get_daemon_status()
+    assert final is not None and final.state == "stopped", "its finally still wrote stopped"
+    assert operator_stop(store, job_status(store, job)) is None, "so get_job starts a daemon for the job"
+
+
+def test_an_idle_exit_leaves_no_operators_stop_s4(run_daemon: DaemonFactory, store: NarrationStore) -> None:
+    job = make_job(store, "Queued as the daemon went idle.")  # the null runner never sees it: as if queued late
+    daemon = run_daemon(NullRunner(), idle_exit_s=0.3)
+    assert daemon.join() == EXIT_OK
+    final = store.get_daemon_status()
+    assert final is not None and final.state == "stopped"
+    assert operator_stop(store, job_status(store, job)) is None, "so get_job starts a daemon for the job"

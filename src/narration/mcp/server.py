@@ -75,11 +75,23 @@ DESTRUCTIVE_TOOLS: Final = frozenset({"cancel_job"})
 """Tools whose effect is not additive (MCP ``destructiveHint``): cancelling stops work that was asked for."""
 RESOURCE_NOT_FOUND_CODES: Final = frozenset({codes.NOT_FOUND, codes.INVALID_ARGUMENT, codes.PATH_NOT_ALLOWED})
 """Backend errors on a resource read that mean "no such resource" (JSON-RPC -32602)."""
-SHIELDED_TOOLS: Final = frozenset(name for name in TOOL_NAMES if not TOOLS_BY_NAME[name].read_only)
+SHIELDED_TOOLS: Final = frozenset(
+    {
+        "release_gpu",
+        "cancel_job",
+        "design_voice",
+        "profile_voice",
+        "measure_voice",
+        "audition_pronunciation",
+        "submit_job",
+    }
+)
 """The tools that write (to the store, or a command to the daemon): ``release_gpu``, ``cancel_job``,
 ``design_voice``, ``profile_voice``, ``measure_voice``, ``audition_pronunciation`` and ``submit_job``. Their
 backend call is shielded from cancellation, so it is never cut off between two backend steps. A read-only
-call (``get_job``'s wait included) is interrupted at once."""
+call (``get_job``'s wait included) is interrupted at once. An explicit set, not one derived from ``read_only``:
+``get_job`` is read-only and not shielded, though it may start the daemon for an active job that none serves
+(a start that finishes even when the call is cancelled, since the backend runs it in a worker thread)."""
 WRITE_DEADLINE_S: Final = 30.0
 """How long a shielded write may run, in seconds. **For WP36: every backend call of a tool in
 ``SHIELDED_TOOLS`` must finish well inside it** (it is store work, never an open-ended wait). A call still
