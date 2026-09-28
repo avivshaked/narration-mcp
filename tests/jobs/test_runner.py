@@ -3,6 +3,7 @@ daemon stops between jobs (plan.md WP30 and WP31; design sections 4 and 4.1)."""
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import pytest
@@ -156,3 +157,64 @@ def test_jobs_are_dispatched_by_kind_to_the_handler_registered_for_it_s8(world: 
     assert done.status == "completed" and done.result == {"design_id": "d"}
     assert world.job(spoken.job_id).status == "completed"  # generate still goes to the job engine
     assert world.pool.texts() == [LAMPS]
+
+
+class _Clock:
+    """A monotonic clock the test sets."""
+
+    def __init__(self, now: float) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _ended(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == "narration.jobs.runner" and " ended: " in r.getMessage()]
+
+
+def test_a_job_that_ends_is_logged_in_one_line_without_its_request_s4(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One INFO line per finished job, with its counts; none when it is given back to the queue. The request's
+    text and its clip path are never logged."""
+    world.faults({"kind": "token_cap", "when": {"text_contains": "lamplighter"}})  # two retakes, both cut
+    clock = _Clock(100.0)
+    runner = EngineRunner(world.engine, clock=clock)
+    job = world.submit(LAMPS, KETTLE, max_retakes=2)
+
+    with caplog.at_level(logging.INFO, logger="narration.jobs.runner"):
+        assert runner.step(world.host)  # taken at 100.0
+        runner.shutdown(world.host, "segment")  # given back to the queue: it has not ended
+        assert world.job(job.job_id).status == "queued"
+        assert _ended(caplog) == []
+        clock.now = 150.0
+        assert runner.step(world.host)  # taken again at 150.0
+        clock.now = 162.5
+        drive(runner, world.host)
+
+    done = world.job(job.job_id)
+    assert done.status == "completed" and done.outcome == "needs_attention"
+    (record,) = _ended(caplog)
+    assert record.levelno == logging.INFO
+    assert record.getMessage() == (
+        f"job {job.job_id} ended: kind generate, status completed, outcome needs_attention, segments 2, "
+        "retakes used 2, wall 12.5 s"
+    )
+    for logged in caplog.records:
+        if logged.name == "narration.jobs.runner":
+            message = logged.getMessage()
+            assert LAMPS not in message and KETTLE not in message and "lamplighter" not in message
+            assert str(world.clip) not in message and world.clip.name not in message
+
+
+def test_a_job_that_fails_is_logged_as_failed_with_no_outcome_s4(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    job = world.submit(LAMPS)
+    with caplog.at_level(logging.INFO, logger="narration.jobs.runner"):
+        drive(default_runner(), world.host)  # no installed models: the job fails with BACKEND_NOT_INSTALLED
+
+    assert world.job(job.job_id).status == "failed"
+    (record,) = _ended(caplog)
+    assert record.getMessage().startswith(f"job {job.job_id} ended: kind generate, status failed, outcome none, ")

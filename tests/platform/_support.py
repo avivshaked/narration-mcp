@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import time
+import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -20,6 +21,19 @@ HOST_FORBIDS_BREAKAWAY = (
     "this test can be in no job at all, and a detached start is refused here (left_in_job): the test asserts "
     "that refusal instead of the daemon's survival"
 )
+
+
+class HostForbidsBreakaway(UserWarning):
+    """The warning a survival test gives when it took its refusal branch (``HOST_FORBIDS_BREAKAWAY``), so the
+    run's warnings summary, and so a CI log, shows which branch each such test took."""
+
+
+def note_the_refusal_branch() -> None:
+    """Warn (``HostForbidsBreakaway``) that the calling test asserted the refusal, not the daemon's survival.
+    On GitHub's hosted Windows runner every survival test takes this branch, so a regression that refused
+    every detached start would stay green there; only a run on a host whose jobs allow breakaway (a Windows
+    developer's) exercises the survival itself."""
+    warnings.warn(HOST_FORBIDS_BREAKAWAY, HostForbidsBreakaway, stacklevel=2)
 
 
 @functools.cache

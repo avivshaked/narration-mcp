@@ -6,6 +6,8 @@ or a failure, what to do next. The checks, in order:
 
 - **platform**: v1 runs on Windows only (plan.md Q2);
 - **config**: the configuration file is found (``find_config``, the rule ``narration-mcp`` uses) and loads;
+- **qa**: the QA profile this build scores with (``names.QA_PROFILE``). ``[qa] profile`` changes nothing, so
+  a value that differs is a warning, never a failure (``narration.config.qa_profile_mismatch``);
 - **store**: ``[server] store_root`` is writable (or can be created), with at least ``[limits]
   min_free_disk_gb`` free;
 - **models**: each pinned model's snapshot is under ``[server] models_root``, and its files are the ones
@@ -40,9 +42,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from narration.config import Config
+from narration.config import Config, qa_profile_mismatch
 from narration.contracts.errors import UnsupportedPlatform
-from narration.contracts.names import WorkerRole
+from narration.contracts.names import QA_PROFILE, WorkerRole
 from narration.platform import ProcessPlatform, is_supported
 from narration.workers.launch import WORKER_PROJECT_DIRS, venv_python, worker_project
 
@@ -221,6 +223,16 @@ def check_platform(supported: bool) -> Finding:
         f"{here}: narration-mcp v1 runs on Windows only, so the daemon, and every job, cannot run here",
         "Run the service on Windows 10 or 11; other platforms are planned.",
     )
+
+
+def check_qa_profile(config: Config) -> Finding:
+    """The QA profile the service scores with, and a warning when ``[qa] profile`` names another: the setting is
+    inert, so it never fails a check."""
+    mismatch = qa_profile_mismatch(config)
+    if mismatch is None:
+        return Finding("qa", "ok", f"every take is scored with QA profile {QA_PROFILE}")
+    found, next_step = mismatch
+    return Finding("qa", "warn", found, next_step)
 
 
 def check_store(config: Config, platform: ProcessPlatform) -> list[Finding]:
@@ -486,6 +498,7 @@ def diagnose(admin: Admin, *, probes: Probes | None = None, hash_models: bool = 
         findings.append(check_gpu(None, probes.gpu))
         return findings
     findings.append(Finding("config", "ok", str(path)))
+    findings.append(check_qa_profile(config))
     findings += check_store(config, admin.platform())
     try:
         pins = probes.pins()

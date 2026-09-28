@@ -332,6 +332,14 @@ are tracked here but no version is tagged; nothing described below is installabl
   a trailing newline the measured transcript had. Not caught, so still only the general hint: other whitespace
   the measured transcript had (a double space, a leading space), and a typographic dash or ellipsis it had
   where the one sent has a plain one.
+- `narration-admin doctor` reports the QA profile the service scores with, and warns when `[qa] profile` in
+  the configuration names another: the setting changes nothing, since every take is scored with the
+  build's profile. The warning says which profile runs and to update the line; it never fails the check.
+  The daemon logs the same warning once when it starts.
+- The daemon logs one INFO line when a job it ran ends (completed, failed or cancelled): its id, kind,
+  final status and outcome, the number of segments, the retakes used, and the wall time since it took the
+  job. A job cancelled while still queued never reached the daemon, so it gets no line. Nothing of the
+  request is logged: no text, no transcript, no path.
 - `DAEMON_UNAVAILABLE`'s `retry_after_s` is 60 s at every level when the daemon could not be detached (it
   was 30 s at the MCP tool level and 60 s in the platform's own error): the fix needs a person to run
   `narration-admin daemon start`, and a retry sooner than that fails the same way.
@@ -442,10 +450,12 @@ are tracked here but no version is tagged; nothing described below is installabl
   `narration-admin daemon start` in a terminal. The rule is deliberate: any enclosing job that forbids
   breakaway refuses the detached start, even one that would not end the daemon, since the service cannot
   read such a job's limits or know who will close it. A CI runner is the known case (measured on GitHub's
-  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, run
-  `narration-admin daemon start --foreground` as its own process, or use a host whose jobs allow breakaway.
+  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, set `[daemon]
+  autostart = false` so that no client tries to start the daemon, and run `narration-admin daemon start
+  --foreground` as its own process; or use a host whose jobs allow breakaway.
   Under clients that spawn through libuv, whose job allows breakaway, the daemon leaves every job and keeps
   running (Node.js, measured with Node v22; Claude Code, we believe, since it spawns through libuv too;
   spike k). `narration-admin daemon start` now names only the cause Windows established, and says when the
   daemon exits for want of work (`[daemon] idle_exit_min`), so a client that cannot start the daemon itself
-  knows to start it again.
+  knows to start it again. Its refusal names the route above, and the platform's messages it quotes speak
+  of "this process", not "this client", so they read right in a terminal and in an MCP client alike.
