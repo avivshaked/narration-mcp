@@ -10,6 +10,14 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- User documentation for installing and running the service (plan.md WP43): the README now covers
+  requirements, install, every `narration.example.toml` section, the `.mcp.json` entry, a first run and
+  where the store and logs live; `docs/operator-guide.md` covers the daemon (including the Job Object
+  breakaway rule), `doctor`, `install`, the engine pins and canary, the voice allowlist, `gc`, `verify`,
+  `failures`, `render`, and what to do for each error code an operator sees. `docs/tools.md`, the MCP tool
+  reference (every tool's description, input and output fields, and the error and flag codes), is now
+  generated from the published tool definitions by `tools/gen_tool_reference.py`, which
+  `tests/docs/test_tool_reference.py` keeps current in the default test suite.
 - `narration-admin failures` lists every take that failed QA or that a retake replaced, across jobs, newest
   job first, for an audit: the job, segment, attempt and seed; the take's WAV in the store; each fail and warn
   flag with its message; the QA metrics; the take that finally filled the slot; and the segment's text.
