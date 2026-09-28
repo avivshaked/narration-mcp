@@ -18,6 +18,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 
+from narration.config import MeasurementConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.models import MeasurementRecord
@@ -27,7 +28,15 @@ from narration.measure import current_measurement, ladder, lookup_measurement, v
 from narration.measure.handler import RETRY_AFTER_S
 from tests.jobs.support import ENGINE_ID, VOICE_TRANSCRIPT
 
-from .support import DESIGN_SEGMENT, SHORT_LADDER, MeasureWorld, make_world, measure_request, submit_measure
+from .support import (
+    DESIGN_SEGMENT,
+    SHORT_LADDER,
+    MeasureWorld,
+    flat_rate_corpus,
+    make_world,
+    measure_request,
+    submit_measure,
+)
 
 LAMPS = "The lamplighter walks the canal path, counting bridges under her breath."
 KETTLE = "A copper kettle hums on the stove while rain draws lines across the window."
@@ -198,6 +207,35 @@ def test_the_first_failing_rung_ends_the_ladder_and_nothing_above_it_renders_s3_
         assert states["ladder-450"] == "skipped"
         assert done.result is not None and done.result["ladder_stopped_at"]["paragraph_id"] == "ladder-400"
         assert len(m.pace.curve) == 3
+    finally:
+        world.close()
+
+
+def test_a_voice_that_reads_at_one_rate_climbs_the_whole_ladder_at_the_default_tol_dc20(tmp_path: Path) -> None:
+    """The default ladder and the default ``pace_tol_min``, on a corpus the fake reads at one rate in characters
+    per second of speaking time: every rung is judged against the band's level, so none is stopped by pace, and
+    the ladder climbs to its top."""
+    defaults = MeasurementConfig()
+    ladder_targets = defaults.length_ladder_spoken_chars
+    world = make_world(
+        tmp_path, ladder=ladder_targets, corpus=flat_rate_corpus(ladder_targets), pace_tol_min=defaults.pace_tol_min
+    )
+    try:
+        job = world.measure()
+        world.run(max_steps=6000)
+        done = world.job(job.job_id)
+        assert done.status == "completed", done.error
+        m = measurement_of(world)
+        assert [r.paragraph_id for r in m.ladder] == [f"ladder-{t:03d}" for t in ladder_targets]
+        assert all(r.passes for r in m.ladder), [(r.paragraph_id, r.passes) for r in m.ladder]
+        assert m.max_segment_chars == chars(world, f"ladder-{ladder_targets[-1]:03d}")
+        assert m.pace.tol == defaults.pace_tol_min  # the fake's seeds read alike: the floor holds
+        assert len(m.pace.curve) == len(ladder_targets)
+        rates = [p.cps for p in m.pace.curve]
+        assert max(rates) / min(rates) < 1.03  # one rate, as the corpus was written for
+        assert all(r <= m.pace.level_cps * (1 + m.pace.tol) for r in rates)
+        assert 0.0 < m.pace.speaking_share < 1.0  # the pauses between sentences were taken out
+        assert done.result is not None and done.result["ladder_stopped_at"] is None
     finally:
         world.close()
 
