@@ -15,7 +15,8 @@ from typing import Final, Protocol, cast
 
 from narration.config import Config
 from narration.contracts.errors import WorkerFailure
-from narration.contracts.interfaces import AlignerCore, DeliveryProcessor, QaScorer, TextPlanner
+from narration.contracts.interfaces import AlignerCore, DeliveryProcessor, QaScorer, TextPlanner, WorkerClient
+from narration.contracts.models import EngineProfile
 from narration.contracts.names import CanaryStatus, JobPhase
 from narration.contracts.worker import WORKER_ERROR_CODES, WorkerErrorCode
 
@@ -25,11 +26,27 @@ from .hooks import EngineGuard, NoGuard
 from .host import RunnerHost
 from .leases import LeaseKeeper
 from .pins import QaPins
-from .state import JobRun
 from .voice import PathCheck
 
 DEFER_S: Final = 2.0
 """How long work that another holder is producing is left before it is looked at again."""
+
+
+class ActiveRun(Protocol):
+    """What a model load needs of the job that asks for it (``Stages.ready``, ``EngineCore.phase``): its id, its
+    phase and message, the Qwen engine profile it loads, and the Qwen worker its voice was prepared in (cleared
+    by a load). ``state.JobRun`` has them, and so does a kind's own run that renders nothing through the stages
+    (``narration.design``'s, which loads VoiceDesign)."""
+
+    @property
+    def job_id(self) -> str:
+        """The job's id."""
+        ...
+
+    phase: JobPhase | None
+    message: str | None
+    profile: EngineProfile
+    prepared: WorkerClient | None
 
 
 class Scorer(QaScorer, Protocol):
@@ -85,11 +102,11 @@ class EngineCore:
         self.canary: CanaryStatus = "not_run"
         self.leases = LeaseKeeper()
 
-    def phase(self, host: RunnerHost, run: JobRun, phase: JobPhase) -> None:
+    def phase(self, host: RunnerHost, run: ActiveRun, phase: JobPhase) -> None:
         """Set the job's phase, and tell the daemon when it changes."""
         if run.phase != phase:
             run.phase = phase
             host.job_phase(phase)
 
 
-__all__ = ["DEFER_S", "LOST_STATE", "EngineCore", "EngineParts", "Scorer", "worker_code"]
+__all__ = ["DEFER_S", "LOST_STATE", "ActiveRun", "EngineCore", "EngineParts", "Scorer", "worker_code"]

@@ -841,17 +841,26 @@ class NarrationStore:
     def put_candidate(self, candidate: Candidate, clip_audio: Path) -> Candidate:
         """Move the designed clip into ``designs/<design_id>/<cand>/clip.wav`` (read-only) and publish
         ``candidate.json``; returns the candidate with ``clip.path`` and ``clip.sha256`` filled in. The
-        candidate's profile, if any, keeps the picture paths ``put_profile`` gave it."""
+        candidate's profile, if any, keeps the picture paths ``put_profile`` gave it.
+
+        A candidate already published at ``(design_id, index)`` is returned as it is when the clip has its
+        bytes; a clip with other bytes raises ``StoreIntegrityError`` and is left where it is, since another
+        clip is never published, or reported, under a candidate's place."""
         if not DESIGN_ID_PATTERN.fullmatch(candidate.design_id):
             raise InvalidIdError("design_id", candidate.design_id)
+        what = f"candidate {candidate.design_id}/{candidate.index}"
+        src = self._source(clip_audio, "clip_audio")
+        sha, size = files.sha256_file(src)
+        self._check_hash(candidate.clip.sha256, sha, what)
         existing = self._get_candidate(candidate.design_id, candidate.index)
         if existing is not None:
+            if existing.clip.sha256 != sha:
+                raise StoreIntegrityError(
+                    f"{what} is already published with the clip sha256 {existing.clip.sha256}; this clip is {sha}"
+                )
             self._consume(clip_audio)
             self.touch("design", candidate.design_id)
             return existing
-        src = self._source(clip_audio, "clip_audio")
-        sha, size = files.sha256_file(src)
-        self._check_hash(candidate.clip.sha256, sha, f"candidate {candidate.design_id}/{candidate.index}")
         final = self._layout.design_dir(candidate.design_id, candidate.index)
         rel_dir = self._layout.rel(final)
         profile = map_profile(candidate.profile, self._to_rel) if candidate.profile is not None else None
@@ -884,7 +893,10 @@ class NarrationStore:
                 )
 
             self._publish_dir(staging.path, final, decide, commit)
-        return self._must(self._get_candidate(candidate.design_id, candidate.index), "candidate", owner)
+        published = self._must(self._get_candidate(candidate.design_id, candidate.index), "candidate", owner)
+        if published.clip.sha256 != sha:  # another publisher's candidate won the place meanwhile
+            raise StoreIntegrityError(f"{what} was published meanwhile with the clip sha256 {published.clip.sha256}")
+        return published
 
     def _get_candidate(self, design_id: str, index: int) -> Candidate | None:
         row = (
