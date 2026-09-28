@@ -1,7 +1,69 @@
 # HANDOFF
 
-*Updated 2026-09-27, evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-28. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
+
+## Paused by the owner (2026-09-27, about 22:10): resume here
+
+The owner needed the machine for another job, so every agent was told to commit its work in progress (`wip:`),
+push, set its status file to `blocked:paused-by-owner`, and stop. To resume:
+1. Check each worktree for uncommitted files (`git -C worktrees/<wt> status`).
+2. Resume each agent with SendMessage, using its id in the table below. Each one continues from its status
+   file.
+3. **Merge order:**
+   - **merged:** the pace hotfix (PR #42, fda412f, 2026-09-28) and PR #40;
+   - then PR #37;
+   - then PR #41 (its fixes in progress) and PR #39 (WP34; renumber its contracts to 1.6.8);
+   - then WP47 (contracts 1.6.9; merges main first).
+4. **Done (2026-09-28):** the hotfix is live. No daemon was running at the merge, so the next job starts one on
+   `default.v4`, and the owner's `narration.toml` `[qa] profile` now says `default.v4` (the key is inert). No
+   re-measure was needed: the measurement key does not include the QA profile (KNOW, and verified by PR #42's
+   reviewers). The owner's Claude Code session reads PR #40's tool texts after a `/mcp` reconnect.
+5. **After WP47 merges:** re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in
+   stages (remove `.dev/service-setup/STOP`).
+
+Where each one stopped (all pushed, with `blocked:paused-by-owner` in each status file):
+- **The pace hotfix: PR #42 merged** (fda412f; DC-19; contracts 1.6.7). Two adversarial reviews found no
+  blocking issue; CI was green. Its worktree and branch can be removed. Follow-ups (low):
+  - `narration-admin doctor` should warn when `[qa] profile` differs from the code's profile (the key is inert);
+  - pin `delivery_key` by value in the keys test;
+  - apply DC-19 to docs/design.md (§11.1 pace row, §14 `PACE_FAST`, §16 `[qa]`);
+  - WP34 renumbers its contracts to 1.6.8, and WP47 moves to 1.6.9.
+- **PR #40 merged** (e9334e1, 2026-09-27, CI green). Its worktree and branch can be removed. **WP34 must now take design_voice and profile_voice out of `NOT_IN_THIS_BUILD`** when it merges main (the equality test enforces it).
+- **WP47, `wp/47-pace-cps` bcdc7b2** (`wip:`, untested):
+  - the rate is characters per second of speaking time, excluding silences of 0.25 s or more, taken from the
+    signal stage's speech mask (ASSUME until it is measured on the re-measured voice);
+  - measurement schemas move to `/v2` with `PACE_METHOD` in the key;
+  - render keys are pinned by a new test, not yet run.
+  - **Review at resume:** it added contract fields beyond the lead's approval (listed in its status file).
+  - Left: merge main after the hotfix, then QA profile `default.v5` and contracts 1.6.9; tests, CHANGELOG and
+    DC-18.
+  - It tried to measure pause lengths on the bake-off's clone takes, and the permission classifier refused
+    that. Measure on the owner's own synthetic voice instead, after the merge.
+- **PR #41, `wp/36-liveness` eb84606** (`wip:`): L2–L6 and F1–F3, F5 done.
+  - **L1: the lead approves the agent's option (b′).** A queued job under a `stopped` status counts as an
+    operator's stop only if both hold:
+    - a `stop` or `stop_now` answered `stopped: true` is among the commands since that daemon started;
+    - the job was created before that stop was posted.
+
+    Otherwise a daemon is started (only the note when autostart is off). Why: `stopped` is also written after
+    a control-loop error, a supervisor failure, and a submit during an operator's stop, so option (b) would
+    strand queued jobs.
+  - Left: L1 (b′), the design-text proposals, merge main (conflicts expected in `descriptions.py` and
+    `daemon/start.py`), the full suite.
+
+**The owner's first real narration session (21:46–22:10): 9 jobs ran** through the MCP from the owner's Claude
+Code session.
+- Every take that failed QA failed on `PACE_FAST` (24 takes; 7 of them also warned `SPK_SIM_LOW`), all with WER 0 and high speaker
+  similarity. The owner listened and confirmed they were not fast.
+- The cause (KNOW): the pace model is words per minute over a span that includes the pauses between sentences.
+  The wpm curve follows the corpus's word lengths, and a one-sentence segment has no pauses.
+- The owner decided:
+  - **PACE_FAST warns only** (the hotfix);
+  - **pace in characters per second with the pauses excluded** (WP47).
+- Failed takes are listed locally by `py -3.12 .dev/lead/failures_now.py` (into `.dev/scratch/failures.md`), a
+  stopgap for WP48.
+- Small gap: the daemon logs no line when a job ends (WP31's area).
 
 ## Where things stand
 
@@ -21,8 +83,10 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
   |---|---|---|---|
   | The daemon-detach fix (WP30's area) | `wp/30-escape`, PR #37 | a9adeef63f4026ccc (Fable) | review fixes verified (two read-only verifiers: merge with follow-ups; CI green). **Merge after the owner's narration session**: it changes how the daemon starts |
   | WP34 design and profile | `wp/34-design`, PR #39 | aee097b972cdb073f | review fixes done (contracts 1.6.7); CI green. **Merge after the owner's session**, after a full-suite run |
-  | The caller's guidance in the tool texts | `wp/36-guidance`, PR #40 | aa82ffe101d84906f | read-only review running; texts only, so it may merge during the session |
-  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | read-only review running; merge after the owner's session |
+  | The caller's guidance in the tool texts | `wp/36-guidance`, PR #40 | aa82ffe101d84906f | **merged** (e9334e1) |
+  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | fixing its review (lead's decisions: revive a queued job only after a crash, never after an operator's stop; one daemon spawn per start window; explicit shield and retryable sets); merge after the owner's session |
+  | WP47 pace in characters per second (D2), with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | paused mid-build; merges after the hotfix, then the voice is measured again (cached renders, QA only) |
+  | The pace hotfix: PACE_FAST warns only (QA profile default.v4, contracts 1.6.7) | `wp/47-pace-warn` | a7b16acd7a70c2651 | paused mid-build; merges first |
 
   PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
   client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a
@@ -69,8 +133,8 @@ gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 - **The readiness audit's decisions** (`.dev/lead/readiness_synthesis.md`, local; section 4):
   - D1: a full ladder for the first voice, or keep the stop at 300 (some of the consumer's paragraphs are
     longer); needs a GPU hold over 30 min, which the lock tool refuses without an override;
-  - D2: judge pace in characters per second rather than words per minute (§3.2, §11.1): the ladder texts'
-    word lengths differ, which the wpm trend reads as pace;
+  - D2: **decided 2026-09-27: characters per second** (WP47). The first real job's short segments failed
+    `PACE_FAST` falsely on every attempt;
   - D3: a compact `get_results` (a segment filter; words off by default) (§7.5);
   - D4: run the service from a pinned checkout, or freeze merges that touch the engine while narrating;
   - D5: whether dev GPU work pauses while the owner narrates;
@@ -163,6 +227,10 @@ From earlier reviews; the WP36, WP32 and WP22 items are in those agents' briefs.
   x_vector_only_mode` must stay `false` (the canary clones with `false`), so document it or make the
   canary follow it; a canary-text change forces new profile ids (a canary-only re-pin under the same id
   would need a store change).
+- **WP48, a failure audit (the owner asked, 2026-09-27):** collect every failed or retaken take across jobs,
+  with its reasons, for the owner to audit (`narration-admin failures`, an export, a report section, and
+  WP46's view). The store already keeps them; what is missing is a cross-job view and retention that waits
+  for the audit.
 - **WP46, a frontend (the owner asked, 2026-09-27):** plan a view of jobs, takes, voices, the allowlist and the
   engine and daemon state, **after the other work**. Write the plan for the owner's approval first; build nothing before it.
 - **WP45 (the owner asked, 2026-09-27; DC-17):** `narration-admin voices allow <clip.wav>` adds a clip

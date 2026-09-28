@@ -1,4 +1,4 @@
-"""The QA profile ``default.v3``: every fixed threshold of design section 11.1's table, in one record.
+"""The QA profile ``default.v4``: every fixed threshold of design section 11.1's table, in one record.
 
 The speaker margins and the pace-tolerance floor are not here: they are configuration (``[measurement]`` in
 section 16: ``sim_warn_margin``, ``sim_fail_floor``, ``pace_tol_min``), and the per-voice parts (``anchor_p5``,
@@ -44,8 +44,11 @@ class QaProfile:
     silence_fail_above_s: float = 2.5
     clipping_warn_above: float = 0.0001
 
-    # Pace (step 9): warn outside curve x (1 +/- tol), fail above curve x (1 + 2 tol). There is no slow fail.
-    pace_fail_tol_factor: float = 2.0
+    # Pace (step 9): warn outside curve x (1 +/- tol). ``default.v4`` has no pace fail, fast or slow: the owner
+    # decided (2026-09-27) that PACE_FAST warns only, until WP47's rate model is validated (DC-19), because the
+    # words-per-minute pace model failed short paragraphs that listened fine. A factor f, when set, fails
+    # PACE_FAST above curve x (1 + f tol); ``default.v3`` had f = 2.0. None means there is no fail line.
+    pace_fail_tol_factor: float | None = None
 
     # ASSUME (not in the design's table; to be measured on planted renders in WP40): reference bleed at the
     # head is a fuzzy match (letters only, this ratio or more) of the head's extra words against as many letters
@@ -62,4 +65,4 @@ class QaProfile:
 
 
 DEFAULT_PROFILE = QaProfile()
-"""``default.v3`` as design section 11.1 states it."""
+"""``default.v4``: design section 11.1's table, except that ``PACE_FAST`` never fails (DC-19)."""

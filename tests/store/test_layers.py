@@ -109,7 +109,7 @@ def test_takes_and_analyses_round_trip_app_b(store: NarrationStore) -> None:
     path = store.analysis_path(take.take_id, analysis.analysis_id)
     assert path.is_file() and store_files.is_readonly(path)
     assert store.get_analysis(analysis.analysis_key) == analysis == store.get_analysis_by_id(analysis.analysis_id)
-    second = store.put_analysis(analysis_record(take, qa_profile="default.v4"))
+    second = store.put_analysis(analysis_record(take, qa_profile="test.another-profile"))
     # Oldest first; the fake clock gives both one time, so the id decides.
     assert store.analyses_of(take.take_id) == tuple(sorted((analysis, second), key=lambda a: a.analysis_id))
     assert store.analyses_of("tk_0000000000000000") == ()

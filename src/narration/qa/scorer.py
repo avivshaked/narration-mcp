@@ -67,7 +67,7 @@ class Scorer:
     """QA logic for takes (``narration.contracts.interfaces.QaScorer``).
 
     ``config`` supplies the speaker margins and the pace-tolerance floor (``[measurement]`` in design section
-    16); ``profile`` the fixed thresholds of ``default.v3``. Both are fixed for the scorer's lifetime.
+    16); ``profile`` the fixed thresholds of ``default.v4``. Both are fixed for the scorer's lifetime.
     """
 
     def __init__(self, config: MeasurementConfig | None = None, profile: QaProfile = DEFAULT_PROFILE) -> None:
@@ -87,7 +87,7 @@ class Scorer:
 
     def score(self, inputs: QaInputs) -> QaResult:
         """One take's QA: signal, text match with the word-count rule, exact spans, terms, insertions, speaker,
-        pace and the aligner's cue flags, then the verdict (section 11.1, thresholds ``default.v3``).
+        pace and the aligner's cue flags, then the verdict (section 11.1, thresholds ``default.v4``).
 
         The result holds nothing the analysis key does not cover: no flag carries a segment id, and each exact
         result is placed by its ``words`` (its ``start``/``end`` are the span's code points in the cue's spoken

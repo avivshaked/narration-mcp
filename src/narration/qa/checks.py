@@ -210,29 +210,32 @@ def pace_flags(
     *,
     pause_s: float | None = None,
 ) -> tuple[Flag, ...]:
-    """``PACE_FAST`` warn above ``expected x (1 + tol)`` and fail above ``expected x (1 + 2 tol)``;
-    ``PACE_SLOW`` warn below ``expected x (1 - tol)`` (there is no slow fail).
+    """``PACE_FAST`` warn above ``expected x (1 + tol)``; ``PACE_SLOW`` warn below ``expected x (1 - tol)``.
 
     ``cps`` is the take's pace and ``expected`` the voice's curve at its length, both in spoken characters per
     second of speaking time (``narration.qa.pace``). ``pause_s`` is the pause time taken out of the voiced span,
     reported in ``details`` (None: the silences were not measured, and the pace is over the whole span).
-    """
+
+    ``default.v5`` has no pace fail (``QaProfile.pace_fail_tol_factor`` is None; DC-19): a fast take only warns,
+    which is never a retake trigger, and ``details.fast_fail_above`` is null. A profile with a factor ``f``
+    fails ``PACE_FAST`` above ``expected x (1 + f tol)`` (``default.v3``: f = 2). There is no slow fail."""
     if cps is None or expected is None or tol is None:
         return ()
+    factor = profile.pace_fail_tol_factor
     fast_warn = expected * (1 + tol)
-    fast_fail = expected * (1 + profile.pace_fail_tol_factor * tol)
+    fast_fail = expected * (1 + factor * tol) if factor is not None else None
     slow_warn = expected * (1 - tol)
     details = {
         "articulation_cps": round(cps, 3),
         "expected_articulation_cps": round(expected, 3),
         "tol": tol,
         "fast_warn_above": round(fast_warn, 3),
-        "fast_fail_above": round(fast_fail, 3),
+        "fast_fail_above": round(fast_fail, 3) if fast_fail is not None else None,
         "slow_warn_below": round(slow_warn, 3),
         "pause_s": round(pause_s, 3) if pause_s is not None else None,
         "basis": "speaking_time" if pause_s is not None else "voiced_span",
     }
-    if cps > fast_fail:
+    if fast_fail is not None and cps > fast_fail:
         return (
             make_flag(
                 codes.PACE_FAST,
