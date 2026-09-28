@@ -48,9 +48,22 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
     - no WER warn level;
     - a batch design that gives way loses its unpublished clips;
     - §14's CLIP_TOO_LONG text is the lead's to write.
-- **Merge order from here:** PR #41 (fixing its review's L1: a daemon that dies before serving must give
-  DAEMON_UNAVAILABLE, not an endless cycle); PR #45 (WP48, fixing its review); then WP47 (contracts
-  1.6.9), each after an adversarial review and green CI. **After WP47:**
+  - **PR #45, WP48 `narration-admin failures`** (03c4aa0): every failed take in the store, with its flags,
+    metrics and audio path; `--json` for WP46's view. The lead checked by hand that it never writes the store
+    (the new `Store.peek_*` and `iter_jobs` are plain SELECTs). Replaces `.dev/lead/failures_now.py`.
+  - **PR #41, `get_job` and `cancel_job` revive a dead daemon** (644ae49). A launched daemon that exits before
+    it serves gives a retryable `DAEMON_UNAVAILABLE` with `details.log`, and no second launch inside the 90 s
+    window. The lead read the fix (`daemon.start.check_launch`, `sweep.launch_alive`, `service._failed_start`).
+    - **Decided by the lead:** `narration-admin install`'s stop follows the same rule as `daemon stop` (jobs
+      queued before it wait for the next start; the next submit_job starts one).
+    - **Follow-ups** (in `status/WP36-liveness.md`): the stopped daemon's launch time or stop reason in
+      `run/daemon.json` (approved, a contract change); measure launch-to-status time (four BELIEVE values);
+      three contract requests (a `daemon` object in get_job's output, `MeasurementRecord.transcript`, a
+      `check_text` flag for a transcript near-miss); design text for §3.2, §4, §4.1, §7.3, §14 and §15.
+    - Open for the owner: `measure_voice` with a mistyped transcript still queues a new measurement.
+  - Their worktrees and branches are removed.
+- **Merge order from here:** WP47 (PR #44, contracts 1.6.9), after its fix round (DC-20, the report's fallback
+  for older jobs) and green CI; told to merge main again first. **After WP47:**
   re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in stages (remove
   `.dev/service-setup/STOP`), both in a GPU window.
 - **Decisions carried into the resumed agents:**
@@ -83,9 +96,8 @@ Code session.
 - The owner decided:
   - **PACE_FAST warns only** (the hotfix);
   - **pace in characters per second with the pauses excluded** (WP47).
-- Failed takes are listed locally by `py -3.12 .dev/lead/failures_now.py` (into `.dev/scratch/failures.md`), a
-  stopgap for WP48.
-- Small gap: the daemon logs no line when a job ends (WP31's area).
+- Failed takes are listed by `narration-admin failures` (WP48, merged).
+- The daemon now logs a line when a job it ran ends (WP49, merged).
 
 ## Where things stand
 
@@ -103,9 +115,7 @@ Code session.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | reviewed (Fable liveness lens + integration): all low; fixing L1 (a failed launch gives DAEMON_UNAVAILABLE with the log) and wording |
-  | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | merging main (hotfix), `default.v5`, contracts 1.6.9, tests; then a PR |
-  | WP48 failure audit | `wp/48-failures`, PR #45 | a8d587455178ad320 | CI green; two-lens review running |
+  | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps`, PR #44 | af6d02f523a3a52f0 | fixing its review: DC-20 (the flat level), the report's wording for pre-1.6.9 jobs, `Pace.method`; merging main (#41, #45) |
 
   PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
   client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a
