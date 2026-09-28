@@ -608,6 +608,11 @@ def test_the_qa_profile_moves_no_render_key_seed_or_measurement_dc19() -> None:
         assert not any("qa" in p for p in inspect.signature(fn).parameters), fn.__name__
     assert keys.render_key(**render_kwargs()) == RENDER_KEY
     assert keys.measurement_key(**measurement_kwargs()) == MEASUREMENT_KEY
+    # By value, not only by signature: the value computed on main a901bf9 (the golden DELIVERY_KEY), so every
+    # cached take keeps its take_id.
+    assert keys.delivery_key(raw_sha256="ab" * 32, profile=DELIVERY_PROFILE, tools=TOOLS) == (
+        "sha256:0f057208e4a6f5bb823598f40d9d013cb88966514ffd0fdf0637c48cd9492c6d"
+    )
     assert {a: keys.seed(voice_hash=VOICE_HASH, engine_text=ENGINE_TEXT, attempt=a) for a in SEEDS} == SEEDS
     old = keys.analysis_key(analysis_inputs(qa_profile="default.v3"))
     assert keys.analysis_key(analysis_inputs(qa_profile=names.QA_PROFILE)) != old
