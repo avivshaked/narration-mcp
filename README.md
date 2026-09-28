@@ -3,18 +3,12 @@
 A local [MCP](https://modelcontextprotocol.io) server that gives an AI agent narration in **one fixed
 voice**, and the time of every line within that audio.
 
-> **Status: in development. It cannot be installed and used yet.** Many of the parts are built and tested
-> on their own, but not yet joined into a working service:
-> - the store and its keys;
-> - the text rules;
-> - the quality checks;
-> - the MCP front-end;
-> - the worker protocol;
-> - the Qwen3-TTS worker.
->
-> The cue alignment is merged. The background daemon and the job engine are in review, and the QA worker is being built. This README describes what is
-> being built, and it will say plainly when a first version can be installed. [plan.md](plan.md) §4 has
-> the current status of every part.
+> **Status: pre-alpha, working end to end on Windows with an NVIDIA GPU.** An agent can design or allow a
+> voice, measure it once, and narrate paragraphs of cues, getting back QA'd, cue-aligned takes. One tool,
+> `audition_pronunciation`, is published but not runnable yet (it answers `BACKEND_NOT_INSTALLED` at once;
+> `docs/tools.md` says so on its own entry); everything else works. The package has not had a numbered
+> release yet, and its schemas may still change (`CHANGELOG.md` tracks every one). [plan.md](plan.md) §4
+> has the status of every part of the build.
 
 ## What it does
 
@@ -51,15 +45,29 @@ cache when the work has already been done.
 - **Nothing hidden.** No silent trimming, stretching or truncation. Every flag is reported, and the
   caller decides what to accept.
 
-## Requirements (planned)
+## Requirements
 
-- An NVIDIA GPU with CUDA. The voice models need about 6 GB of VRAM while rendering: about 5.8 GB
-  was measured for a 30-second render ([spike h](spikes/h-i-qwen-load/README.md)). The checking
-  models are measured next, and the total will be stated here.
-- Python 3.12 and [uv](https://docs.astral.sh/uv/).
-- About 15 GB of disk for the models, plus a working store.
-- Windows 11 is the first platform. The tests that need no GPU also run on Linux in CI. Supported
-  platforms will be stated before the first release.
+- **Windows 11** (or 10). It is the only platform v1 runs on; `narration-admin doctor` says so plainly on
+  any other OS. The pure parts of the code, and their tests, also run on Linux, in CI, but the daemon and
+  the workers do not run there yet.
+- **An NVIDIA GPU with CUDA, and about 12 GB of free VRAM.** Only one model group is loaded at a time
+  (`[gpu] one_group_at_a_time`): rendering needs about 6 GB ([spike h](spikes/h-i-qwen-load/README.md)),
+  and checking (speech recognition and speaker similarity together) needs about 11.5 GB
+  ([spike h, QA half](spikes/h-i-qa-load/README.md)), so the larger of the two, plus a margin, is what a
+  render or a measurement needs free.
+- **Python 3.12** and [uv](https://docs.astral.sh/uv/) (0.10 or later). uv is also how the worker
+  environments are created; nothing else needs installing by hand.
+- **About 15 GB of disk** for the pinned models, plus room for the store (the cache of rendered work; see
+  [Where things live](#where-things-live) below).
+
+## Not yet supported
+
+- `audition_pronunciation` is published (it appears in `tools/list` and [docs/tools.md](docs/tools.md))
+  but answers `BACKEND_NOT_INSTALLED` at once: hint a term's respelling in a short `submit_job` instead,
+  and read what the recogniser heard in `qa.terms` (the tool's own description says this too).
+- `narration-admin bench alignment` (measuring the cue aligner against a hand-marked benchmark) is not
+  built yet.
+- Only Windows runs the service; see Requirements above.
 
 ## Models
 
@@ -73,61 +81,152 @@ every result. None of them is distributed with this repository.
 | `openai/whisper-large-v3` | checking what was said | per its model card, checked at install |
 | `microsoft/wavlm-base-plus-sv` | checking who said it | per its model card, checked at install |
 
-## Use it from Claude Code
+## Install
 
-The server is not released yet; this is how a development checkout is wired up. `<service_root>` is the
-folder of your clone.
+`<service_root>` is the folder of your clone; `<venv_python>` is the environment's own interpreter,
+`<service_root>\.venv\Scripts\python.exe`.
 
-1. Copy `narration.example.toml` to `<service_root>/narration.toml`, and set `store_root` and
-   `models_root` under `[server]`. Create the environment once with `uv sync --frozen` in
-   `<service_root>`.
-2. Add the server to your project's `.mcp.json`. It runs the server with the environment's own Python
-   interpreter, `<venv_python>`: `<service_root>/.venv/Scripts/python.exe` on Windows, or
-   `<service_root>/.venv/bin/python` elsewhere.
-
-   ```json
-   {
-     "mcpServers": {
-       "narration": {
-         "type": "stdio",
-         "command": "<venv_python>",
-         "args": ["-m", "narration.mcp", "--config", "<service_root>/narration.toml"]
-       }
-     }
-   }
-   ```
-
-   Start it as `python -m narration.mcp`, not through the `narration-mcp` launcher executable that the
-   environment also installs (and that `uv run … narration-mcp` starts): some antivirus programs sandbox
-   a new, unsigned launcher. Without `--config`, the server reads the file `NARRATION_CONFIG` names, else
-   `<service_root>/narration.toml`. If it finds neither, it exits and says what to do.
-3. The first job starts the background daemon that does the work. If a call answers
-   `DAEMON_UNAVAILABLE` because the client's session cannot start it, start the daemon yourself from a
-   terminal first:
+1. **Clone, and create the server's environment.**
 
    ```sh
-   <venv_python> -m narration.admin --config <service_root>/narration.toml daemon start
+   git clone https://github.com/avivshaked/narration-mcp.git
+   cd narration-mcp
+   uv sync --locked
    ```
 
-   It detaches and keeps running after the terminal closes. If Windows refuses to detach it from the
-   terminal, the command says so and offers `--foreground`, which runs the daemon in that terminal until
-   it exits; only then must the terminal stay open. On a host that never lets it detach (a CI runner,
-   say), set `[daemon] autostart = false`, so that no client tries to start the daemon, and run it with
-   `daemon start --foreground` in a process of its own.
+   `uv sync --locked` builds `.venv` from the committed `uv.lock` exactly, so it fails loudly rather than
+   silently resolving different versions if your uv or index ever disagreed with the lock.
+2. **Configure.** Copy `narration.example.toml` to `narration.toml` in `<service_root>` (or wherever
+   `NARRATION_CONFIG` will point) and set `store_root` and `models_root` under `[server]`; see
+   [Configuration](#configuration) below for what else is in it. `narration.toml` and
+   `narration.local.toml` are gitignored, so your paths never end up in version control.
+3. **Install the models and the two worker environments.** This downloads the pinned model revisions
+   (verifying every file's hash against what Hugging Face publishes for it) into `[server] models_root`,
+   and syncs `workers/qwen3tts` and `workers/qa` from their own `uv.lock` files — the two worker projects
+   have conflicting dependencies (different `transformers` versions) so they never share a venv with each
+   other or with the server.
 
-   The server clones only voices this service designed, or clips whose sha256 is in `[voices]
-   allow_sha256`. The same command with `voices allow <clip.wav>` adds a clip designed elsewhere to that
-   list, after you confirm that it is synthetic. The daemon and the server read `narration.toml` only
-   when they start. After a change, stop the daemon first (the same command with `daemon stop`; with
-   `[daemon] autostart` on, the next job starts it again, otherwise `daemon start` does), then reconnect
-   the client to the server (`/mcp` in Claude Code).
-4. In a session, call `measure_voice` on your voice clip once. Then call `submit_job`, poll `get_job`,
-   and read the takes with `get_results`. The server's instructions tell the calling agent how to use the
-   tools well: among other things, to send every invented name as a pronunciation hint (the term alone
-   is enough), to keep a job to a scene, and to read results with `include_words` false.
-5. To audit the takes that failed QA or were replaced by a retake, across jobs, run the same command as in
-   step 3 with `failures` (`--export <dir>` copies each one's WAV with its reasons). `gc` shows how many are
-   kept and which retention would remove next.
+   ```sh
+   <venv_python> -m narration.admin --config <service_root>\narration.toml install
+   ```
+
+   `--dry-run` lists what it would fetch without changing anything; `--from-cache <hub cache>` copies
+   from a local Hugging Face cache instead of downloading, still hash-checked; `--models-only` /
+   `--workers-only` run half of it. If your network intercepts TLS ("invalid peer certificate"), point
+   `SSL_CERT_FILE` (or `REQUESTS_CA_BUNDLE`) at its root certificate, or set `UV_NATIVE_TLS=1` for uv —
+   never turn certificate verification off.
+4. **Pin the engine, and check everything.** `engine pin` records the engine profiles this installation
+   and machine match, and designs the service's canary clip on this machine (so later renders can be
+   checked against it, design section 10.1). It loads Qwen on the GPU, so run it only while no daemon is
+   using the store.
+
+   ```sh
+   <venv_python> -m narration.admin --config <service_root>\narration.toml engine pin
+   <venv_python> -m narration.admin --config <service_root>\narration.toml doctor
+   ```
+
+   `doctor` checks the platform, the configuration, the store, the models (hashed again), the worker
+   venvs, the GPU and the engine pin, and says exactly what to fix for anything that fails; run it again
+   after fixing something. See [docs/operator-guide.md](docs/operator-guide.md) for what each check means
+   and what to do about it.
+
+## Configuration
+
+Everything is one TOML file; `narration.example.toml` documents every key with its default. The file the
+server actually reads is found by `--config`, else the environment variable `NARRATION_CONFIG`, else
+`narration.toml` in the service's own folder. A few of its sections:
+
+| Section | What it sets |
+|---|---|
+| `[server]` | `store_root` (the cache and job database) and `models_root` (pinned model snapshots) |
+| `[voices]` | `allow_sha256`: clips designed elsewhere that are allowed to be cloned (ships empty; see `narration-admin voices allow` in the operator guide) |
+| `[retention]` | how long jobs, designs, takes and measurements stay in the store before `gc` may remove them |
+| `[daemon]` | `autostart`, and how long an idle daemon keeps a model loaded or stays running at all |
+| `[workers]` | the CPU thread cap and priority every worker runs at, and the offline environment variables they get |
+| `[gpu]` | the CUDA device, whether only one model group loads at a time, and how long a job waits for free VRAM |
+| `[limits]` | request-size limits: segments per job, cues per segment, characters, hints, the submission rate, the queue depth |
+| `[defaults]` | the default number of takes and automatic retakes when a request does not say |
+| `[text]` | the text-check ruleset version and the characters refused outright (markup) |
+| `[delivery]` | the delivered file's sample rate, bit depth, target loudness and true-peak ceiling, and the trim and fade applied |
+| `[voice_design]` | the words a designed voice's candidates speak by default |
+| `[measurement]` | the calibration corpus, how many seeds, and the length ladder a voice is measured against |
+| `[alignment]` | the cue-aligner model and device, and its confidence thresholds |
+| `[qa]` | which QA profile (thresholds and rules) this build scores with; informational, not a switch |
+| `[engines.qwen3_base]` / `[engines.qwen3_design]` | settings that change rendered audio, so they are pinned into the engine profile explicitly rather than left to library defaults |
+| `[workers.qwen3]` / `[workers.qa]` | each worker's uv project folder |
+
+`narration-mcp` and the daemon read `narration.toml` only when they start; after any change, stop the
+daemon (`narration-admin daemon stop`) and reconnect your MCP client, except `[measurement]`, which must
+never be edited while the store holds measurements made under the old values.
+
+## Wire it into Claude Code
+
+Add the server to your project's `.mcp.json`, run through the environment's own interpreter:
+
+```json
+{
+  "mcpServers": {
+    "narration": {
+      "type": "stdio",
+      "command": "<venv_python>",
+      "args": ["-m", "narration.mcp", "--config", "<service_root>\\narration.toml"]
+    }
+  }
+}
+```
+
+Start it as `python -m narration.mcp`, not through the `narration-mcp` launcher executable the
+environment also installs (and that `uv run … narration-mcp` would start): some antivirus programs
+sandbox a new, unsigned launcher. Without `--config`, the server reads the file `NARRATION_CONFIG` names,
+else `narration.toml` in the service's own folder; with neither, it exits and says what to do.
+
+The first job starts the background daemon that does the work, detached so it outlives the client. If a
+call answers `DAEMON_UNAVAILABLE`, see [docs/operator-guide.md](docs/operator-guide.md)'s daemon section
+(some hosts' terminals cannot let a process detach; there is a documented way around it).
+
+## First run
+
+1. **Get a voice.** Either have the agent call `design_voice` with a positive-only description ("warm,
+   unhurried, low-pitched"; never "not shrill") — it renders a few candidate clips with VoiceDesign, you
+   listen and choose one, and keep its clip, sha256 and exact transcript; every candidate is already on
+   the service's provenance list, so it needs no further allowlisting. Or, for a clip designed some other
+   way, confirm it is synthetic (never a recording of a real person) and add it with
+   `narration-admin voices allow <clip.wav>`.
+2. **Measure it once**, per voice and per engine: `measure_voice` with the voice (path, sha256,
+   transcript). It is a heavy GPU job, 20 to 50 minutes; check `get_server_status`'s `admission` first. It
+   learns the voice's pace curve, its reliable paragraph length and its speaker-similarity baseline. If
+   the same clip and transcript were measured before under this engine, it answers at once from the
+   cache.
+3. **Check the text**, then **narrate**: `check_text` on your cues (with any pronunciation hints) catches
+   digits, symbols and unusual names before you render; hint every invented or unusual name so QA scores
+   it as one word instead of misheard words. Then `submit_job` with the voice, the segments and your
+   hints; poll `get_job` with `wait_s` until it ends; read `get_results` (`include_words: false` unless
+   you need word-level times) and use each segment's `suggested_take_id`.
+
+You can also try the pipeline from a terminal, with no MCP client, once a voice is measured:
+
+```sh
+<venv_python> -m narration.admin --config <service_root>\narration.toml render \
+  --voice <clip.wav> --transcript "<the clip's exact words>" \
+  --text "Good bread asks for patience." --out take.wav
+```
+
+## Where things live
+
+- **The store** (`[server] store_root`) holds the job database (`narration.sqlite`), the cache of
+  renders, deliveries and analyses, voice measurements, designs, the engine profiles and canary, and the
+  alignment benchmark — everything is either the service's own or a cache of work already done, never a
+  caller's script or choices (see [SECURITY.md](SECURITY.md)).
+- **Logs**: `<store_root>\logs\narration-mcp.log` (one per client session) and
+  `<store_root>\logs\daemon.log` (the daemon's, rotated).
+- **The daemon's live status**: `<store_root>\run\daemon.json`, also readable with
+  `narration-admin daemon status`.
+- **An audit of failed or retaken takes**: `narration-admin failures` (add `--export <dir>` for the WAVs
+  and a CSV index). `narration-admin gc` (a dry run by default) shows what retention would remove next.
+
+See [docs/operator-guide.md](docs/operator-guide.md) for the daemon, `doctor`, the engine pins, the
+voice allowlist, garbage collection and every error code an operator may see, and
+[docs/tools.md](docs/tools.md) for every MCP tool's full input and output schema.
 
 ## Project status, contributing and security
 
@@ -141,8 +240,6 @@ Issues are welcome, including a "Commercial licence" issue if you want to use th
 - **Security:** see [SECURITY.md](SECURITY.md) for what this service does and does not protect against,
   and how to report a vulnerability.
 - **Changes:** notable changes are tracked in [CHANGELOG.md](CHANGELOG.md).
-- **Configuration:** [narration.example.toml](narration.example.toml) shows every configuration key and
-  its default.
 
 ## Licence
 
