@@ -12,7 +12,7 @@ from narration.contracts.interfaces import QaInputs, QaScorer
 from narration.contracts.models import CueTiming, Flag, Hint, SimilarityBaseline
 from narration.contracts.names import NUMBER_READER, QA_PROFILE
 from narration.qa import QaUnavailable, Scorer
-from narration.qa.checks import expected_wpm, spoken_words
+from narration.qa.pace import expected_cps
 
 from .builders import ANCHOR, Cue, alignment, inputs, measurement, pace, planned, segment, signal, with_similarity
 
@@ -21,7 +21,8 @@ SEG = segment(
     Cue("By noon some three thousand two hundred gulls had come back to the harbour.", exact=((3, 7),)),
 )
 HINTS = (Hint(term="Velmoranth"),)
-MEASURED = measurement(anchor_p5=0.975, pace_record=pace(((80, 150.0), (300, 170.0)), tol=0.12))
+# Pace in spoken characters per second of speaking time (WP47); SEG has 132 spoken characters.
+MEASURED = measurement(anchor_p5=0.975, pace_record=pace(((80, 13.2), (300, 14.2)), tol=0.12))
 CLEAN = inputs(
     SEG,
     hints=HINTS,
@@ -48,6 +49,9 @@ def test_a_clean_take_passes_with_every_metric_s11_1() -> None:
     assert m.spk_sim_anchor == pytest.approx(0.985)
     assert m.spoken_wpm == pytest.approx(25 / 9.8 * 60)  # 11 + 14 spoken words over 9.8 s voiced
     assert m.expected_spoken_wpm is not None
+    # No silences measured in this take: the pace is over the whole voiced span.
+    assert (m.articulation_cps, m.spoken_cps, m.pause_s) == (pytest.approx(132 / 9.8), pytest.approx(132 / 9.8), None)
+    assert m.expected_articulation_cps == pytest.approx(expected_cps(MEASURED.pace, 132))
     assert (m.head_insertion_words, m.end_insertion_words, m.longest_silence_s) == (0, 0, 0.5)
     assert result.thresholds.spk_warn == 0.965
     assert result.thresholds.spk_fail == 0.90
@@ -57,29 +61,31 @@ def test_a_clean_take_passes_with_every_metric_s11_1() -> None:
 
 
 def test_a_take_half_again_as_fast_as_its_curve_warns_and_is_no_retake_dc19() -> None:
-    """default.v4 (the owner's decision, 2026-09-27): a take at +50% of the expected pace, with every other check
-    clean, gets a PACE_FAST warning and a warn verdict. It is not failed and not retaken."""
-    expected = expected_wpm(MEASURED.pace, SEG.spoken_chars)
+    """default.v4 and v5 (the owner's decision, 2026-09-27): a take at +50% of the expected pace, with every
+    other check clean, gets a PACE_FAST warning and a warn verdict. It is not failed and not retaken."""
+    expected = expected_cps(MEASURED.pace, SEG.spoken_chars)
     assert expected is not None
-    span = spoken_words(SEG.spoken_text) / (1.5 * expected) * 60.0
+    pause = 0.6
+    span = SEG.spoken_chars / (1.5 * expected) + pause
     take = inputs(
         SEG,
         hints=HINTS,
         embedding=with_similarity(0.985),
         measurement_record=MEASURED,
-        signal_stats=signal(voiced=(0.1, 0.1 + span)),
+        signal_stats=signal(voiced=(0.1, 0.1 + span), silences=(0.1, pause)),
     )
     result = Scorer().score(take)
-    assert result.metrics.spoken_wpm == pytest.approx(1.5 * expected)
+    assert result.metrics.articulation_cps == pytest.approx(1.5 * expected)
+    assert result.metrics.pause_s == pytest.approx(pause)
     assert [(f.code, f.severity, f.retake_trigger) for f in result.flags] == [(codes.PACE_FAST, "warn", False)]
     assert result.verdict == "warn"
     assert not any(codes.is_retake_trigger(f.code, f.severity, f.details) for f in result.flags)
 
 
 def test_a_slow_take_still_only_warns_s11_1() -> None:
-    expected = expected_wpm(MEASURED.pace, SEG.spoken_chars)
+    expected = expected_cps(MEASURED.pace, SEG.spoken_chars)
     assert expected is not None
-    span = spoken_words(SEG.spoken_text) / (0.5 * expected) * 60.0
+    span = SEG.spoken_chars / (0.5 * expected)
     take = inputs(
         SEG,
         hints=HINTS,
