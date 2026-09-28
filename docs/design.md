@@ -120,7 +120,12 @@ applied here, each listed in the revision history below.*
     pace model and QA's pace check use this one rule. The measurement key names the pace method, and the
     measurement record and its key move to `/v2`, so a voice measured before is measured again from its
     cached renders. The QA profile becomes `default.v5`; `PACE_FAST` and `PACE_SLOW` still only warn
-    (DC-19). Sections 0, 3.2, 6, 7.5, 7.6, 10.2, 11.1, 12, 14, 16 and Appendix B.*
+    (DC-19). Sections 0, 3.2, 6, 7.5, 7.6, 10.2, 11.1, 12, 14, 16 and Appendix B.
+  - **DC-20** (the lead's gap-fill, approved 2026-09-28; the owner may overrule): pace is judged against
+    the voice's flat level, and no trend slope is extended or extrapolated. Every ladder rung is judged
+    against the band level (the median of the band rungs' medians) × (1 + tol); QA's expected pace
+    follows the curve inside its range and holds its end values flat outside it (sections 3.2, 11.1 step
+    9 and 21).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -492,10 +497,13 @@ shortest up. The corpus marks its number words as exact spans (section 11.3).
   span, for information; `wer_adj`; the exact-span check; similarity to the anchor. Every take, the
   ladder's included, is scored by the one rule QA uses (section 11.1 step 9), so the curve and a take's
   pace are one quantity.
-- **The pace trend**: a straight line of pace against length, fitted over the rungs ≤ 300 spoken
-  characters, where the probe showed no rushing. Pace may rise with length (section 1, where the probe
-  measured it in words per minute), so a rung is judged against the **trend extended to its length**,
-  not against a flat reference.
+- **The band level** (revision 5.16, DC-20): the median of the band rungs' median paces, over the rungs
+  ≤ 300 spoken characters, where the probe showed no rushing. Every rung is judged against this **flat
+  level**; no trend slope is extended to a rung's length. In characters per second of speaking time a
+  voice's rate is flat, so a slope fitted to four band rungs is noise (about ±0.3 characters per second
+  per 100 characters at a 3 % spread per rung), and extending it wrongly stopped the ladder or let
+  rushing pass (PR #44's review of the rate model, reproduced with WP47's own functions). The rise
+  of pace with length in section 1 was measured in words per minute.
 - **Tolerance**: `tol = max(0.10, the largest per-rung seed spread observed at ≤ 300 characters)`,
   never below the measured seed-to-seed spread (up to 17 % within one voice in the probe). The spread is
   relative, so it is derived the same way in characters per second.
@@ -503,7 +511,7 @@ shortest up. The corpus marks its number words as exact spans (section 11.3).
   none has both). It turns the curve into durations for estimates (sections 7.3, 7.6 and 12), never
   into a verdict.
 - **A rung passes** when:
-  - the **median over its seeds** of pace ≤ trend × (1 + tol);
+  - the **median over its seeds** of pace ≤ band level × (1 + tol);
   - the median `wer_adj` passes;
   - the median similarity passes the warn threshold;
   - no seed has an exact-span mismatch, a head insertion, or a token-cap hit.
@@ -1784,6 +1792,9 @@ on other takes, because verdicts are cached (section 10.2).
    signal stage finds the silences on its 20 ms frames, so the shortest pause taken out is 13 frames
    (0.26 s), and a 12-frame silence (0.24 s), such as a stop consonant's closure, stays in. Spoken words
    per minute and spoken characters per second over the whole voiced span are reported for information.
+   - **The expected pace** (DC-20): inside the curve's range, the straight line between its points;
+     outside it, the curve's end value held flat. No slope is extrapolated: extrapolating the trend
+     skewed QA at both ends of the length range.
    - Words per minute follow word length, and a span that holds the pauses between sentences makes a
      one-sentence segment look fast (KNOW, decision D2: on the first real voice and job, ladder takes
      spoke 15.4–17.2 characters a second over the voiced span at every length, while their words per
@@ -2526,7 +2537,7 @@ the flow. Everything else stands as revision 4 answered it.
 | **R5** exact lengths | Accepted | `samples`, `sample_rate`, `duration_s`, `sha256`, `trim` {head_s, tail_s, pad_s}, now defined exactly, and a `loudness` record per take (§7.5, §13). |
 | **R6** text spoken as sent | Accepted; v1 is spoken-only | As revision 4. The hints now come with each request, from the flow's own list, as its Part 3 planned (§9.1). |
 | **R7** what was spoken, echoed | Accepted | Per cue: `received`, `spoken`, `engine`, `hints_applied`, in `check_text`, the `dry_run` plan and `get_results` (§7.5, §7.6). |
-| **R8** safe paragraph length | Accepted, as advice | `max_segment_chars` comes from the voice's measurement, judged against the voice's pace trend (§3.2). A longer segment is **rendered and warned about** (`SEGMENT_TOO_LONG`, with the limits, `spoken_chars`, `over_by_chars` and `cue_chars`), never refused (owner decision). |
+| **R8** safe paragraph length | Accepted, as advice | `max_segment_chars` comes from the voice's measurement, judged against the voice's band level (§3.2; DC-20). A longer segment is **rendered and warned about** (`SEGMENT_TOO_LONG`, with the limits, `spoken_chars`, `over_by_chars` and `cue_chars`), never refused (owner decision). |
 | **R9** several takes per job | Accepted | `takes` 1–3 in one model load, or explicit `attempts`; `max_retakes` per failing take; a suggestion by V2's tiers (§7.3, §8). |
 | **R10** unspoken context | Not supported | Refused with `CONTROL_UNSUPPORTED` (§3.3). |
 | **R11** changes after resubmission | Met differently: **the flow compares** | The service keeps no earlier result to compare with. Every take carries `fresh` (rendered by this job) and ids that are stable for the same clip, text, attempt and engine. A segment rendered anew is one whose take id differs from the flow's manifest; a changed `analysis_id` with the same take means the cue times may have moved. The old take and its length are in the flow's own manifest (§8). |
