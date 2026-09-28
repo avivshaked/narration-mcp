@@ -278,6 +278,16 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- Pace is now measured in spoken characters per second of speaking time: the voiced span with its pauses
+  (silences of 0.25 s or more) taken out (DC-18; the QA profile is now `default.v5`). Words per minute
+  followed the corpus's word lengths rather than the voice, and a one-sentence segment, which has no pause
+  between sentences, read as fast against a curve measured on paragraphs. The voice's measurement uses the
+  same rule, so its pace curve, trend and tolerance are in these units too, and `measurement.json` is now
+  `narration.measurement/v2`, with a `speaking_share` used for duration estimates. **A voice measured before
+  must be measured again**: it answers `VOICE_NOT_MEASURED` until it is. Measuring again finds every render
+  and take in the cache, so it costs QA time only. `get_results` shows `qa.pace.articulation_cps` and
+  `qa.pace_expected.articulation_cps` beside `spoken_wpm`, which stays as information. `PACE_FAST` still only
+  warns.
 - `PACE_FAST` only warns; it never fails a take and never triggers a retake (the QA profile is now
   `default.v4`, DC-19). The words-per-minute pace model failed short paragraphs that listened fine, and
   wasted their retakes. `PACE_SLOW` is unchanged (it only warns). The flag's `details.fast_fail_above` is
