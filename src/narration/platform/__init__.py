@@ -57,6 +57,30 @@ JOB_CHECK_FAILED: Final = "job_check_failed"
 """``DAEMON_UNAVAILABLE``'s ``details["reason"]`` when the OS could not say whether the daemon was in a job. It
 was ended before it ran: a daemon that may die with its client is never let run."""
 
+# The messages of those three refusals. Each says what Windows did and states the rule once ("a daemon runs only
+# in no Job Object at all"). They name this process, never a client or a terminal: an MCP client shows them, and
+# so does ``narration-admin daemon start``, whose ``refusal_text`` quotes them and adds only the terminal's
+# context and the way out.
+BREAKAWAY_REFUSED_MESSAGE: Final = (
+    "Windows refused to start the daemon detached (access denied). This usually means the Job Object this "
+    "process runs in forbids breakaway. A daemon runs only in no Job Object at all, so none was started."
+)
+"""``DAEMON_UNAVAILABLE``'s message with ``BREAKAWAY_REFUSED``."""
+
+LEFT_IN_JOB_MESSAGE: Final = (
+    "Windows started the daemon inside a Job Object it could not leave: this process's innermost job allows "
+    "breakaway (a venv launcher's does), but one around it does not, and the daemon stayed in that one. A daemon "
+    "runs only in no Job Object at all, so it was ended before it started."
+)
+"""``DAEMON_UNAVAILABLE``'s message with ``LEFT_IN_JOB``."""
+
+JOB_CHECK_FAILED_MESSAGE: Final = (
+    "Windows could not say whether the daemon had left this process's Job Objects ({error}). A daemon runs only "
+    "in no Job Object at all, so it was ended before it started."
+)
+"""``DAEMON_UNAVAILABLE``'s message with ``JOB_CHECK_FAILED``; ``{error}`` is what Windows said
+(``JOB_CHECK_FAILED_MESSAGE.format(error=...)``)."""
+
 
 class ProcessPlatform(Platform, Protocol):
     """``Platform`` plus how the daemon starts Python processes on this OS (plan.md WP30).
@@ -121,9 +145,12 @@ def real_path(path: str | os.PathLike[str]) -> str:
 
 __all__ = [
     "BREAKAWAY_REFUSED",
+    "BREAKAWAY_REFUSED_MESSAGE",
     "DAEMON_RETRY_AFTER_S",
     "JOB_CHECK_FAILED",
+    "JOB_CHECK_FAILED_MESSAGE",
     "LEFT_IN_JOB",
+    "LEFT_IN_JOB_MESSAGE",
     "SUPPORTED_PLATFORMS",
     "ProcessPlatform",
     "UnsupportedOsPlatform",

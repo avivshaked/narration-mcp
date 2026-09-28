@@ -26,6 +26,14 @@ from narration.admin.cli import EXIT_FAILED, EXIT_OK
 from narration.config import load_config
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
 from narration.contracts.models import DaemonStatus, GpuStatus, WorkerInfo
+from narration.platform import (
+    BREAKAWAY_REFUSED,
+    BREAKAWAY_REFUSED_MESSAGE,
+    JOB_CHECK_FAILED,
+    JOB_CHECK_FAILED_MESSAGE,
+    LEFT_IN_JOB,
+    LEFT_IN_JOB_MESSAGE,
+)
 from narration.platform.testing import StandInPlatform
 from narration.store import NarrationStore
 from narration.store.store import utc_iso
@@ -235,25 +243,41 @@ def test_start_refused_breakaway_offers_the_foreground_s4_1(
 
 
 @pytest.mark.parametrize(
-    ("reason", "said"),
+    ("reason", "terminal_named"),
     [
-        ("breakaway_refused", "forbids breakaway"),
-        ("left_in_job", "forbids breakaway"),
-        ("job_check_failed", "could not confirm"),
-        (None, "forbids breakaway"),
+        (BREAKAWAY_REFUSED, True),
+        (LEFT_IN_JOB, True),
+        (JOB_CHECK_FAILED, False),
+        (None, False),
     ],
 )
 def test_start_refused_names_only_the_cause_windows_established_s4_1(
-    admin: AdminRun, config_path: Path, platform: StandInPlatform, reason: str | None, said: str
+    admin: AdminRun, config_path: Path, platform: StandInPlatform, reason: str | None, terminal_named: bool
 ) -> None:
     details = None if reason is None else {"reason": reason}
     platform.refuse_spawn = NarrationError("DAEMON_UNAVAILABLE", "no detached start", details=details)
     ran = admin("--config", str(config_path), "daemon", "start")
     assert ran.code == EXIT_FAILED
-    assert said in ran.err, ran.err
-    assert "no Job Object at all" in ran.err, "the rule is stated"
+    assert "no detached start." in ran.err, "the platform's message is quoted as it is"
+    assert ("comes from this terminal" in ran.err) is terminal_named, "a cause Windows did not establish is not named"
     assert "daemon start --foreground" in ran.err, "the way out is offered in every case"
-    assert ("could not confirm" in ran.err) is (reason == "job_check_failed"), "an unknown cause is not asserted"
+    assert "[daemon] autostart = false" in ran.err, "the route on a host whose jobs forbid breakaway is named"
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        (BREAKAWAY_REFUSED, BREAKAWAY_REFUSED_MESSAGE),
+        (LEFT_IN_JOB, LEFT_IN_JOB_MESSAGE),
+        (JOB_CHECK_FAILED, JOB_CHECK_FAILED_MESSAGE.format(error="an invented error")),
+    ],
+)
+def test_the_refusal_states_the_rule_once_with_the_platforms_own_messages_s4_1(reason: str, message: str) -> None:
+    """The platform's message carries the rule; the refusal adds only the terminal's part and the way out."""
+    text = admin_daemon.refusal_text(NarrationError("DAEMON_UNAVAILABLE", message, details={"reason": reason}))
+    assert message in text
+    assert text.count("no Job Object at all") == 1, text
+    assert "client" not in message, "an MCP client and a terminal both show the platform's message"
 
 
 def test_start_says_when_the_daemon_exits_for_want_of_work_s4_1(admin: AdminRun, config_path: Path) -> None:

@@ -29,7 +29,7 @@ from typing import Final
 
 from narration_worker.threads import cap_threads_env
 
-from narration.config import Config, load_config
+from narration.config import Config, load_config, qa_profile_mismatch
 from narration.contracts.errors import ConfigError
 
 from .settings import LOG_NAME  # standard library and narration.config only: no numpy yet
@@ -90,6 +90,18 @@ def warn_without_safe_path(safe_path: bool) -> bool:
         "imported in place of the service's own; start it with narration-admin daemon start, or through "
         "narration.daemon.start.start_detached, which pass -P"
     )
+    return True
+
+
+def warn_on_qa_profile(config: Config) -> bool:
+    """Log one warning when ``[qa] profile`` names another QA profile than the one this build scores with
+    (``narration.config.qa_profile_mismatch``). The daemon starts either way: the setting changes nothing.
+    True if it warned."""
+    mismatch = qa_profile_mismatch(config)
+    if mismatch is None:
+        return False
+    found, next_step = mismatch
+    log.warning("%s. %s", found, next_step)
     return True
 
 
@@ -165,6 +177,7 @@ def _serve(args: argparse.Namespace, config: Config) -> int:
     try:
         _log_to_file(store.layout.logs_dir(), args.log_level)
         warn_without_safe_path(bool(sys.flags.safe_path))
+        warn_on_qa_profile(config)
         if no_method is not None:
             log.warning("no alignment benchmark can be read for the configured aligner: %s", no_method)
         try:
