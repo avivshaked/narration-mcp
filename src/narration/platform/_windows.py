@@ -31,7 +31,17 @@ import psutil
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 
-from . import BREAKAWAY_REFUSED, DAEMON_RETRY_AFTER_S, JOB_CHECK_FAILED, LEFT_IN_JOB, real_path, winpaths
+from . import (
+    BREAKAWAY_REFUSED,
+    BREAKAWAY_REFUSED_MESSAGE,
+    DAEMON_RETRY_AFTER_S,
+    JOB_CHECK_FAILED,
+    JOB_CHECK_FAILED_MESSAGE,
+    LEFT_IN_JOB,
+    LEFT_IN_JOB_MESSAGE,
+    real_path,
+    winpaths,
+)
 
 # ---------------------------------------------------------------- constants (Windows SDK values)
 CREATE_BREAKAWAY_FROM_JOB: Final = 0x01000000
@@ -84,7 +94,8 @@ SINGLETON_PREFIX: Final = "Global\\narration-mcp.daemon."
 """The daemon mutex's name before the store path's hash. Never change it: a daemon of an older version and
 one of a newer version must still exclude each other on the same store."""
 
-# DAEMON_RETRY_AFTER_S, BREAKAWAY_REFUSED, LEFT_IN_JOB and JOB_CHECK_FAILED are defined in narration.platform
+# DAEMON_RETRY_AFTER_S, BREAKAWAY_REFUSED, LEFT_IN_JOB and JOB_CHECK_FAILED (and their messages) are defined in
+# narration.platform
 # (OS-neutral values the front-end and narration-admin read too) and imported above.
 
 
@@ -460,8 +471,8 @@ class WindowsPlatform:
         (retryable; ``details["reason"]`` says which) and starts nothing that runs when the daemon cannot leave
         this process's Job Objects: a daemon still in a client's kill-on-close job would die with the client
         mid-job. Any other failure to start (a missing executable, say) propagates as ``OSError``. Its messages
-        name no caller ("this process", not "this client"): an MCP client and ``narration-admin daemon start``
-        in a terminal both show them.
+        (``narration.platform``'s ``*_MESSAGE``) name no caller ("this process", not "this client"): an MCP
+        client and ``narration-admin daemon start`` in a terminal both show them.
 
         **Nested jobs.** KNOW (spike k): since Windows 8 a process can be in nested jobs, and ``CreateProcess``
         with ``CREATE_BREAKAWAY_FROM_JOB`` refuses (access denied, ``BREAKAWAY_REFUSED``) only when this
@@ -511,9 +522,7 @@ class WindowsPlatform:
             in_job, allows_breakaway = _own_job_breakaway()
             raise NarrationError(
                 codes.DAEMON_UNAVAILABLE,
-                "Windows refused to start the daemon detached (access denied). This usually means the Job "
-                "Object this process runs in forbids breakaway. A daemon runs only in no Job Object at all, so "
-                "none was started.",
+                BREAKAWAY_REFUSED_MESSAGE,
                 details={
                     "reason": BREAKAWAY_REFUSED,
                     "winerror": exc.winerror,
@@ -532,9 +541,7 @@ class WindowsPlatform:
                 in_job, allows_breakaway = _own_job_breakaway()
                 raise NarrationError(
                     codes.DAEMON_UNAVAILABLE,
-                    "Windows could not say whether the daemon had left this process's Job Objects "
-                    f"({exc.strerror or exc}). A daemon runs only in no Job Object at all, so it was ended before "
-                    "it started.",
+                    JOB_CHECK_FAILED_MESSAGE.format(error=exc.strerror or exc),
                     details={
                         "reason": JOB_CHECK_FAILED,
                         "winerror": exc.winerror,
@@ -547,10 +554,7 @@ class WindowsPlatform:
                 in_job, allows_breakaway = _own_job_breakaway()
                 raise NarrationError(
                     codes.DAEMON_UNAVAILABLE,
-                    "Windows started the daemon inside a Job Object it could not leave: this process's innermost "
-                    "job allows breakaway (a venv launcher's does), but one around it does not, and the daemon "
-                    "stayed in that one. A daemon runs only in no Job Object at all, so it was ended before it "
-                    "started.",
+                    LEFT_IN_JOB_MESSAGE,
                     details={
                         "reason": LEFT_IN_JOB,
                         "in_job": in_job,

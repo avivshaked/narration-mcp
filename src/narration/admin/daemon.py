@@ -35,7 +35,7 @@ from narration.daemon.__main__ import LOG_NAME
 from narration.daemon.settings import scrub_python_env
 from narration.daemon.start import daemon_argv, ensure_daemon, running_daemon
 from narration.daemon.sweep import StatusUnreadable, daemon_alive, read_status
-from narration.platform import JOB_CHECK_FAILED
+from narration.platform import BREAKAWAY_REFUSED, LEFT_IN_JOB
 from narration.store import NarrationStore
 
 from .cli import EXIT_FAILED, EXIT_OK, PROGRAM, Admin, AdminError, Subparsers
@@ -150,31 +150,36 @@ def start_daemon(admin: Admin, args: argparse.Namespace) -> int:
 
 
 def refusal_text(exc: NarrationError) -> str:
-    """What to tell the operator when the daemon could not be detached from this terminal, chosen by the
-    platform's ``details["reason"]`` (``narration.platform``: ``BREAKAWAY_REFUSED``, ``LEFT_IN_JOB``,
-    ``JOB_CHECK_FAILED``), so the cause is named only where Windows established it. The rule (lead decision):
-    the daemon runs only in no Job Object at all, so any enclosing job that forbids breakaway refuses the
-    detached start, even one that would not end the daemon. Every case offers ``--foreground``, and names the
-    route on a host whose jobs always forbid breakaway: ``[daemon] autostart = false`` with a daemon started by
-    hand (``--foreground``)."""
+    """What to tell the operator when the daemon could not be detached from this terminal.
+
+    The platform's message comes first, as it is (``narration.platform``'s ``*_MESSAGE``): it says what Windows
+    did and states the rule, that the daemon runs only in no Job Object at all (lead decision: any enclosing job
+    that forbids breakaway refuses the detached start, even one that would not end the daemon). This adds only
+    what that message cannot know, so each fact is said once:
+
+    - the terminal's part, chosen by ``details["reason"]`` so that a cause is named only where Windows
+      established it (``BREAKAWAY_REFUSED`` and ``LEFT_IN_JOB``; not ``JOB_CHECK_FAILED``, nor a reason it
+      does not know);
+    - the way out, in every case: another terminal, or ``--foreground`` in this one; and on a host whose jobs
+      always forbid breakaway, ``[daemon] autostart = false`` with a daemon started by hand (``--foreground``).
+    """
     reason = (exc.details or {}).get("reason")
-    if reason == JOB_CHECK_FAILED:
-        cause = (
-            "Windows could not confirm that the daemon had left this terminal's Job Objects, so it was ended "
-            "before it ran: the daemon runs only in no Job Object at all"
-        )
-    else:
-        cause = (
-            "This terminal runs inside a Job Object that forbids breakaway, as CI runners and some programs' "
-            "built-in terminals do. The daemon runs only in no Job Object at all, even one that would not end it"
-        )
+    message = exc.message.strip()
+    if not message.endswith((".", "!", "?")):
+        message += "."
+    context = (
+        " Such a job comes from this terminal: CI runners and some programs' built-in terminals run their "
+        "commands in one."
+        if reason in (BREAKAWAY_REFUSED, LEFT_IN_JOB)
+        else ""
+    )
     return (
-        f"The daemon cannot be detached from this terminal ({exc.message}). {cause}. Run `{PROGRAM} daemon "
-        "start` from a terminal whose Job Objects allow breakaway (a plain terminal outside that program), or "
-        f"run the daemon in this one with `{PROGRAM} daemon start --foreground` and keep the terminal open "
-        "while it works. On a host whose jobs always forbid breakaway (a CI runner, say), set `[daemon] "
-        f"autostart = false`, so that no client tries to start the daemon, and start it by hand with `{PROGRAM} "
-        "daemon start --foreground` in a process of its own."
+        f"The daemon cannot be detached from this terminal. {message}{context} Run `{PROGRAM} daemon start` from "
+        "a terminal whose Job Objects allow breakaway (a plain terminal, not a program's built-in one), or run "
+        f"the daemon in this one with `{PROGRAM} daemon start --foreground` and keep the terminal open while it "
+        "works. On a host whose jobs always forbid breakaway (a CI runner, say), set `[daemon] autostart = "
+        f"false`, so that no client tries to start the daemon, and start it by hand with `{PROGRAM} daemon start "
+        "--foreground` in a process of its own."
     )
 
 

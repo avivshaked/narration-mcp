@@ -252,6 +252,7 @@ def test_a_job_check_that_fails_ends_the_daemon_s4_1(tmp_path: Path, monkeypatch
     assert error.details is not None
     assert (error.details["reason"], error.details["winerror"]) == (_windows.JOB_CHECK_FAILED, 87)
     assert isinstance(error.__cause__, OSError)
+    assert error.message == _windows.JOB_CHECK_FAILED_MESSAGE.format(error="The parameter is incorrect")
     # an MCP client and narration-admin's terminal both show the message: it names this process, no client
     assert "this process" in error.message and "client" not in error.message, error.message
     assert made[0].killed
@@ -332,6 +333,7 @@ def test_breakaway_refused_is_daemon_unavailable_s4_1(tmp_path: Path, monkeypatc
     assert error.details is not None
     assert error.details["reason"] == "breakaway_refused"
     assert error.details["winerror"] == 5
+    assert error.message == _windows.BREAKAWAY_REFUSED_MESSAGE
     # an MCP client and narration-admin's terminal both show the message: it names this process, no client
     assert "this process" in error.message and "client" not in error.message, error.message
     assert isinstance(error.__cause__, PermissionError)
