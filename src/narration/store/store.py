@@ -51,7 +51,7 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Generator, Iterator, Mapping
 from pathlib import Path, PurePath
 from typing import Any, Final, Literal, TypeVar, get_args
 
@@ -1306,7 +1306,7 @@ class NarrationStore:
 
     def iter_jobs(
         self, *, kinds: Collection[str] | None = None, inserted_since: float | None = None
-    ) -> Iterator[JobRecord]:
+    ) -> Generator[JobRecord, None, None]:
         """The jobs the store holds, in any status, newest first (the order they were queued in, reversed), one
         at a time from the database's cursor.
 
@@ -1315,7 +1315,8 @@ class NarrationStore:
         caller that filters on it passes some slack here and filters exactly itself.
 
         A read for the operator's views (``narration-admin failures``, plan.md WP48): it changes nothing, not
-        even a job's last use, so listing a job never keeps it from ``gc``. Stop early and the cursor is closed.
+        even a job's last use, so listing a job never keeps it from ``gc``. A caller that stops early may
+        ``close()`` the generator, which closes the cursor at once.
         """
         where: list[str] = []
         args: list[object] = []
