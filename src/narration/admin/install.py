@@ -24,8 +24,10 @@
    committed ``uv.lock`` (``uv sync --locked``), unless ``uv sync --check`` says it already matches.
 4. **The daemon.** A daemon that runs keeps a worker it found broken broken for its lifetime
    (``BACKEND_NOT_INSTALLED``), so when a worker venv or a model was repaired, a running daemon is asked to
-   stop (after the segment in flight); the next job starts a fresh one. As with ``daemon stop``, nothing is
-   posted when no daemon runs.
+   stop (after the segment in flight). The stop follows every rule of ``daemon stop`` (section 4.1): jobs
+   queued before it wait for the next start (``daemon start``, or the next ``submit_job`` while ``[daemon]
+   autostart`` is on), and the daemon that start brings up runs the whole queue. As with ``daemon stop``,
+   nothing is posted when no daemon runs.
 
 **TLS** (section 17.8). Downloads verify certificates with the system's store, plus the bundle
 ``SSL_CERT_FILE`` or ``REQUESTS_CA_BUNDLE`` names; uv is told the same way (``UV_NATIVE_TLS=1`` uses the
@@ -599,5 +601,7 @@ def _stop_daemon_after_repair(admin: Admin, repaired: list[str]) -> None:
     if status is not None:
         admin.say(
             f"\nThe daemon (pid {status.pid}) was asked to stop after its segment in flight, since it may hold "
-            f"a worker it found broken ({', '.join(repaired)} changed). The next job starts a fresh daemon."
+            f"a worker it found broken ({', '.join(repaired)} changed). Jobs queued before this stop wait for "
+            f"the next start: `{PROGRAM} daemon start`, or the next submit_job while [daemon] autostart is on. "
+            "That daemon runs the whole queue."
         )
