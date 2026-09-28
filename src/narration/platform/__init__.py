@@ -24,6 +24,7 @@ This package is the only place allowed to import ``msvcrt``, ``ctypes.windll``/`
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -125,6 +126,25 @@ def get_platform() -> ProcessPlatform:
     return UnsupportedOsPlatform(sys.platform)
 
 
+def find_program(name: str) -> str | None:
+    """The program ``name`` in the first folder of ``PATH`` that has it, or None; never from the working folder.
+
+    ``shutil.which(name)`` on Windows looks in the working folder before ``PATH`` (unless
+    ``NoDefaultCurrentDirectoryInExePath`` is set), so an operator who runs ``narration-admin`` in a folder
+    holding a ``uv.exe`` would run that one (``docs/security-review.md``, S2). Here only absolute ``PATH``
+    entries are searched (``PATHEXT`` still applies on Windows): an empty or relative entry, which on POSIX
+    also means the working folder, is skipped.
+    """
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        folder = entry.strip().strip('"')
+        if not folder or not os.path.isabs(folder):
+            continue
+        found = shutil.which(os.path.join(folder, name))
+        if found is not None:
+            return found
+    return None
+
+
 def real_path(path: str | os.PathLike[str]) -> str:
     r"""``os.path.realpath(path)``, without the ``\\?\`` prefix CPython can leave on it on Windows.
 
@@ -154,6 +174,7 @@ __all__ = [
     "SUPPORTED_PLATFORMS",
     "ProcessPlatform",
     "UnsupportedOsPlatform",
+    "find_program",
     "get_platform",
     "is_supported",
     "real_path",
