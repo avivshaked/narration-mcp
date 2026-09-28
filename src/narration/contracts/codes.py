@@ -234,6 +234,7 @@ ALIGNMENT_ERROR: Final = "ALIGNMENT_ERROR"
 FIT_TIGHT: Final = "FIT_TIGHT"
 OVER_SCENE: Final = "OVER_SCENE"
 CANARY_MISMATCH: Final = "CANARY_MISMATCH"
+CLIP_TOO_LONG: Final = "CLIP_TOO_LONG"
 LOUDNESS_UNDER_TARGET: Final = "LOUDNESS_UNDER_TARGET"
 GAIN_HIGH: Final = "GAIN_HIGH"
 RETAKEN: Final = "RETAKEN"
@@ -316,6 +317,12 @@ FLAGS: Final[dict[str, FlagCode]] = {
             ("info",),
             "never",
             "canary hash differed but similarity passed (bit_exact tier only)",
+        ),
+        FlagCode(
+            CLIP_TOO_LONG,
+            ("fail",),
+            "always",
+            "a designed candidate is longer than [limits] max_clip_seconds, so measure_voice would refuse it",
         ),
         FlagCode(LOUDNESS_UNDER_TARGET, ("info",), "never", "the true-peak ceiling lowered the gain"),
         FlagCode(GAIN_HIGH, ("info",), "never", "gain above +12 dB"),

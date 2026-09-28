@@ -17,13 +17,17 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   says `default.v4` (the key is inert). No re-measure was needed: the measurement key does not include the QA
   profile (KNOW, and verified by PR #42's reviewers). The owner's Claude Code session reads PR #40's tool texts
   after a `/mcp` reconnect.
-- **PR #37** (the daemon's Job Object rule): main merged into it (db73f91), and CI is running on the
-  combination. It merges when CI is green.
+- **PR #37 merged** (1b05644, 2026-09-28; CI green on it merged with main). The daemon now starts only once it is in
+  no Job Object at all.
   - **KNOW (2026-09-28): under Claude Code (the VS Code extension), processes sit in a Job Object, and a child
-    started with `CREATE_BREAKAWAY_FROM_JOB` ends up in no job at all.** So PR #37 lets the daemon start
-    detached under Claude Code (a probe from the lead's session with PR #37's `_windows._in_job`).
+    started with `CREATE_BREAKAWAY_FROM_JOB` ends up in no job at all.** So the daemon starts detached under
+    Claude Code (a probe from the lead's session with PR #37's `_windows._in_job`).
   - BELIEVE: the owner's narrating session behaves the same.
-- **Merge order from here:** PR #37; then PR #41 and PR #39 (WP34, contracts 1.6.8); then WP47 (1.6.9), WP48
+  - If it ever answers `DAEMON_UNAVAILABLE` (`left_in_job`), the route is `narration-admin daemon start
+    --foreground`.
+  - Its follow-ups are in WP49. Its worktree folder is empty but still locked by some process; remove
+    `worktrees/wp30-escape` later.
+- **Merge order from here:** PR #41 and PR #39 (WP34, contracts 1.6.8); then WP47 (1.6.9), WP48
   and WP49, the design document's revision 5.15, each after an adversarial review and green CI. **After WP47:**
   re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in stages (remove
   `.dev/service-setup/STOP`), both in a GPU window.
@@ -77,7 +81,6 @@ Code session.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | The daemon-detach fix (WP30's area) | `wp/30-escape`, PR #37 | a9adeef63f4026ccc (Fable) | main merged in (db73f91); CI running; merge when green |
   | WP34 design and profile | `wp/34-design`, PR #39 | aee097b972cdb073f | merging main (PR #40's texts, unmark its tools, contracts 1.6.8); CI-only testing |
   | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | building L1 (b′), then merging main; CI-only testing |
   | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | merging main (hotfix), `default.v5`, contracts 1.6.9, tests; then a PR |

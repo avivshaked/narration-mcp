@@ -98,10 +98,11 @@ OPTIONS: Final = (
     "redo runs ahead of a long batch)."
 )
 
-NOT_IN_THIS_BUILD: Final[frozenset[str]] = frozenset({"design_voice", "profile_voice", "audition_pronunciation"})
+NOT_IN_THIS_BUILD: Final[frozenset[str]] = frozenset({"audition_pronunciation"})
 """Tools this build lists but cannot run yet: each answers ``BACKEND_NOT_INSTALLED`` at once, because the
 daemon has no handler for its job kind (``narration.backend.service.RUNNABLE_KINDS``). Take a tool out in the
-change that lands its handler (WP34: ``design_voice``, ``profile_voice``; WP35: ``audition_pronunciation``). A
+change that lands its handler (WP35: ``audition_pronunciation``; WP34 took out ``design_voice`` and
+``profile_voice``). A
 test holds this set equal to the tools whose kind is not runnable, so a handler merged without its text, or
 a text without its handler, fails. The set is kept here rather than read from the backend: these texts are
 built without a backend (the front-end serves any ``Backend``), and importing the concrete backend here

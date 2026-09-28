@@ -16,8 +16,8 @@ It reads jobs, results and status back from the store. There are no sockets: the
   ``retry_after_s`` (DC-2). The service suggests; the caller decides.
 
 The tools of the DESIGN step (``design_voice``, ``profile_voice``) and ``audition_pronunciation`` check a
-request and queue its job only when the daemon runs that kind (``RUNNABLE_KINDS``). Until their handlers
-exist (WP34, WP35), they answer ``BACKEND_NOT_INSTALLED``.
+request and queue its job only when the daemon runs that kind (``RUNNABLE_KINDS``). ``audition_pronunciation``
+answers ``BACKEND_NOT_INSTALLED`` until its handler exists (WP35).
 """
 
 from __future__ import annotations
@@ -109,10 +109,10 @@ REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
 MEASUREMENT_JSON: Final = "measurement.json"
 GENERATION_KINDS: Final = ("generate", "analyse")
-RUNNABLE_KINDS: Final[frozenset[JobKind]] = frozenset({"generate", "analyse", "measure"})
+RUNNABLE_KINDS: Final[frozenset[JobKind]] = frozenset({"generate", "analyse", "measure", "design", "profile"})
 """The job kinds this build's daemon runs. The front-end queues no other: a job of a kind with no handler
 would fail in the daemon, so its tool answers ``BACKEND_NOT_INSTALLED`` at once instead. ``design`` and
-``profile`` join with WP34's handlers, ``pronunciation`` with WP35's."""
+``profile`` are WP34's handlers (``narration.design``); ``pronunciation`` joins with WP35's."""
 KIND_OF_TOOL: Final[dict[str, JobKind]] = {
     "design_voice": "design",
     "profile_voice": "profile",
@@ -699,8 +699,9 @@ class NarrationBackend:
 
     def _step_results(self, job: JobRecord) -> dict[str, Any]:
         """The results of a DESIGN-step job or an audition, from what its handler (WP34, WP35) left:
-        ``design``, the candidates the store holds under the job's ``design_id``; ``profile``, the profile
-        its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
+        ``design``, the candidates the store holds under the job's ``design_id``, each with its own ``flags``
+        (``narration.design``: ``CANARY_MISMATCH``, ``TOKEN_CAP_HIT``, ``WER_HIGH``, ``CLIP_TOO_LONG``); ``profile``,
+        the profile its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
         ``audition``. Nothing while the job has left none."""
         result = job.result or {}
         if job.kind == "design":

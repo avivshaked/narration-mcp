@@ -49,7 +49,7 @@ from narration.contracts.models import (
 from narration.contracts.names import GpuHolder
 from narration.contracts.worker import AlignReply, AsrWord, HelloReply
 
-from .core import LOST_STATE, EngineCore, worker_code
+from .core import LOST_STATE, ActiveRun, EngineCore, worker_code
 from .gpu import GroupNeed, Readiness
 from .host import GROUP_ROLES, ResidencyError, RunnerHost
 from .pins import call_cap, generation, qwen_load_payload
@@ -173,8 +173,9 @@ class Stages:
         )
 
     # ------------------------------------------------------------------ making a model group ready
-    def qwen_need(self, run: JobRun) -> GroupNeed:
-        """What rendering needs loaded: the job's Base engine profile on the Qwen group."""
+    def qwen_need(self, run: ActiveRun) -> GroupNeed:
+        """What rendering needs loaded: the job's Qwen engine profile on the Qwen group (Base for a clone; a
+        design job's run names VoiceDesign)."""
         profile = run.profile
         return GroupNeed(
             group="qwen",
@@ -196,7 +197,7 @@ class Stages:
             need_mb=pins.vram_need_mb,
         )
 
-    def ready(self, host: RunnerHost, run: JobRun, need: GroupNeed) -> bool:
+    def ready(self, host: RunnerHost, run: ActiveRun, need: GroupNeed) -> bool:
         """Make the group ready; False while waiting for free VRAM. After a Qwen load, the engine guard runs.
 
         A load the worker refuses is a job-level failure (the models as pinned cannot run), except running out
@@ -239,7 +240,7 @@ class Stages:
                 raise
         return True
 
-    def _ensure(self, host: RunnerHost, run: JobRun, need: GroupNeed) -> Readiness:
+    def _ensure(self, host: RunnerHost, run: ActiveRun, need: GroupNeed) -> Readiness:
         core = self.core
         try:
             return core.residency.ensure(host, need, phase=lambda p: core.phase(host, run, p))
