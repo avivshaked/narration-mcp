@@ -148,6 +148,10 @@ class AlignmentConfig:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class QaConfig:
+    """``[qa]``. ``profile`` is informational: nothing reads it, and every take is scored with the QA profile
+    this build pins (``names.QA_PROFILE``). A value that differs is warned about, never refused
+    (``qa_profile_mismatch``)."""
+
     profile: str = QA_PROFILE
 
 
@@ -231,6 +235,20 @@ _RANGES: dict[tuple[str, str], tuple[float, float]] = {
     ("engines.qwen3_design", "max_new_tokens_per_char"): (0.1, 100),
     ("engines.qwen3_design", "max_new_tokens_floor"): (2, 8192),
 }
+
+
+def qa_profile_mismatch(config: Config) -> tuple[str, str] | None:
+    """What to tell the operator when ``[qa] profile`` names another QA profile than the one this build scores
+    with (``names.QA_PROFILE``): (what was found, what to do). None when they agree. The setting changes
+    nothing, so this is a warning (``narration-admin doctor``, and the daemon's log at start), never a
+    refusal."""
+    if config.qa.profile == QA_PROFILE:
+        return None
+    return (
+        f"[qa] profile is {config.qa.profile!r}, but this build scores every take with QA profile {QA_PROFILE!r}; "
+        "the setting changes nothing",
+        f'Update the line in [qa] to profile = "{QA_PROFILE}" (narration.example.toml has it), or remove it.',
+    )
 
 
 CONFIG_FILE_NAME = "narration.toml"

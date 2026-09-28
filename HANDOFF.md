@@ -27,8 +27,30 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
     --foreground`.
   - Its follow-ups are in WP49. Its worktree folder is empty but still locked by some process; remove
     `worktrees/wp30-escape` later.
-- **Merge order from here:** PR #41 and PR #39 (WP34, contracts 1.6.8); then WP47 (1.6.9), WP48
-  and WP49, the design document's revision 5.15, each after an adversarial review and green CI. **After WP47:**
+- **Merged 2026-09-28, later:**
+  - **PR #46, WP49's follow-ups:**
+    - doctor warns on a QA-profile mismatch;
+    - a log line when a job the daemon ran ends;
+    - PR #37's follow-ups;
+    - the refusal's messages are constants in `narration.platform`.
+
+    Its worktree and branch are removed, and so is the `wp30-escape` folder.
+  - **PR #43, design revision 5.15:** DC-17, DC-19 and the Job Object rule; two reviews.
+  - **PR #39, WP34 `design_voice` and `profile_voice`:** contracts 1.6.8. The owner's session sees the two tools
+    after a `/mcp` reconnect.
+  - **WP34's follow-ups (all low):**
+    - the description check does not refuse VoiceDesign's own non-`<|` special and added tokens (`<tts_pad>`,
+      `<tts_text_bos>`, `<think>`, `<tool_call>` …; they are in the pinned tokenizer's config);
+    - CLIP_TOO_LONG's retake column says `always`, but the flag is never a retake trigger;
+    - provenance is added before publishing, so a crash in between can leave a line for a clip that is designed
+      again (harmless on a bit-exact engine);
+    - no cache answers a repeated design or profile;
+    - no WER warn level;
+    - a batch design that gives way loses its unpublished clips;
+    - §14's CLIP_TOO_LONG text is the lead's to write.
+- **Merge order from here:** PR #41 (fixing its review's L1: a daemon that dies before serving must give
+  DAEMON_UNAVAILABLE, not an endless cycle); PR #45 (WP48, fixing its review); then WP47 (contracts
+  1.6.9), each after an adversarial review and green CI. **After WP47:**
   re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in stages (remove
   `.dev/service-setup/STOP`), both in a GPU window.
 - **Decisions carried into the resumed agents:**
@@ -81,12 +103,9 @@ Code session.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP34 design and profile | `wp/34-design`, PR #39 | aee097b972cdb073f | merging main (PR #40's texts, unmark its tools, contracts 1.6.8); CI-only testing |
-  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | building L1 (b′), then merging main; CI-only testing |
+  | `get_job` notices a dead daemon; two backend fixes | `wp/36-liveness`, PR #41 | afe8baa2a8d6e61fb | reviewed (Fable liveness lens + integration): all low; fixing L1 (a failed launch gives DAEMON_UNAVAILABLE with the log) and wording |
   | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps` | af6d02f523a3a52f0 | merging main (hotfix), `default.v5`, contracts 1.6.9, tests; then a PR |
-  | WP48 failure audit | `wp/48-failures` | a8d587455178ad320 | building (`narration-admin failures`, export, report section, gc listing) |
-  | WP49 small follow-ups | `wp/49-followups` | a6da73fe016877af2 | building (doctor QA-profile warning, a job-end log line, delivery_key pin; PR #37's follow-ups once it merges) |
-  | The design document, revision 5.15 | `docs/design-5.15` | a004cac688510edbe | applying DC-17, DC-19 and PR #37's rule (once merged) |
+  | WP48 failure audit | `wp/48-failures`, PR #45 | a8d587455178ad320 | CI green; two-lens review running |
 
   PR #37's follow-ups (all low; from its verifiers): the admin refusal text still embeds the platform's "this
   client" wording for `breakaway_refused` and `job_check_failed`; the docs name only `--foreground` for a

@@ -10,6 +10,21 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `design_voice` and `profile_voice` now run (`narration.design`). A design renders 1 to 4 candidates
+  with Qwen VoiceDesign, each from its own seed, which is derived from the description, the design text
+  and the candidate's number, so the same request designs the same voices. Each candidate's clip is
+  checked against its exact transcript by the speech recogniser (`WER_HIGH` if it does not say it),
+  profiled, and published with its seed, lint result and profile. Its sha256 goes on the provenance
+  list, so `measure_voice` and `submit_job` accept the clip with no `allow_sha256` edit. Each candidate
+  carries its flags: `TOKEN_CAP_HIT`, `WER_HIGH` and `CLIP_TOO_LONG` (longer than `measure_voice` takes:
+  use a shorter `design_text`) fail it, and the job then ends `needs_attention`; `CANARY_MISMATCH` is
+  information, when the design engine passed its canary on similarity rather than on the hash. A
+  description that holds the model's chat markup (`<|`, `|>`) or a control character is refused with
+  `TEXT_REFUSED`. `profile_voice` profiles any WAV you can read, by path and sha256, on the CPU (or on
+  the loaded QA worker as it is), answers the same bytes from the cache, and keeps no copy of the audio
+  once the job ends. Neither tool is marked "not in this build yet" any more, and the server's
+  instructions and prompts now start the flow with `design_voice`; only `audition_pronunciation` keeps
+  the mark.
 - `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices] allow_sha256`,
   instead of hashing it and editing `narration.toml` by hand.
   - It makes the clip's path absolute (so a relative path is taken from the working folder), checks it
@@ -288,6 +303,14 @@ are tracked here but no version is tagged; nothing described below is installabl
   and take in the cache, so it costs QA time only. `get_results` shows `qa.pace.articulation_cps` and
   `qa.pace_expected.articulation_cps` beside `spoken_wpm`, which stays as information. `PACE_FAST` still only
   warns.
+- `narration-admin doctor` reports the QA profile the service scores with, and warns when `[qa] profile` in
+  the configuration names another: the setting changes nothing, since every take is scored with the
+  build's profile. The warning says which profile runs and to update the line; it never fails the check.
+  The daemon logs the same warning once when it starts.
+- The daemon logs one INFO line when a job it ran ends (completed, failed or cancelled): its id, kind,
+  final status and outcome, the number of segments, the retakes used, and the wall time since it took the
+  job. A job cancelled while still queued never reached the daemon, so it gets no line. Nothing of the
+  request is logged: no text, no transcript, no path.
 - `DAEMON_UNAVAILABLE`'s `retry_after_s` is 60 s at every level when the daemon could not be detached (it
   was 30 s at the MCP tool level and 60 s in the platform's own error): the fix needs a person to run
   `narration-admin daemon start`, and a retry sooner than that fails the same way.
@@ -319,6 +342,11 @@ are tracked here but no version is tagged; nothing described below is installabl
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
   never changes; a new text is a new set. A voice measured on the draft corpus is measured again by
   `measure_voice`; its old measurement still serves generation.
+- Contracts 1.6.8: a design candidate carries its `flags` in `candidate.json`, so the design resource
+  shows them and they survive a crash or a restart of the job. A new fail flag, `CLIP_TOO_LONG`, marks a
+  candidate longer than `[limits] max_clip_seconds`, which `measure_voice` would refuse. The design
+  seed's scheme id is now in the shared names. (Its first commit calls it 1.6.7; it became 1.6.8 when
+  the pace fix above was released as 1.6.7 first.)
 - An engine profile's `vram_need_mb` is recorded but no longer part of its hash (DC-16): it only tells the
   GPU scheduler how much free memory to wait for, so a refined estimate keeps every cached take and
   voice measurement.
@@ -393,10 +421,12 @@ are tracked here but no version is tagged; nothing described below is installabl
   `narration-admin daemon start` in a terminal. The rule is deliberate: any enclosing job that forbids
   breakaway refuses the detached start, even one that would not end the daemon, since the service cannot
   read such a job's limits or know who will close it. A CI runner is the known case (measured on GitHub's
-  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, run
-  `narration-admin daemon start --foreground` as its own process, or use a host whose jobs allow breakaway.
+  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, set `[daemon]
+  autostart = false` so that no client tries to start the daemon, and run `narration-admin daemon start
+  --foreground` as its own process; or use a host whose jobs allow breakaway.
   Under clients that spawn through libuv, whose job allows breakaway, the daemon leaves every job and keeps
   running (Node.js, measured with Node v22; Claude Code, we believe, since it spawns through libuv too;
   spike k). `narration-admin daemon start` now names only the cause Windows established, and says when the
   daemon exits for want of work (`[daemon] idle_exit_min`), so a client that cannot start the daemon itself
-  knows to start it again.
+  knows to start it again. Its refusal names the route above, and the platform's messages it quotes speak
+  of "this process", not "this client", so they read right in a terminal and in an MCP client alike.
