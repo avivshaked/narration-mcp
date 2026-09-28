@@ -10,6 +10,20 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `narration-admin failures` lists every take that failed QA or that a retake replaced, across jobs, newest
+  job first, for an audit: the job, segment, attempt and seed; the take's WAV in the store; each fail and warn
+  flag with its message; the QA metrics; the take that finally filled the slot; and the segment's text.
+  `--since`, `--job`, `--voice` and `--code` (a QA or aligner flag code) filter it, and `--json` prints it
+  as data. `--export <dir>` copies each take's WAV with a JSON sidecar of its reasons, plus an `index.csv`
+  (UTF-8 with a byte-order mark; a cell a spreadsheet would run as a formula gets a `'` in front). The
+  bundle names its files by take id, never by a path in the store. It never overwrites a different file,
+  refuses a folder inside the store (also through a link or another name for it), and says what to do when
+  a file cannot be written. It never changes the store: a take whose WAV was deleted by hand is listed as
+  "file not in the store" and its index row is left as it is. The job report
+  (`narration://jobs/{job_id}/report`, and `report.json`) gains a "Failures" section with the same takes,
+  by the same rule for which retake replaced which, and `narration-admin gc` lists them apart (how many, how
+  old, which the run would remove, and which would only lose their flags and metrics), so an audit can
+  finish before retention removes them.
 - `design_voice` and `profile_voice` now run (`narration.design`). A design renders 1 to 4 candidates
   with Qwen VoiceDesign, each from its own seed, which is derived from the description, the design text
   and the candidate's number, so the same request designs the same voices. Each candidate's clip is
@@ -303,6 +317,45 @@ are tracked here but no version is tagged; nothing described below is installabl
   and take in the cache, so it costs QA time only. `get_results` shows `qa.pace.articulation_cps` and
   `qa.pace_expected.articulation_cps` beside `spoken_wpm`, which stays as information. `PACE_FAST` still only
   warns.
+- `get_job` and `cancel_job` notice a job whose daemon has gone (a crash, a restart, a daemon that ended
+  with its client), which before read `running` or `cancelling` forever. When no daemon runs, they start one
+  (as `submit_job` does, following `[daemon] autostart`); its start-up puts a job left `running` back on the
+  queue, reusing what it finished from the cache, and finishes a cancel. `get_job`'s `message` then says it
+  asked for a daemon and what happens next, or with `[daemon] autostart` off, who must start one. When no
+  daemon can be started, `get_job` answers `DAEMON_UNAVAILABLE` (retryable) with the job and the hint to run
+  `narration-admin daemon start`. A queued job is left alone for 30 s after it was written, while the daemon
+  its submission asked for starts up. A queued job left in the queue by a stop posted after it was queued
+  (`narration-admin daemon stop`, or `narration-admin install`) starts no daemon: `get_job` says it runs on the
+  next start (`narration-admin daemon start`, or the next `submit_job`). A daemon that stopped because it
+  failed, or a stop asked before the job was queued, does not hold the job back.
+- A daemon launched by `get_job`, `cancel_job` or `submit_job` is recorded in the store (`run/launch.json`: when
+  it was launched, and its pid), once the platform has let it run; a refused start records nothing. While that
+  daemon is starting (90 s at most, and until it writes its status), `get_job` and `cancel_job` ask for no
+  other, so repeated polls during a start launch one daemon, and a start that hangs costs at most one launch
+  every 90 s. A launched daemon that exits before it serves is a failed start: until the 90 s have passed,
+  `get_job` answers `DAEMON_UNAVAILABLE` (retryable) with the daemon's log in `details.log` and the hint to run
+  `narration-admin daemon start` in a terminal, instead of launching another at once.
+- `get_job` states the backoff rule in its description, as the tools that write do: it answers
+  `DAEMON_UNAVAILABLE` (retryable, with `retry_after_s`) when no daemon serves an active job and none can be
+  started. Its description also says that if the daemon died, `get_job` asks for one again (with
+  `[daemon] autostart` on), and that its message says what was done. It stays read-only.
+- `submit_job`'s plan (and its `dry_run`) now counts cached analyses: `narration-mcp` and `narration-admin
+  render` look the analysis layer up with the installation's QA and aligner pins, as the daemon keys it. A
+  resubmission that is all cached reports `segments_cached` and no analyses to do, instead of 0 and every
+  analysis, and its `est_wall_s` no longer adds a QA model load. `get_server_status`'s `alignment` names the
+  configured aligner's method and, before the alignment benchmark has run, its pinned revision (it was `null`).
+- `submit_job`'s `VOICE_NOT_MEASURED` says when the clip is measured under a transcript that differs from the
+  one sent only in whitespace or quotes, dashes and ellipses (a trailing newline, a double space, curly quotes
+  for straight ones): `field` is `voice.transcript`, and `details.transcript_mismatch` gives the index of the
+  first differing character and each side's character there, and `rewrites` names the changes that give the
+  measured transcript (`trim_edges`, `collapse_whitespace`, `add_trailing_newline`, `plain_punctuation`,
+  `typographic_quotes`, or two of them). The hint gives those changes as steps to take, and says not to
+  measure again. Otherwise the hint also says to send a clip's transcript exactly as it was measured. Neither
+  transcript is quoted in the error. Caught: whitespace the transcript sent has and the measured one has not,
+  typographic quotes, dashes and ellipses sent for plain ones, straight quotes sent for typographic ones, and
+  a trailing newline the measured transcript had. Not caught, so still only the general hint: other whitespace
+  the measured transcript had (a double space, a leading space), and a typographic dash or ellipsis it had
+  where the one sent has a plain one.
 - `narration-admin doctor` reports the QA profile the service scores with, and warns when `[qa] profile` in
   the configuration names another: the setting changes nothing, since every take is scored with the
   build's profile. The warning says which profile runs and to update the line; it never fails the check.

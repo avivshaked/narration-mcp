@@ -4,6 +4,7 @@ claims and compare-and-set updates."""
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 from typing import Any
 
@@ -203,6 +204,35 @@ def test_jobs_created_since_counts_across_statuses_for_the_rate_cap(store: Narra
     assert store.jobs_created_since(before) == 2
     assert store.jobs_created_since(utc(clock.now - 10)) == 1
     assert store.jobs_created_since(utc(clock.now + 1)) == 0
+
+
+def test_iter_jobs_lists_jobs_newest_first_filtered_and_uses_none_wp48(store: NarrationStore, clock: FakeClock) -> None:
+    first, _ = store.create_job(job_record(new_id(), request_sha256="1" * 64))
+    store.update_job(first.job_id, status="completed")
+    clock.advance(3600)
+    second, _ = store.create_job(job_record(new_id(), request_sha256="2" * 64, kind="measure"))
+    third, _ = store.create_job(job_record(new_id(), request_sha256="3" * 64))
+    store.update_job(third.job_id, status="cancelling")
+
+    def last_used() -> list[tuple[str, float]]:
+        conn = sqlite3.connect(str(store.root / "narration.sqlite"))
+        try:
+            return conn.execute("SELECT job_id, last_used_at FROM jobs ORDER BY job_id").fetchall()
+        finally:
+            conn.close()
+
+    before = last_used()
+    clock.advance(3600)
+    listed = list(store.iter_jobs())
+    assert [j.job_id for j in listed] == [third.job_id, second.job_id, first.job_id]
+    assert [j.status for j in listed] == ["cancelling", "queued", "completed"]
+    assert [j.job_id for j in store.iter_jobs(kinds=("generate", "analyse"))] == [third.job_id, first.job_id]
+    assert list(store.iter_jobs(kinds=())) == []
+    assert [j.job_id for j in store.iter_jobs(inserted_since=clock.now - 7000)] == [third.job_id, second.job_id]
+    jobs = store.iter_jobs()
+    assert next(jobs).job_id == third.job_id
+    jobs.close()  # stopping early closes the cursor
+    assert last_used() == before  # a listing is not a use: it never keeps a job from gc
 
 
 def test_a_malformed_job_id_is_refused(store: NarrationStore) -> None:

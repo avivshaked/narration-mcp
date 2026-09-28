@@ -130,6 +130,35 @@ def test_a_render_whose_file_was_removed_is_a_miss(store: NarrationStore) -> Non
     assert store.claim(published.render_key, "daemon", ttl_s=30)[0] == "claimed"
 
 
+def test_a_peek_never_repairs_the_index_wp48(store: NarrationStore) -> None:
+    render, _ = publish_render(store)
+    take = store.put_take(take_record(render.raw.sha256, render.render_id), scratch_file(store, "d.wav", b"delivery"))
+    analysis = store.put_analysis(analysis_record(take))
+    assert store.peek_render(render.render_id) == (render, True)
+    assert store.peek_take(take.take_id) == (take, True)
+    assert store.peek_analysis(analysis.analysis_id) == (analysis, True)
+
+    def rows() -> tuple[int, ...]:
+        conn = sqlite3.connect(str(store.root / "narration.sqlite"))
+        try:
+            return tuple(
+                int(conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]) for t in ("takes", "analyses", "files")
+            )
+        finally:
+            conn.close()
+
+    delivery = Path(take.delivery.path)
+    store_files.make_writable(delivery)
+    delivery.unlink()
+    before = rows()
+    assert store.peek_take(take.take_id) == (take, False)  # the record as indexed, its file missing
+    assert store.peek_analysis(analysis.analysis_id) == (analysis, True)
+    assert rows() == before  # nothing dropped
+    assert store.get_take_by_id(take.take_id) is None  # the repairing reader drops it, as before
+    assert store.peek_take(take.take_id) is None and store.peek_analysis(analysis.analysis_id) is None
+    assert store.peek_render("rn_0000000000000000") is None
+
+
 def test_unknown_keys_and_ids_are_misses(store: NarrationStore) -> None:
     assert store.get_render("sha256:" + "0" * 64) is None
     assert store.get_take_by_id("tk_0000000000000000") is None

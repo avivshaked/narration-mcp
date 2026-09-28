@@ -52,6 +52,7 @@ SPECTROGRAM_PNG: Final = "spectrogram.png"
 PITCH_PNG: Final = "pitch.png"
 JOB_JSON: Final = "job.json"
 DAEMON_JSON: Final = "daemon.json"
+LAUNCH_JSON: Final = "launch.json"
 CANARY_WAV: Final = "canary.wav"
 
 CACHE_TREES: Final = (RENDERS, TAKES, MEASUREMENTS, PROFILES, DESIGNS, JOBS)
@@ -285,6 +286,11 @@ class StoreLayout:
 
     def daemon_json_path(self) -> Path:
         return self._build(RUN, DAEMON_JSON)
+
+    def launch_json_path(self) -> Path:
+        """``run/launch.json``: the last daemon launch (``narration.daemon.start.record_launch``, which builds the
+        same path from a store root alone, since a launcher may have no store open)."""
+        return self._build(RUN, LAUNCH_JSON)
 
     def logs_dir(self) -> Path:
         return self._build(LOGS)

@@ -40,6 +40,7 @@ from narration.contracts.models import (
     TakeRecord,
 )
 from narration.jobs.admission import MODEL_LOAD_S, WALL_PER_AUDIO_S
+from narration.jobs.plan import analysis_key_inputs as engine_key_inputs
 from narration.jobs.plan import estimated_audio_s, hints_used, requested_attempts
 
 POST_SHARE: float = 1 / 3
@@ -51,13 +52,17 @@ layer made)."""
 class AnalysisPins:
     """What the analysis key names of the QA group and the aligner (section 10.2): the ASR and speaker models
     as ``repo@revision`` (``ModelPin.name``), the aligner's method id, and the QA profile and number reader
-    versions. The installation pins them (WP32)."""
+    versions. The installation pins them (WP32).
+
+    ``aligner_revision`` is the aligner model's pinned revision, which its method id already names. It enters no
+    key: ``get_server_status`` reports it as ``alignment.revision`` before the alignment benchmark has run."""
 
     asr_model: str
     sv_model: str
     aligner_method_id: str
     qa_profile: str
     number_reader: str
+    aligner_revision: str | None = None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -136,14 +141,13 @@ def analysis_key_inputs(
     pins: AnalysisPins,
     measurement: MeasurementRecord,
 ) -> AnalysisKeyInputs:
-    """The analysis key's inputs (section 10.2), exactly as the job engine builds them
-    (``narration.jobs.stages.Stages.key_inputs``). ``hints`` are the hints the segment uses."""
-    return AnalysisKeyInputs(
-        delivery_sha256=take.delivery.sha256,
-        spoken_text=text.spoken_text,
-        cue_spans=tuple(c.spoken_span for c in text.cues),
-        exact_spans=tuple((c.index, e.words[0], e.words[1]) for c in text.cues for e in c.exact),
-        hints_qa=tuple((h.term, h.asr_aliases, h.align_as) for h in hints),
+    """The analysis key's inputs (section 10.2), built by the job engine's own builder
+    (``narration.jobs.plan.analysis_key_inputs``, which ``narration.jobs.stages.Stages.key_inputs`` uses) from
+    ``pins``. ``hints`` are the hints the segment uses."""
+    return engine_key_inputs(
+        take=take,
+        text=text,
+        hints=hints,
         qa_profile=pins.qa_profile,
         text_checks_version=text.text_checks.version if text.text_checks is not None else "",
         number_reader=pins.number_reader,

@@ -37,6 +37,7 @@ from narration.mcp.descriptions import (
     LENGTH_IS_YOURS,
     NO_CALLER_STATE,
     RESPELLING_IS_A_HINT,
+    RETRYABLE_TOOLS,
     retention_clause,
 )
 from tests.mcp.fake_backend import DESIGN_ID, JOB_ID, TAKE_ID, VALID_ARGUMENTS, VOICE, VOICE_HASH, FakeBackend
@@ -129,7 +130,7 @@ def test_every_description_states_the_callers_rules_s7_1(backend: FakeBackend) -
             description = tool["description"]
             for rule in (NO_CALLER_STATE, LENGTH_IS_YOURS, RESPELLING_IS_A_HINT):
                 assert rule in description, (name, rule)
-            retryable = not TOOLS_BY_NAME[name].read_only
+            retryable = name in RETRYABLE_TOOLS
             assert (BACKOFF_RULE in description) is retryable, f"{name}: the DC-2 backoff rule"
             assert tool["title"]
         for name in ("get_job", "get_results", "submit_job", "design_voice", "measure_voice"):
@@ -140,7 +141,7 @@ def test_every_description_states_the_callers_rules_s7_1(backend: FakeBackend) -
     over_wire(build_front_end(backend, retention=retention), "modern", body)
 
 
-def test_backoff_rule_covers_every_tool_that_writes_s7_1() -> None:
+def test_backoff_rule_covers_every_tool_that_writes_and_get_job_s7_1() -> None:
     writers = {name for name in TOOL_NAMES if not TOOLS_BY_NAME[name].read_only}
     assert writers == {
         "release_gpu",
@@ -151,6 +152,11 @@ def test_backoff_rule_covers_every_tool_that_writes_s7_1() -> None:
         "audition_pronunciation",
         "submit_job",
     }
+    # get_job stays read-only (it only resumes work already asked for), but it can answer DAEMON_UNAVAILABLE
+    # when no daemon serves an active job and none can be started, so it states the backoff rule too.
+    assert TOOLS_BY_NAME["get_job"].read_only
+    assert set(RETRYABLE_TOOLS) - writers == {"get_job"} and writers <= RETRYABLE_TOOLS
+    assert "get_job" not in server_module.SHIELDED_TOOLS, "its wait is still interrupted at once"
 
 
 @pytest.mark.parametrize("era", ERAS)

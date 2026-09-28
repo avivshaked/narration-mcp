@@ -19,6 +19,6 @@ from __future__ import annotations
 
 from .launch import DaemonLauncher, DetachedLauncher
 from .planning import AnalysisPins
-from .service import NarrationBackend, backend_for
+from .service import InstalledPins, NarrationBackend, backend_for
 
-__all__ = ["AnalysisPins", "DaemonLauncher", "DetachedLauncher", "NarrationBackend", "backend_for"]
+__all__ = ["AnalysisPins", "DaemonLauncher", "DetachedLauncher", "InstalledPins", "NarrationBackend", "backend_for"]

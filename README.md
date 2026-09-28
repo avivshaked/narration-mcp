@@ -125,6 +125,9 @@ folder of your clone.
    and read the takes with `get_results`. The server's instructions tell the calling agent how to use the
    tools well: among other things, to send every invented name as a pronunciation hint (the term alone
    is enough), to keep a job to a scene, and to read results with `include_words` false.
+5. To audit the takes that failed QA or were replaced by a retake, across jobs, run the same command as in
+   step 3 with `failures` (`--export <dir>` copies each one's WAV with its reasons). `gc` shows how many are
+   kept and which retention would remove next.
 
 ## Project status, contributing and security
 
