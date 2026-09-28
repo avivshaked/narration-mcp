@@ -42,7 +42,7 @@ def served(tmp_path: Path) -> Iterator[tuple[DesignWorld, Any, FakeLauncher]]:
 
 def test_this_build_runs_design_and_profile_jobs_s7_1() -> None:
     assert {"design", "profile"} <= RUNNABLE_KINDS
-    assert "pronunciation" not in RUNNABLE_KINDS  # WP35's
+    assert "pronunciation" in RUNNABLE_KINDS  # WP35's (narration.audition)
 
 
 @pytest.mark.parametrize("era", ERAS)

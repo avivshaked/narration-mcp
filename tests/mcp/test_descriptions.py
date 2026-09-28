@@ -176,17 +176,20 @@ def test_exactly_the_tools_the_backend_cannot_run_are_marked_not_in_this_build()
     assert {tool for tool, kind in KIND_OF_TOOL.items() if kind not in RUNNABLE_KINDS} == NOT_IN_THIS_BUILD
 
 
-@pytest.mark.parametrize("tool", sorted(NOT_IN_THIS_BUILD))
+@pytest.mark.parametrize("tool", sorted(KIND_OF_TOOL))
 def test_a_tool_not_in_this_build_is_marked_first_in_its_description(tool: str) -> None:
-    description = tool_description(tool, RETENTION)
+    """Every tool with a job kind can be marked; this build marks none (WP35 took out the last)."""
+    unbuilt = frozenset({tool})
+    description = tool_description(tool, RETENTION, unbuilt=unbuilt)
     assert description.startswith(not_in_this_build(tool))
     assert "BACKEND_NOT_INSTALLED" in description
-    assert tool in SERVER_INSTRUCTIONS.split("Not in this build yet:")[1]
+    assert tool in server_instructions(unbuilt).split("Not in this build yet:")[1]
 
 
 def test_every_prompt_that_names_a_tool_not_in_this_build_marks_it() -> None:
-    for prompt in PROMPT_TEXTS.values():
-        for tool in NOT_IN_THIS_BUILD:
+    unbuilt = frozenset(KIND_OF_TOOL)
+    for prompt in prompt_texts(unbuilt).values():
+        for tool in unbuilt:
             if tool in prompt.template:
                 assert f"{tool} is not in this build yet" in prompt.template, (prompt.title, tool)
 

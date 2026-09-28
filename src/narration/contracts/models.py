@@ -1132,6 +1132,13 @@ class AuditionVariantResult:
     """One respelling variant of ``audition_pronunciation``: its takes and what the ASR heard in each.
 
     Whoever owns the text decides by ear; the service records no choice (section 7.6).
+
+    ``takes`` are the variant's takes, a retake after the take it replaced (section 8). ``heard`` and
+    ``spk_sim_clip`` run parallel to them. ``heard`` is what the recogniser wrote in the term's place (its first
+    occurrence), or null for a take with no analysis or nothing heard there. ``spk_sim_clip`` (added, contracts
+    1.6.12) is each take's speaker similarity to the voice's clip, a cosine: a per-job report, never part of the
+    take's verdict (an audition's verdict has no speaker check, as the voice need not be measured); null for a
+    take not yet scored.
     """
 
     label: str
@@ -1139,6 +1146,7 @@ class AuditionVariantResult:
     engine_text: str
     takes: tuple[TakeResult, ...]
     heard: tuple[str | None, ...]
+    spk_sim_clip: tuple[float | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

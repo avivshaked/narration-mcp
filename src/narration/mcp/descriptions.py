@@ -98,11 +98,11 @@ OPTIONS: Final = (
     "redo runs ahead of a long batch)."
 )
 
-NOT_IN_THIS_BUILD: Final[frozenset[str]] = frozenset({"audition_pronunciation"})
+NOT_IN_THIS_BUILD: Final[frozenset[str]] = frozenset()
 """Tools this build lists but cannot run yet: each answers ``BACKEND_NOT_INSTALLED`` at once, because the
 daemon has no handler for its job kind (``narration.backend.service.RUNNABLE_KINDS``). Take a tool out in the
-change that lands its handler (WP35: ``audition_pronunciation``; WP34 took out ``design_voice`` and
-``profile_voice``). A
+change that lands its handler (WP34 took out ``design_voice`` and ``profile_voice``, WP35
+``audition_pronunciation``; none is left). A
 test holds this set equal to the tools whose kind is not runnable, so a handler merged without its text, or
 a text without its handler, fails. The set is kept here rather than read from the backend: these texts are
 built without a backend (the front-end serves any ``Backend``), and importing the concrete backend here
@@ -230,8 +230,10 @@ TOOL_TEXTS: Final[dict[str, ToolText]] = {
     "audition_pronunciation": ToolText(
         "Audition a pronunciation",
         "Render a term with up to four respelling variants, optionally inside a carrier sentence, and report "
-        "what the ASR heard for each. The voice need not be measured. Whoever owns the text decides by ear; "
-        "the service records no choice. Returns a job.",
+        "what the ASR heard for each. The voice need not be measured. Each variant's take is QA'd like a "
+        "submit_job take (the respelling counts as the term; a failing take is retaken), with no speaker check "
+        "in its verdict; get_results gives each take's similarity to the clip (spk_sim_clip) beside it. Whoever "
+        "owns the text decides by ear; the service records no choice. Returns a job.",
         retention=True,
     ),
     "submit_job": ToolText(

@@ -10,6 +10,18 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `audition_pronunciation` now runs (`narration.audition`; design revision 5.18, section 7.6). It renders a
+  term with up to four respelling variants, in your carrier sentence or alone, in a voice that need not be
+  measured. Each variant's take is rendered, keyed and cached as a `submit_job` take of the same text with
+  that respelling as its hint, so sending the audition again renders nothing, and narrating the carrier with
+  the chosen respelling reuses the render. Each take is QA'd like a narration take, except that its verdict
+  has no speaker or pace check; the respelling counts as the term, so a take that says the respelling is not
+  scored as a misheard name. A take that fails QA is retaken, up to `[defaults] max_retakes`. `get_results`
+  gives, per variant, its engine text and takes, what the recogniser heard in the term's place (`heard`), and
+  each take's speaker similarity to the voice's clip (`spk_sim_clip`, information only, never part of a
+  verdict). Contracts 1.6.12: `AuditionVariantResult` gains `spk_sim_clip`; nothing is removed or renamed, and
+  no key, seed or cached record changes. The service records no choice. The tool no longer answers
+  `BACKEND_NOT_INSTALLED`, and no published tool is marked "not in this build" any more.
 - `docs/licences.md`: a licence audit of every package in the three lock files and every pinned model
   (plan.md WP44), and `docs/security-review.md`: a review of the path, synthetic-voice, text, process and
   transport checks, with each finding's severity and state.

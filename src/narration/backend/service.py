@@ -16,8 +16,7 @@ It reads jobs, results and status back from the store. There are no sockets: the
   ``retry_after_s`` (DC-2). The service suggests; the caller decides.
 
 The tools of the DESIGN step (``design_voice``, ``profile_voice``) and ``audition_pronunciation`` check a
-request and queue its job only when the daemon runs that kind (``RUNNABLE_KINDS``). ``audition_pronunciation``
-answers ``BACKEND_NOT_INSTALLED`` until its handler exists (WP35).
+request and queue its job only when the daemon runs that kind (``RUNNABLE_KINDS``).
 """
 
 from __future__ import annotations
@@ -69,7 +68,7 @@ from narration.store.store import parse_iso, utc_iso
 from narration.text import TextPipeline, segment_too_long
 
 from . import views
-from .assemble import assemble, consistency_of, measured_error
+from .assemble import assemble, assemble_audition, consistency_of, measured_error
 from .clips import ClipRef, admit_clip, check_synthetic, refield
 from .launch import DAEMON_RETRY_S, DaemonLauncher, DetachedLauncher
 from .measures import Measurements, StoreMeasurements, measured_nearby, not_measured
@@ -114,10 +113,12 @@ REPORT_MD: Final = "report.md"
 REPORT_JSON: Final = "report.json"
 MEASUREMENT_JSON: Final = "measurement.json"
 GENERATION_KINDS: Final = ("generate", "analyse")
-RUNNABLE_KINDS: Final[frozenset[JobKind]] = frozenset({"generate", "analyse", "measure", "design", "profile"})
+RUNNABLE_KINDS: Final[frozenset[JobKind]] = frozenset(
+    {"generate", "analyse", "measure", "design", "profile", "pronunciation"}
+)
 """The job kinds this build's daemon runs. The front-end queues no other: a job of a kind with no handler
 would fail in the daemon, so its tool answers ``BACKEND_NOT_INSTALLED`` at once instead. ``design`` and
-``profile`` are WP34's handlers (``narration.design``); ``pronunciation`` joins with WP35's."""
+``profile`` are WP34's handlers (``narration.design``); ``pronunciation`` is WP35's (``narration.audition``)."""
 KIND_OF_TOOL: Final[dict[str, JobKind]] = {
     "design_voice": "design",
     "profile_voice": "profile",
@@ -625,7 +626,7 @@ class NarrationBackend:
             return self._generation_results(job, block, include_words, include_transcripts)
         if job.kind == "measure":
             return self._measure_results(job, block)
-        return {"job": block, **self._step_results(job)}
+        return {"job": block, **self._step_results(job, include_words, include_transcripts)}
 
     async def get_results(self, args: Mapping[str, Any]) -> dict[str, Any]:
         """``get_results`` (section 7.5)."""
@@ -708,12 +709,12 @@ class NarrationBackend:
             out["measurement_result"] = {"path": str(result.get("path") or path), "measurement": to_json(measurement)}
         return out
 
-    def _step_results(self, job: JobRecord) -> dict[str, Any]:
+    def _step_results(self, job: JobRecord, include_words: bool, include_transcripts: bool) -> dict[str, Any]:
         """The results of a DESIGN-step job or an audition, from what its handler (WP34, WP35) left:
         ``design``, the candidates the store holds under the job's ``design_id``, each with its own ``flags``
         (``narration.design``: ``CANARY_MISMATCH``, ``TOKEN_CAP_HIT``, ``WER_HIGH``, ``CLIP_TOO_LONG``); ``profile``,
-        the profile its result names (``audio_sha256`` and ``profile_version``); ``audition``, its result's
-        ``audition``. Nothing while the job has left none."""
+        the profile its result names (``audio_sha256`` and ``profile_version``); ``audition``, each variant's takes
+        from the job's items and the cache (``assemble.assemble_audition``), as far as the job has made them."""
         result = job.result or {}
         if job.kind == "design":
             design_id = str(job.request.get("design_id", ""))
@@ -728,8 +729,12 @@ class NarrationBackend:
                 if profile is not None:
                     return {"profile": to_json(profile)}
             return {}
-        audition = result.get("audition")
-        return {"audition": audition} if job.kind == "pronunciation" and isinstance(audition, dict) else {}
+        if job.kind == "pronunciation":
+            audition = assemble_audition(
+                self.store, self.text, job, include_words=include_words, include_transcripts=include_transcripts
+            )
+            return {"audition": to_json(audition)}
+        return {}
 
     # ================================================================ cancel_job (sections 7.6, 8)
     def cancel_job_sync(self, args: Mapping[str, Any]) -> dict[str, Any]:

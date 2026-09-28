@@ -22,6 +22,7 @@ import copy
 from collections.abc import Mapping
 from typing import Any, Final
 
+from narration.audition.variants import variant_hint
 from narration.config import Config
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
@@ -90,7 +91,7 @@ def audition_request(args: Mapping[str, Any], text: TextPlanner) -> dict[str, An
                 field=f"variants[{i}].label",
             )
         seen[label] = i
-        hint = Hint(term=term, respell=str(variant["respell"]))
+        hint = variant_hint(term, str(variant["respell"]))  # as the handler plans it (narration.audition)
         spoken = str(carrier) if carrier else term
         planned = _spoken(text, spoken, "carrier" if carrier else "term", (hint,))
         if carrier and not any(c.hints_applied for c in planned.cues):

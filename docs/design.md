@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.17 (2026-09-29); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.18 (2026-09-29); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -137,6 +137,12 @@ applied here, each listed in the revision history below.*
   counts as started once any daemon records a start at or after it, running or stopped, so a daemon that
   started, served and then failed inside the 90 s window is no longer reported as a failed start
   (sections 4.1 and 15).*
+- *Revision 5.18 (2026-09-29) states what `audition_pronunciation` does (WP35), which revision 5 left at
+  "takes plus what the ASR heard" (section 7.6; contracts 1.6.12). Each variant is the carrier (or the term
+  alone) with the variant's respelling as its hint, rendered, keyed, seeded and cached as a `submit_job`
+  take of that text and hint, and retaken as one. Its verdict has QA's checks except the speaker and pace
+  checks, since the voice need not be measured, and the respelling counts as the term. Each take's speaker
+  similarity to the clip is reported beside the verdict, never in it.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -1432,7 +1438,22 @@ The `measured_error` values are Phase 0 output and unknown today.
     `est_duration_s` (from the voice's pace curve and speaking share, section 12).
 - **`audition_pronunciation`** `{voice, term, variants: [{label, respell}] ≤ 4, carrier?}` → `{job_id}`.
   It produces takes plus what the ASR heard. The voice need not be measured. Whoever owns the text
-  decides by ear; the service records no choice.
+  decides by ear; the service records no choice. (Revision 5.18, WP35.)
+  - **Each variant is a segment**: the carrier as sent, or the term alone, with one hint, the term with
+    the variant's respelling. The text rules apply as to any hint (section 9.1): the engine text has the
+    respelling where the term stands as whole words, and the spoken text stays as sent.
+  - **Keys, seeds and the cache** are a generation take's (sections 10.2, 10.3): attempt 0 per variant,
+    with no key of its own. So an audition sent again comes from the cache, and a `submit_job` of the same
+    text with the chosen respelling finds the render already made. A take that is a retake trigger is
+    retaken as in section 8, up to `[defaults] max_retakes`.
+  - **The verdict** has section 11.1's checks on the take and its text, except the speaker and pace
+    checks: both judge a take against a measurement, which an audition does not need. Its analysis names
+    no measurement key. The variant's respelling is also the term's one `asr_alias`, so a take heard
+    saying the respelling counts as saying the term, and `wer_adj` judges the carrier's words.
+  - **The results** give each variant's label, respelling and engine text, and per take: the take, what
+    the recogniser wrote in the term's place (`heard`), and its speaker similarity to the clip
+    (`spk_sim_clip`, a cosine). The similarity is a per-job report, like the consistency report: it is
+    never part of a verdict, and no cached analysis holds it.
 - **`cancel_job`** `{job_id, reason}` → `{status, completed}`. Finished renders, takes and analyses are
   kept in the cache. A queued job is cancelled at once. A running one is `cancelling` until the daemon
   stops it between two pieces of work; if no daemon serves it, one is asked for, and the answer is

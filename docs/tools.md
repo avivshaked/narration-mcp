@@ -683,6 +683,7 @@ A finished job's result. For a narration job, per segment: suggested_take_id and
 | `audition.variants[].takes[].flags[].retake_trigger` | boolean |  |  |
 | `audition.variants[].takes[].flags[].details` | object |  |  |
 | `audition.variants[].heard` | array of string or null | yes |  |
+| `audition.variants[].spk_sim_clip` | array of number or null | yes |  |
 | `error` | object |  | retryable: the same call may succeed later unchanged; false means the arguments must change |
 | `error.code` | string | yes |  |
 | `error.message` | string | yes |  |
@@ -993,7 +994,7 @@ Renders nothing. Per cue: the received, spoken and engine text, the hints applie
 
 Audition a pronunciation.
 
-Not in this build yet: audition_pronunciation answers BACKEND_NOT_INSTALLED at once. The narration tools (measure_voice, check_text, submit_job) work meanwhile. Render a term with up to four respelling variants, optionally inside a carrier sentence, and report what the ASR heard for each. The voice need not be measured. Whoever owns the text decides by ear; the service records no choice. Returns a job. The service keeps no caller state: it records nothing of your script, choices, voices or pronunciations, so every call carries what it needs. A paragraph's length is your decision: a segment longer than the voice's reliable length is warned about (SEGMENT_TOO_LONG), never refused or split. A pronunciation respelling is a hint to the engine, never a guarantee. Jobs, designs, takes and their files are kept for 30 days after they were last used, measurements for 365 days; copy what you keep. After that, the same request is answered again from whatever is still cached. On a retryable error, wait at least its retry_after_s, add your own jitter, then send the identical request again; it is deduplicated. The service suggests; you decide.
+Render a term with up to four respelling variants, optionally inside a carrier sentence, and report what the ASR heard for each. The voice need not be measured. Each variant's take is QA'd like a submit_job take (the respelling counts as the term; a failing take is retaken), with no speaker check in its verdict; get_results gives each take's similarity to the clip (spk_sim_clip) beside it. Whoever owns the text decides by ear; the service records no choice. Returns a job. The service keeps no caller state: it records nothing of your script, choices, voices or pronunciations, so every call carries what it needs. A paragraph's length is your decision: a segment longer than the voice's reliable length is warned about (SEGMENT_TOO_LONG), never refused or split. A pronunciation respelling is a hint to the engine, never a guarantee. Jobs, designs, takes and their files are kept for 30 days after they were last used, measurements for 365 days; copy what you keep. After that, the same request is answered again from whatever is still cached. On a retryable error, wait at least its retry_after_s, add your own jitter, then send the identical request again; it is deduplicated. The service suggests; you decide.
 
 ### Input
 
