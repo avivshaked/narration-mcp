@@ -45,7 +45,14 @@ from narration.config import DaemonConfig
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
 from narration.contracts.models import DaemonCommand, JobRecord
-from narration.contracts.names import DaemonCommandKind
+from narration.contracts.names import (
+    STOP_ERROR,
+    STOP_IDLE,
+    STOP_INTERRUPTED,
+    STOP_OPERATOR,
+    DaemonCommandKind,
+    StopReason,
+)
 from narration.contracts.schemas import TOOLS_BY_NAME
 from narration.daemon import start as daemon_start
 from narration.daemon.settings import DaemonSettings
@@ -452,17 +459,38 @@ def test_a_launched_daemon_that_exits_before_it_serves_is_a_failed_start_s4_1(
     assert len(platform.spawned) == 2, "past the window, a call launches one again"
 
 
-def test_a_launched_daemon_that_failed_through_its_finally_is_a_failed_start_s4_1(
+def test_an_older_daemon_that_failed_through_its_finally_is_still_a_failed_start_s4_1(
     service: Service, platform: LaunchingPlatform, launching: NarrationBackend
 ) -> None:
     job_id = launched_running(service, launching, platform)
     get_job(launching, {"job_id": job_id})
     time.sleep(0.01)
-    stopped_status(service)  # it took the singleton, failed, and its finally wrote stopped with no start time
+    # An older daemon took the singleton, failed, and its finally wrote stopped with no start time: nothing says a
+    # start since the launch, so the rule before contracts 1.6.11 holds.
+    stopped_status(service, reason=LEGACY)
     platform.end_launched()
     error = refused(lambda: get_job(launching, {"job_id": job_id}))
     assert error.code == codes.DAEMON_UNAVAILABLE and error.details is not None and "log" in error.details
     assert len(platform.spawned) == 1
+
+
+@pytest.mark.parametrize("reason", [STOP_ERROR, STOP_IDLE, STOP_INTERRUPTED, STOP_OPERATOR])
+def test_a_launched_daemon_that_started_then_stopped_in_the_window_is_not_a_failed_start_s4_1(
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend, reason: StopReason
+) -> None:
+    job_id = launched_running(service, launching, platform)
+    get_job(launching, {"job_id": job_id})  # launches one
+    launch = daemon_start.read_launch(service.world.store.root)
+    assert launch is not None
+    time.sleep(0.01)
+    # It took the singleton, served, then stopped, well inside the start window: its stopped status keeps its start.
+    stopped_status(service, reason=reason, started_at=launch.launched_at + 0.002)
+    platform.end_launched()
+    assert daemon_start.check_launch(service.world.store) is None, "the launch started"
+    out = get_job(launching, {"job_id": job_id})  # a running job: no operator's stop holds it
+    assert "so get_job asked for one to start" in out["message"]
+    assert "exited before it served" not in out["message"]
+    assert len(platform.spawned) == 2, "a daemon is asked for at once"
 
 
 def test_a_stopped_status_while_the_launched_daemon_runs_is_still_a_start_s4_1(
@@ -471,7 +499,10 @@ def test_a_stopped_status_while_the_launched_daemon_runs_is_still_a_start_s4_1(
     job_id = launched_running(service, launching, platform)
     get_job(launching, {"job_id": job_id})
     time.sleep(0.01)
-    stopped_status(service)  # the exiting daemon's, written while the launched one waits for the singleton
+    launch = daemon_start.read_launch(service.world.store.root)
+    assert launch is not None
+    # The exiting daemon's, written while the launched one waits for the singleton: it started before the launch.
+    stopped_status(service, reason=STOP_IDLE, started_at=launch.launched_at - 60)
     out = get_job(launching, {"job_id": job_id})
     assert "is still starting, so get_job asked for no other" in out["message"]
     assert len(platform.spawned) == 1
@@ -516,9 +547,15 @@ def test_check_launch_reads_the_record_the_status_and_the_process_s4_1(
     assert daemon_start.launch_in_progress(store, now=now + 1) is None, "a failed start is not in progress"
     store.put_daemon_status(dataclasses.replace(daemon_status(), started_at=utc_iso(now + 0.5)))
     assert state(now + 1) is None, "it has started: whether it still runs is running_daemon's to say"
-    stopped = dataclasses.replace(daemon_status(state="stopped"), pid=None, started_at=None)
-    store.put_daemon_status(dataclasses.replace(stopped, updated_at=utc_iso(now + 2)))
-    assert state(now + 3) == "failed", "a stopped status with no start time, and its process gone"
+    stopped = dataclasses.replace(daemon_status(state="stopped"), pid=None, updated_at=utc_iso(now + 2))
+    store.put_daemon_status(dataclasses.replace(stopped, started_at=utc_iso(now + 0.5), stop_reason=STOP_ERROR))
+    assert state(now + 3) is None, "it started, then stopped: a start, running or not"
+    store.put_daemon_status(dataclasses.replace(stopped, started_at=utc_iso(now), stop_reason=STOP_IDLE))
+    assert state(now + 3) is None, "a start in the launch's own instant counts"
+    store.put_daemon_status(dataclasses.replace(stopped, started_at=utc_iso(now - 60), stop_reason=STOP_IDLE))
+    assert state(now + 3) == "failed", "a stopped status from a daemon started before the launch, its process gone"
+    store.put_daemon_status(dataclasses.replace(stopped, started_at=None))
+    assert state(now + 3) == "failed", "an older daemon's stopped status keeps no start time"
     alive[0] = True
     assert state(now + 3) == "starting", "the exiting daemon's stopped, while the launched one waits"
     daemon_start.launch_path(store.root).write_text("{not json", encoding="utf-8")
@@ -543,11 +580,27 @@ def answered(service: Service, command: DaemonCommand) -> DaemonCommand:
     return service.world.store.complete_command(command.command_id, {"stopped": True, "requeued": []})
 
 
-def stopped_status(service: Service, *, after: DaemonCommand | None = None, later_s: float = 0.01) -> None:
-    """``run/daemon.json`` as a daemon's exit leaves it: ``stopped``, with no pid and no start time, written
-    ``later_s`` after ``after`` was answered (or now)."""
+LEGACY: None = None
+"""A ``stop_reason`` of None: the status an older daemon (before contracts 1.6.11) wrote, with no reason and, once
+``stopped``, no start time."""
+
+
+def stopped_status(
+    service: Service,
+    *,
+    reason: StopReason | None,
+    after: DaemonCommand | None = None,
+    later_s: float = 0.01,
+    started_at: float | None = None,
+) -> None:
+    """``run/daemon.json`` as a daemon's exit leaves it: ``stopped`` for ``reason``, with no pid, written ``later_s``
+    after ``after`` was answered (or now). It keeps the daemon's start time (``started_at``, by default a second
+    before it stopped), except under ``LEGACY``, which keeps none."""
     at = parse_iso(after.done_at) + later_s if after is not None and after.done_at is not None else time.time()
-    status = dataclasses.replace(daemon_status(state="stopped"), pid=None, started_at=None, updated_at=utc_iso(at))
+    start = None if reason is None else utc_iso(at - 1.0 if started_at is None else started_at)
+    status = dataclasses.replace(
+        daemon_status(state="stopped"), pid=None, started_at=start, updated_at=utc_iso(at), stop_reason=reason
+    )
     service.world.store.put_daemon_status(status)
 
 
@@ -556,16 +609,30 @@ def past_the_grace(service: Service) -> None:
 
 
 @pytest.mark.parametrize(
-    ("kind", "later_s"),
-    [("stop", 0.01), ("stop_now", 0.01), ("stop", 5.0)],
-    ids=["stop", "stop_now", "honoured by the daemon that took over"],
+    ("kind", "later_s", "reason"),
+    [
+        ("stop", 0.01, STOP_OPERATOR),
+        ("stop_now", 0.01, STOP_OPERATOR),
+        ("stop", 5.0, STOP_OPERATOR),
+        ("stop", STOP_TO_STOPPED_S + 60, STOP_OPERATOR),
+        ("stop", 0.01, LEGACY),
+        ("stop", 5.0, LEGACY),
+    ],
+    ids=[
+        "stop",
+        "stop_now",
+        "honoured by the daemon that took over",
+        "a slow takeover: no timing rule under a reason",
+        "an older daemon's status",
+        "an older daemon's status, the daemon that took over",
+    ],
 )
 def test_a_job_queued_before_an_operators_stop_waits_for_the_next_start_s4_1(
-    service: Service, kind: DaemonCommandKind, later_s: float
+    service: Service, kind: DaemonCommandKind, later_s: float, reason: StopReason | None
 ) -> None:
     job_id = queued(service)
     stop = answered(service, service.world.store.post_command(kind))
-    stopped_status(service, after=stop, later_s=later_s)
+    stopped_status(service, after=stop, later_s=later_s, reason=reason)
     past_the_grace(service)
     out = get_job(service.backend, {"job_id": job_id})
     assert service.launcher.ensured == [], "the operator stopped the service; get_job starts none"
@@ -581,7 +648,7 @@ def test_an_operators_stop_starts_nothing_with_autostart_off_either_s4_1(service
     config = dataclasses.replace(service.world.config, daemon=DaemonConfig(autostart=False))
     backend, _, launcher = make_backend(dataclasses.replace(service.world, config=config))
     job_id = queued(service)
-    stopped_status(service, after=answered(service, service.world.store.post_command("stop")))
+    stopped_status(service, after=answered(service, service.world.store.post_command("stop")), reason=STOP_OPERATOR)
     backend.clock = lambda: time.time() + DAEMON_START_GRACE_S + 1
     out = get_job(backend, {"job_id": job_id})
     assert launcher.ensured == []
@@ -594,7 +661,7 @@ def test_a_job_queued_while_a_stop_finished_its_segment_starts_a_daemon_s4_1(ser
     stop = service.world.store.post_command("stop")
     time.sleep(0.01)
     job_id = queued(service)
-    stopped_status(service, after=answered(service, stop))
+    stopped_status(service, after=answered(service, stop), reason=STOP_OPERATOR)
     past_the_grace(service)
     out = get_job(service.backend, {"job_id": job_id})
     assert len(service.launcher.ensured) == 1, "a stop asked before the job was queued is not its stop"
@@ -602,13 +669,20 @@ def test_a_job_queued_while_a_stop_finished_its_segment_starts_a_daemon_s4_1(ser
 
 
 @pytest.mark.parametrize(
-    "why",
-    ["its control loop failed", "its worker supervisor failed", "it exited idle as the job was queued"],
+    ("why", "reason"),
+    [
+        ("its control loop or worker supervisor failed", STOP_ERROR),
+        ("it exited idle as the job was queued", STOP_IDLE),
+        ("it was interrupted in its terminal", STOP_INTERRUPTED),
+        ("an older daemon stopped with no stop answered", LEGACY),
+    ],
 )
-def test_a_daemon_that_stopped_with_no_operators_stop_is_replaced_s4_1(service: Service, why: str) -> None:
+def test_a_daemon_that_stopped_with_no_operators_stop_is_replaced_s4_1(
+    service: Service, why: str, reason: StopReason | None
+) -> None:
     # (a), (b) and (d): each exit writes stopped (tests/daemon/test_daemon.py pins that), and none answers a stop.
     job_id = queued(service)
-    stopped_status(service)
+    stopped_status(service, reason=reason)
     past_the_grace(service)
     out = get_job(service.backend, {"job_id": job_id})
     assert len(service.launcher.ensured) == 1, why
@@ -625,7 +699,7 @@ def test_a_job_whose_submission_could_not_start_a_daemon_gets_one_later_s4_1(ser
     service.launcher.error = None
     service.launcher.ensured.clear()
     time.sleep(0.01)
-    stopped_status(service)
+    stopped_status(service, reason=STOP_IDLE)
     past_the_grace(service)
     get_job(service.backend, {"job_id": job_id})
     assert len(service.launcher.ensured) == 1
@@ -639,14 +713,37 @@ def test_a_daemon_that_crashed_is_replaced_for_a_queued_job_s4_1(service: Servic
     assert len(service.launcher.ensured) == 1
 
 
-def test_a_daemon_that_served_after_the_stop_then_failed_is_replaced_s4_1(service: Service) -> None:
+@pytest.mark.parametrize(
+    ("reason", "later_s"),
+    [
+        (STOP_ERROR, 0.01),
+        (STOP_IDLE, 0.01),
+        (STOP_INTERRUPTED, 5.0),
+        (LEGACY, STOP_TO_STOPPED_S + 60),
+    ],
+    ids=["failed at once", "idle at once", "interrupted", "an older daemon's status, past the 30 s"],
+)
+def test_a_daemon_that_served_after_the_stop_then_stopped_for_another_reason_is_replaced_s4_1(
+    service: Service, reason: StopReason | None, later_s: float
+) -> None:
     job_id = queued(service)
     stop = answered(service, service.world.store.post_command("stop"))
-    # A later daemon started, served, and failed: its stopped status is written long after the stop's answer.
-    stopped_status(service, after=stop, later_s=STOP_TO_STOPPED_S + 60)
+    # A later daemon started, served, and stopped for something else. Under a stop reason that decides it however
+    # soon after the stop's answer the status was written; under an older daemon's status, only the timing rule.
+    stopped_status(service, after=stop, later_s=later_s, reason=reason)
     past_the_grace(service)
     get_job(service.backend, {"job_id": job_id})
     assert len(service.launcher.ensured) == 1, "the operator's stop was lifted by the start that followed it"
+
+
+def test_an_older_daemons_status_keeps_the_30_s_rule_s4_1(service: Service) -> None:
+    store = service.world.store
+    job_id = queued(service)
+    stop = answered(service, store.post_command("stop"))
+    stopped_status(service, after=stop, later_s=STOP_TO_STOPPED_S - 1, reason=LEGACY)
+    assert operator_stop(store, service.world.job(job_id)) is not None, "answered within 30 s of stopped"
+    stopped_status(service, after=stop, later_s=STOP_TO_STOPPED_S + 1, reason=LEGACY)
+    assert operator_stop(store, service.world.job(job_id)) is None, "answered longer before: a later daemon's stop"
 
 
 def test_only_a_stop_answered_stopped_true_is_the_operators_s4_1(service: Service) -> None:
@@ -655,11 +752,11 @@ def test_only_a_stop_answered_stopped_true_is_the_operators_s4_1(service: Servic
     stale = store.post_command("stop")
     time.sleep(0.01)
     done = store.complete_command(stale.command_id, {"stopped": False, "reason": "stale"})
-    stopped_status(service, after=done)
+    stopped_status(service, after=done, reason=STOP_OPERATOR)
     assert operator_stop(store, service.world.job(job_id)) is None, "a stop answered stopped: false"
     release = store.post_command("release_gpu")
     time.sleep(0.01)
-    stopped_status(service, after=store.complete_command(release.command_id, {"released": False}))
+    stopped_status(service, after=store.complete_command(release.command_id, {"released": False}), reason=STOP_OPERATOR)
     assert operator_stop(store, service.world.job(job_id)) is None, "not a stop"
 
 
@@ -684,7 +781,7 @@ def test_a_stop_in_the_jobs_own_millisecond_counts_as_after_it_s4_1(service: Ser
     store = service.world.store
     job_id = queued(service)
     stop = answered(service, store.post_command("stop"))
-    stopped_status(service, after=stop)
+    stopped_status(service, after=stop, reason=STOP_OPERATOR)
     job = service.world.job(job_id)
     same = dataclasses.replace(job, created_at=stop.requested_at)
     assert operator_stop(store, same) is not None, "store times are cut to the millisecond, as posted_after_launch"

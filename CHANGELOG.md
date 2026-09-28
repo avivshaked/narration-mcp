@@ -484,6 +484,14 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Fixed
 
+- Contracts 1.6.11: `run/daemon.json` now remembers why the daemon stopped. A `stopped` status keeps the
+  daemon's start time and adds `stop_reason` (`operator`, `idle`, `interrupted` or `error`), and
+  `narration-admin daemon status` shows it. So `get_job` holds a job queued before a `daemon stop` only when
+  that stop actually ended the daemon: after an idle exit or a failure, even one within 30 s of a stop, the
+  job gets a daemon. And a daemon that started, served and then failed within 90 s of its launch is no longer
+  reported as one that "exited before it served": `get_job` asks for a new daemon at once. A `daemon.json`
+  written by an older daemon still loads, and keeps the old rules. A job runner thread that fails is now
+  logged in the daemon's log.
 - Contracts 1.6.10: `CLIP_TOO_LONG`'s retake rule is `never`, as design section 14 gives it (it said
   `always`): a designed candidate has no take slot to retake. `is_retake_trigger` now follows the table's
   retake column for a fail too, so a fail whose rule is `never` is not a trigger; every other fail still

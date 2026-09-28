@@ -5,6 +5,10 @@ workers, the current job, the GPU, the queue's drain estimate) and writes them t
 ``Store.put_daemon_status`` whenever one changes: on start, on every state or job-phase change, when a
 worker starts or stops, when models load or unload, and on exit.
 
+The last write says ``stopped``, with no pid, workers or job, but with the daemon's own start time and why it
+stopped (``stop_reason``; contracts 1.6.11): a reader tells from them whether a daemon started after a launch, and
+whether an operator's stop ended it (design section 4.1).
+
 ``gpu.unload_in_s`` is the time left, as of ``updated_at``, until the idle model is unloaded: a reader
 subtracts the time since ``updated_at``. It is null while a job runs or when no model is on the GPU.
 """
@@ -20,7 +24,7 @@ from typing import Any
 
 from narration.contracts.interfaces import Store
 from narration.contracts.models import CurrentJob, DaemonStatus, GpuStatus, JobRecord, WorkerInfo
-from narration.contracts.names import DaemonState, GpuHolder, JobPhase
+from narration.contracts.names import DaemonState, GpuHolder, JobPhase, StopReason
 from narration.store.store import utc_iso
 
 from .seam import GpuFacts
@@ -50,6 +54,7 @@ class StatusBoard:
         self._unload_at: float | None = None
         self._facts = GpuFacts()
         self._est_drain_s: float | None = None
+        self._stop_reason: StopReason | None = None
         self._written: tuple[Any, ...] | None = None
         self.writes = 0
         """How many times the file was written (for tests and the log)."""
@@ -118,10 +123,12 @@ class StatusBoard:
             self._est_drain_s = seconds
             self._publish()
 
-    def stopped(self) -> None:
-        """The last write: the daemon is ``stopped``, with no pid, workers or job."""
+    def stopped(self, reason: StopReason) -> None:
+        """The last write: the daemon is ``stopped`` for ``reason``, with no pid, workers or job. The start time is
+        kept (contracts 1.6.11)."""
         with self._lock:
             self._state = "stopped"
+            self._stop_reason = reason
             self._workers = ()
             self._current = None
             self._in_use = False
@@ -153,7 +160,7 @@ class StatusBoard:
         return DaemonStatus(
             state=self._state,
             pid=None if stopped else self._pid,
-            started_at=None if stopped else self._started_at,
+            started_at=self._started_at,
             workers=self._workers,
             current_job=self._current,
             gpu=GpuStatus(
@@ -168,6 +175,7 @@ class StatusBoard:
             ),
             est_drain_s=self._est_drain_s,
             updated_at=self._now(),
+            stop_reason=self._stop_reason if stopped else None,
         )
 
     def _publish(self) -> None:
@@ -181,6 +189,7 @@ class StatusBoard:
             self._unload_at,
             self._facts,
             self._est_drain_s,
+            self._stop_reason,
         )
         if key == self._written:
             return

@@ -8,6 +8,7 @@ daemon in the foreground, as the test's own child, and ends it.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -26,6 +27,7 @@ from narration.admin.cli import EXIT_FAILED, EXIT_OK
 from narration.config import load_config
 from narration.contracts.errors import NarrationError, UnsupportedPlatform
 from narration.contracts.models import DaemonStatus, GpuStatus, WorkerInfo
+from narration.contracts.names import STOP_IDLE
 from narration.platform import (
     BREAKAWAY_REFUSED,
     BREAKAWAY_REFUSED_MESSAGE,
@@ -118,6 +120,7 @@ def test_status_as_json_says_whether_it_runs_s4_1(admin: AdminRun, config_path: 
     ("planted", "said"),
     [
         (status("stopped"), "The last one said 'stopped'"),
+        (dataclasses.replace(status("stopped"), stop_reason=STOP_IDLE), "(stop reason: idle)"),
         (status("busy", alive=False), "went without saying it stopped"),
     ],
 )

@@ -20,7 +20,21 @@
    ``stop`` by letting the step in flight finish, ``stop_now`` by killing every worker (the Job Object) so
    the step in flight fails and its job goes back to the queue;
 5. when the runner thread has ended (it shut the runner down, which gave back its job), closes the
-   workers, completes the stop commands, writes ``stopped``, and releases the singleton.
+   workers, completes the stop commands, writes ``stopped`` with why it stopped, and releases the singleton.
+
+**Why it stopped** (``stop_reason`` in ``run/daemon.json``; contracts 1.6.11, design section 4.1), decided once,
+as the ``stopped`` status is written, from what this daemon can tell apart:
+
+- ``operator`` when it answered a ``stop`` or ``stop_now`` ``stopped: true`` (read while it ran, or found pending
+  as it exited), or honoured one the daemon before it answered so. This wins over the others: that answer tells
+  the operator the stop held, so the jobs queued before it must wait for the next start, even when the daemon
+  also failed on its way out (its log has the failure);
+- ``interrupted`` when an interrupt ended it (Ctrl+C in the terminal of a ``--foreground`` daemon);
+- ``error`` when its control loop, its worker supervisor or its runner thread failed;
+- ``idle`` when it exited for want of work.
+
+There is no takeover reason: a daemon that finds another serving exits without writing a status, and one that
+takes over from an exiting daemon is a new start with its own reason.
 
 Every file the store publishes is written to a temp name and renamed, so a ``stop_now`` never leaves a
 partial file published (section 4.1).
@@ -67,7 +81,14 @@ from typing import Any, Final, Literal
 from narration.config import Config
 from narration.contracts.interfaces import Store
 from narration.contracts.models import JobRecord
-from narration.contracts.names import JobPhase
+from narration.contracts.names import (
+    STOP_ERROR,
+    STOP_IDLE,
+    STOP_INTERRUPTED,
+    STOP_OPERATOR,
+    JobPhase,
+    StopReason,
+)
 from narration.platform import ProcessPlatform
 from narration.store.store import parse_iso, utc_iso
 
@@ -210,6 +231,8 @@ class Daemon:
         self._runner_done = threading.Event()
         self._stop_commands: list[str] = []
         self._requeued: list[str] = []
+        self._honoured_answered = False
+        self._failure: StopReason | None = None
         self._board: StatusBoard | None = None
         self._supervisor: WorkerSupervisor | None = None
         self.started_at: str | None = None
@@ -293,17 +316,34 @@ class Daemon:
                     self._control_loop()
                 except KeyboardInterrupt:
                     log.warning("interrupted; stopping now")
+                    self._failure = STOP_INTERRUPTED
                     self._request_stop("now")
                 except BaseException:
                     log.exception("the daemon's control loop failed; stopping now")
+                    self._failure = STOP_ERROR
                     self._request_stop("now")
                     code = EXIT_ERROR
                 self._finish(thread)
+        except BaseException as exc:  # the supervisor, or the way out, failed: written as the reason, then raised
+            if self._failure is None:
+                self._failure = STOP_INTERRUPTED if isinstance(exc, KeyboardInterrupt) else STOP_ERROR
+            raise
         finally:
-            self._complete_stop_commands()
-            self._board.stopped()
+            answered = self._complete_stop_commands()
+            self._board.stopped(self._stop_reason(answered=answered))
             log.info("daemon stopped (pid %d)", self._pid)
         return code
+
+    def _stop_reason(self, *, answered: int) -> StopReason:
+        """Why this daemon stopped (the module docstring, "Why it stopped"); ``answered`` is how many stops its exit
+        answered ``stopped: true``."""
+        if answered or self._honoured_answered or self._stop_commands:
+            return STOP_OPERATOR
+        if self._failure is not None:
+            return self._failure
+        if self.stopping == "idle":
+            return STOP_IDLE
+        return STOP_ERROR  # the runner thread ended with no stop asked of it: it failed
 
     # ------------------------------------------------------------------ the main thread
     def _control_loop(self) -> None:
@@ -389,6 +429,7 @@ class Daemon:
                     command.kind,
                     command.command_id,
                 )
+                self._honoured_answered = True
                 self._request_stop("segment")  # nothing is in flight, so a stop_now needs nothing more
                 return
 
@@ -454,12 +495,14 @@ class Daemon:
         if thread.is_alive():
             log.warning("the runner thread still runs; the daemon exits without it")
 
-    def _complete_stop_commands(self) -> None:
+    def _complete_stop_commands(self) -> int:
+        """Answer every pending stop ``stopped: true``, as the daemon exits; how many were answered."""
         try:
             pending = {c.command_id: c for c in self.store.pending_commands()}
         except Exception:
             log.exception("could not read the daemon's commands")
-            return
+            return 0
+        answered = 0
         for command in pending.values():
             if command.kind not in ("stop", "stop_now"):
                 continue
@@ -467,6 +510,9 @@ class Daemon:
                 self.store.complete_command(command.command_id, {"stopped": True, "requeued": list(self._requeued)})
             except Exception:
                 log.exception("could not complete command %s", command.command_id)
+            else:
+                answered += 1
+        return answered
 
     # ------------------------------------------------------------------ the runner thread
     def _runner_main(self, host: _Host) -> None:
@@ -495,6 +541,10 @@ class Daemon:
                     continue
                 if self._idle(host):
                     break
+        except Exception:
+            # Its stderr is NUL under a detached daemon, so the log is the only place this is seen; the daemon then
+            # stops with no stop asked, which it records as an error (``_stop_reason``).
+            log.exception("the job runner's thread failed (a bug); the daemon stops")
         finally:
             reason: ShutdownReason = self.stopping or "idle"
             held = self.board.current_job
