@@ -12,6 +12,7 @@ from narration.contracts.interfaces import QaInputs, QaScorer
 from narration.contracts.models import CueTiming, Flag, Hint, SimilarityBaseline
 from narration.contracts.names import NUMBER_READER, QA_PROFILE
 from narration.qa import QaUnavailable, Scorer
+from narration.qa.checks import expected_wpm, spoken_words
 
 from .builders import ANCHOR, Cue, alignment, inputs, measurement, pace, planned, segment, signal, with_similarity
 
@@ -53,6 +54,42 @@ def test_a_clean_take_passes_with_every_metric_s11_1() -> None:
     assert result.thresholds.pace_tol == 0.12
     assert [(e.expected, e.match) for e in result.exact] == [("3200", "same")]
     assert [(t.term, t.ok) for t in result.terms] == [("Velmoranth", True)]
+
+
+def test_a_take_half_again_as_fast_as_its_curve_warns_and_is_no_retake_dc19() -> None:
+    """default.v4 (the owner's decision, 2026-09-27): a take at +50% of the expected pace, with every other check
+    clean, gets a PACE_FAST warning and a warn verdict. It is not failed and not retaken."""
+    expected = expected_wpm(MEASURED.pace, SEG.spoken_chars)
+    assert expected is not None
+    span = spoken_words(SEG.spoken_text) / (1.5 * expected) * 60.0
+    take = inputs(
+        SEG,
+        hints=HINTS,
+        embedding=with_similarity(0.985),
+        measurement_record=MEASURED,
+        signal_stats=signal(voiced=(0.1, 0.1 + span)),
+    )
+    result = Scorer().score(take)
+    assert result.metrics.spoken_wpm == pytest.approx(1.5 * expected)
+    assert [(f.code, f.severity, f.retake_trigger) for f in result.flags] == [(codes.PACE_FAST, "warn", False)]
+    assert result.verdict == "warn"
+    assert not any(codes.is_retake_trigger(f.code, f.severity, f.details) for f in result.flags)
+
+
+def test_a_slow_take_still_only_warns_s11_1() -> None:
+    expected = expected_wpm(MEASURED.pace, SEG.spoken_chars)
+    assert expected is not None
+    span = spoken_words(SEG.spoken_text) / (0.5 * expected) * 60.0
+    take = inputs(
+        SEG,
+        hints=HINTS,
+        embedding=with_similarity(0.985),
+        measurement_record=MEASURED,
+        signal_stats=signal(voiced=(0.1, 0.1 + span)),
+    )
+    result = Scorer().score(take)
+    assert [(f.code, f.severity, f.retake_trigger) for f in result.flags] == [(codes.PACE_SLOW, "warn", False)]
+    assert result.verdict == "warn"
 
 
 def test_every_flag_carries_its_segment_and_retake_rule_s11_1() -> None:

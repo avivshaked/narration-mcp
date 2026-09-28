@@ -79,30 +79,50 @@ The server is not released yet; this is how a development checkout is wired up. 
 folder of your clone.
 
 1. Copy `narration.example.toml` to `<service_root>/narration.toml`, and set `store_root` and
-   `models_root` under `[server]`.
-2. Add the server to your project's `.mcp.json`:
+   `models_root` under `[server]`. Create the environment once with `uv sync --frozen` in
+   `<service_root>`.
+2. Add the server to your project's `.mcp.json`. It runs the server with the environment's own Python
+   interpreter, `<venv_python>`: `<service_root>/.venv/Scripts/python.exe` on Windows, or
+   `<service_root>/.venv/bin/python` elsewhere.
 
    ```json
    {
      "mcpServers": {
        "narration": {
          "type": "stdio",
-         "command": "uv",
-         "args": ["run", "--project", "<service_root>", "--frozen", "--offline",
-                  "narration-mcp", "--config", "<service_root>/narration.toml"]
+         "command": "<venv_python>",
+         "args": ["-m", "narration.mcp", "--config", "<service_root>/narration.toml"]
        }
      }
    }
    ```
 
-   `--frozen --offline` keeps uv from updating the lock file or reaching the network when the client
-   starts the server. `python -m narration.mcp` in place of `narration-mcp` runs the same server.
-   Without `--config`, the server reads the file `NARRATION_CONFIG` names, else
+   Start it as `python -m narration.mcp`, not through the `narration-mcp` launcher executable that the
+   environment also installs (and that `uv run … narration-mcp` starts): some antivirus programs sandbox
+   a new, unsigned launcher. Without `--config`, the server reads the file `NARRATION_CONFIG` names, else
    `<service_root>/narration.toml`. If it finds neither, it exits and says what to do.
-3. In a session, call `measure_voice` on your voice clip once. Then call `submit_job`, poll `get_job`,
-   and read the takes with `get_results`. The first job starts the background daemon that does the work.
+3. The first job starts the background daemon that does the work. If a call answers
+   `DAEMON_UNAVAILABLE` because the client's session cannot start it, start the daemon yourself from a
+   terminal first:
+
+   ```sh
+   <venv_python> -m narration.admin --config <service_root>/narration.toml daemon start
+   ```
+
+   It detaches and keeps running after the terminal closes. If Windows refuses to detach it from the
+   terminal, the command says so and offers `--foreground`, which runs the daemon in that terminal until
+   it exits; only then must the terminal stay open.
+
    The server clones only voices this service designed, or clips whose sha256 is in `[voices]
-   allow_sha256`.
+   allow_sha256`. The same command with `voices allow <clip.wav>` adds a clip designed elsewhere to that
+   list, after you confirm that it is synthetic. The daemon and the server read `narration.toml` only
+   when they start. After a change, stop the daemon first (the same command with `daemon stop`; with
+   `[daemon] autostart` on, the next job starts it again, otherwise `daemon start` does), then reconnect
+   the client to the server (`/mcp` in Claude Code).
+4. In a session, call `measure_voice` on your voice clip once. Then call `submit_job`, poll `get_job`,
+   and read the takes with `get_results`. The server's instructions tell the calling agent how to use the
+   tools well: among other things, to send every invented name as a pronunciation hint (the term alone
+   is enough), to keep a job to a scene, and to read results with `include_words` false.
 
 ## Project status, contributing and security
 

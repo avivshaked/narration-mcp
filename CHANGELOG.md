@@ -10,6 +10,22 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices] allow_sha256`,
+  instead of hashing it and editing `narration.toml` by hand.
+  - It makes the clip's path absolute (so a relative path is taken from the working folder), checks it
+    with the service's path check, and refuses a file that is not a WAV.
+  - It prints the clip's path, length and sha256, and asks you to confirm that the clip is synthetic, not
+    a recording of a real person. Only `yes`, typed in full, goes on; no answer changes nothing. A person
+    must confirm: `--yes` is only for the operator's own scripts.
+  - The hash goes into the configuration file with a comment naming the clip. Every other line, comment
+    and line ending is kept. The file is replaced whole, and not if it changed while the command ran; that
+    is checked just before the rename, so a short window remains (do not run two at once). The new file
+    keeps the old one's POSIX mode bits, but not its owner or ACL.
+  - It ends by saying to stop the daemon and then restart `narration-mcp`: both read the list only when
+    they start.
+
+  `narration-admin voices list` prints the list. Neither is an MCP tool: only someone who can run
+  `narration-admin` on this machine, or edit its configuration, can change the list.
 - `measure_voice`'s job (`narration.measure`): it checks the clip's transcript with the speech recogniser
   (`REF_TEXT_MISMATCH` if the clip does not say it), renders the calibration set and builds the voice's
   anchor and similarity baseline, then climbs the length ladder from the shortest rung, fits the pace
@@ -265,6 +281,29 @@ are tracked here but no version is tagged; nothing described below is installabl
 - `DAEMON_UNAVAILABLE`'s `retry_after_s` is 60 s at every level when the daemon could not be detached (it
   was 30 s at the MCP tool level and 60 s in the platform's own error): the fix needs a person to run
   `narration-admin daemon start`, and a retry sooner than that fails the same way.
+- `PACE_FAST` only warns; it never fails a take and never triggers a retake (the QA profile is now
+  `default.v4`, DC-19). The words-per-minute pace model failed short paragraphs that listened fine, and
+  wasted their retakes. `PACE_SLOW` is unchanged (it only warns). The flag's `details.fast_fail_above` is
+  null. A voice measured before stays measured, and cached renders and takes are reused: only their QA
+  runs again, on the next request that asks for them.
+- The MCP server now tells the calling agent what decides whether real use goes well. Its instructions
+  and the `submit_job` and `check_text` descriptions say to send every invented or unusual name as a hint:
+  the term alone is enough, and a name without one is scored as misheard words that can fail a take
+  (`WER_HIGH`). They also say to keep a job to a scene (about 8 to 10 segments), to call `get_results` with
+  `include_words: false` unless word times are needed, and to use each segment's `suggested_take_id`. They
+  point to `narration://jobs/{job_id}/report` and name `submit_job`'s options (`dry_run`, `strict_text`,
+  `takes`, `max_retakes`, `priority`). A suggestion of tier 4 is a failed take, to resolve or redo before
+  keeping it. The voice's transcript must be copied, never retyped. Every tool parameter now has a
+  description. The instructions and every tool description fit in 2048 characters, where Claude Code cuts
+  server instructions. `design_voice`, `profile_voice` and `audition_pronunciation` are marked "not in this
+  build yet" wherever they are advertised, until their handlers land; the prompts show how to hear a
+  respelling with `submit_job` meanwhile. `VOICE_NOT_SYNTHETIC`'s hint says that only a person allows a
+  clip, with `narration-admin voices allow`, and that the daemon is restarted first, then the client
+  reconnected. An upper-case `sha256` is told to lower-case it, and a top-level option such as `takes` is
+  pointed to `options.takes`; a field sent inside `controls` is told to leave `controls` out. The README
+  starts the server with the environment's Python (`-m narration.mcp`) and says to start the daemon from
+  a terminal when the client cannot. Nothing that enters a cache key changed, so no voice needs
+  measuring again.
 - The service's spoken material is frozen as version 1: the calibration corpus `narration-en.v1`, the
   alignment benchmark `alignment-en.v1`, the canary `canary.v1` and the demo script `demo-en.v1`. The
   corpus now carries the calibration's design text, which `measure_voice` renders first. A frozen set
