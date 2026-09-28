@@ -459,7 +459,9 @@ class WindowsPlatform:
         (``close_fds``); ``env`` is the whole environment. Raises ``NarrationError(DAEMON_UNAVAILABLE)``
         (retryable; ``details["reason"]`` says which) and starts nothing that runs when the daemon cannot leave
         this process's Job Objects: a daemon still in a client's kill-on-close job would die with the client
-        mid-job. Any other failure to start (a missing executable, say) propagates as ``OSError``.
+        mid-job. Any other failure to start (a missing executable, say) propagates as ``OSError``. Its messages
+        name no caller ("this process", not "this client"): an MCP client and ``narration-admin daemon start``
+        in a terminal both show them.
 
         **Nested jobs.** KNOW (spike k): since Windows 8 a process can be in nested jobs, and ``CreateProcess``
         with ``CREATE_BREAKAWAY_FROM_JOB`` refuses (access denied, ``BREAKAWAY_REFUSED``) only when this
@@ -475,14 +477,20 @@ class WindowsPlatform:
         forbids breakaway refuses the detached start, even one that would not end the daemon: this process
         cannot read an enclosing job's limits or know who holds its handle (the MCP Python SDK, for one,
         terminates its job whatever the job's flags). The known case (KNOW, PR #37's CI): GitHub's hosted
-        Windows runner puts its steps in such a job. The supported route there is ``narration-admin daemon
-        start --foreground``, or a host whose jobs allow breakaway.
+        Windows runner puts its steps in such a job. The supported route on such a host is ``[daemon]
+        autostart = false``, so that no client tries to start the daemon, with a daemon started by hand in its
+        own process (``narration-admin daemon start --foreground``); or a host whose jobs allow breakaway.
 
         **What is checked.** The process created, ``argv[0]``. Under a venv that is the launcher; its child,
         the interpreter that records its own pid in ``run/daemon.json``, is born into the launcher's own
         kill-on-close job (the launcher's, not the client's; the launcher holds its only handle while it waits
         for the interpreter). So the daemon runs in no job of the client's, and its launcher must never be
         ended by pid: the daemon would go with it.
+
+        **No orphan, from the moment ``Popen`` returns.** From then on, whatever interrupts the check or the
+        resume (an ``OSError``, Ctrl+C, any exception) ends the suspended child before it propagates. The
+        guarantee starts when ``Popen`` returns, not at ``CreateProcess``: an exception raised inside ``Popen``
+        after Windows has created the child could leave it suspended, never run and never ended.
         """
         if not argv:
             raise ValueError("argv is empty")
@@ -504,8 +512,8 @@ class WindowsPlatform:
             raise NarrationError(
                 codes.DAEMON_UNAVAILABLE,
                 "Windows refused to start the daemon detached (access denied). This usually means the Job "
-                "Object this process runs in forbids breakaway; a daemon that is not detached would die with "
-                "this client mid-job, so none was started.",
+                "Object this process runs in forbids breakaway. A daemon runs only in no Job Object at all, so "
+                "none was started.",
                 details={
                     "reason": BREAKAWAY_REFUSED,
                     "winerror": exc.winerror,
@@ -525,8 +533,8 @@ class WindowsPlatform:
                 raise NarrationError(
                     codes.DAEMON_UNAVAILABLE,
                     "Windows could not say whether the daemon had left this process's Job Objects "
-                    f"({exc.strerror or exc}); a daemon that may die with this client mid-job is never let run, "
-                    "so it was ended before it started.",
+                    f"({exc.strerror or exc}). A daemon runs only in no Job Object at all, so it was ended before "
+                    "it started.",
                     details={
                         "reason": JOB_CHECK_FAILED,
                         "winerror": exc.winerror,

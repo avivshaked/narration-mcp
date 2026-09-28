@@ -154,7 +154,9 @@ def refusal_text(exc: NarrationError) -> str:
     platform's ``details["reason"]`` (``narration.platform``: ``BREAKAWAY_REFUSED``, ``LEFT_IN_JOB``,
     ``JOB_CHECK_FAILED``), so the cause is named only where Windows established it. The rule (lead decision):
     the daemon runs only in no Job Object at all, so any enclosing job that forbids breakaway refuses the
-    detached start, even one that would not end the daemon. Every case offers ``--foreground``."""
+    detached start, even one that would not end the daemon. Every case offers ``--foreground``, and names the
+    route on a host whose jobs always forbid breakaway: ``[daemon] autostart = false`` with a daemon started by
+    hand (``--foreground``)."""
     reason = (exc.details or {}).get("reason")
     if reason == JOB_CHECK_FAILED:
         cause = (
@@ -170,7 +172,9 @@ def refusal_text(exc: NarrationError) -> str:
         f"The daemon cannot be detached from this terminal ({exc.message}). {cause}. Run `{PROGRAM} daemon "
         "start` from a terminal whose Job Objects allow breakaway (a plain terminal outside that program), or "
         f"run the daemon in this one with `{PROGRAM} daemon start --foreground` and keep the terminal open "
-        "while it works."
+        "while it works. On a host whose jobs always forbid breakaway (a CI runner, say), set `[daemon] "
+        f"autostart = false`, so that no client tries to start the daemon, and start it by hand with `{PROGRAM} "
+        "daemon start --foreground` in a process of its own."
     )
 
 

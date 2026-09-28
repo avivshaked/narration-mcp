@@ -390,10 +390,12 @@ are tracked here but no version is tagged; nothing described below is installabl
   `narration-admin daemon start` in a terminal. The rule is deliberate: any enclosing job that forbids
   breakaway refuses the detached start, even one that would not end the daemon, since the service cannot
   read such a job's limits or know who will close it. A CI runner is the known case (measured on GitHub's
-  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, run
-  `narration-admin daemon start --foreground` as its own process, or use a host whose jobs allow breakaway.
+  hosted Windows runner, whose job forbids breakaway); there, and on any host like it, set `[daemon]
+  autostart = false` so that no client tries to start the daemon, and run `narration-admin daemon start
+  --foreground` as its own process; or use a host whose jobs allow breakaway.
   Under clients that spawn through libuv, whose job allows breakaway, the daemon leaves every job and keeps
   running (Node.js, measured with Node v22; Claude Code, we believe, since it spawns through libuv too;
   spike k). `narration-admin daemon start` now names only the cause Windows established, and says when the
   daemon exits for want of work (`[daemon] idle_exit_min`), so a client that cannot start the daemon itself
-  knows to start it again.
+  knows to start it again. Its refusal names the route above, and the platform's messages it quotes speak
+  of "this process", not "this client", so they read right in a terminal and in an MCP client alike.

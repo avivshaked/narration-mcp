@@ -253,6 +253,7 @@ def test_start_refused_names_only_the_cause_windows_established_s4_1(
     assert said in ran.err, ran.err
     assert "no Job Object at all" in ran.err, "the rule is stated"
     assert "daemon start --foreground" in ran.err, "the way out is offered in every case"
+    assert "[daemon] autostart = false" in ran.err, "the route on a host whose jobs forbid breakaway is named"
     assert ("could not confirm" in ran.err) is (reason == "job_check_failed"), "an unknown cause is not asserted"
 
 
