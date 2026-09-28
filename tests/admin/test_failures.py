@@ -467,7 +467,7 @@ def test_the_metrics_line_gives_the_pace_qa_judged_first_s11_1_wp47() -> None:
     }
     assert metrics_line(new) == "pace 16.94 cps of speaking (expected 16.41) · 171 spoken wpm (expected 150)"
     assert metrics_line({"spoken_wpm": 171.4, "expected_spoken_wpm": 150.2}) == "171 spoken wpm (expected 150)"
-    assert {"articulation_cps", "expected_articulation_cps", "pause_s"} <= set(INDEX_COLUMNS)
+    assert {"articulation_cps", "expected_articulation_cps", "pause_s", "speaking_share"} <= set(INDEX_COLUMNS)
 
 
 def test_index_cells_a_spreadsheet_would_run_are_neutralised_wp48() -> None:

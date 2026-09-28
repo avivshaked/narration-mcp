@@ -209,12 +209,14 @@ def pace_flags(
     profile: QaProfile,
     *,
     pause_s: float | None = None,
+    speaking_share: float | None = None,
 ) -> tuple[Flag, ...]:
     """``PACE_FAST`` warn above ``expected x (1 + tol)``; ``PACE_SLOW`` warn below ``expected x (1 - tol)``.
 
     ``cps`` is the take's pace and ``expected`` the voice's curve at its length, both in spoken characters per
     second of speaking time (``narration.qa.pace``). ``pause_s`` is the pause time taken out of the voiced span,
-    reported in ``details`` (None: the silences were not measured, and the pace is over the whole span).
+    reported in ``details`` (None: the silences were not measured, and the pace is over the whole span), and so
+    is ``speaking_share``, the take's speaking time over its voiced span (information only).
 
     ``default.v5`` has no pace fail (``QaProfile.pace_fail_tol_factor`` is None; DC-19): a fast take only warns,
     which is never a retake trigger, and ``details.fast_fail_above`` is null. A profile with a factor ``f``
@@ -233,6 +235,7 @@ def pace_flags(
         "fast_fail_above": round(fast_fail, 3) if fast_fail is not None else None,
         "slow_warn_below": round(slow_warn, 3),
         "pause_s": round(pause_s, 3) if pause_s is not None else None,
+        "speaking_share": round(speaking_share, 3) if speaking_share is not None else None,
         "basis": "speaking_time" if pause_s is not None else "voiced_span",
     }
     if fast_fail is not None and cps > fast_fail:
@@ -272,7 +275,8 @@ def pace_flags(
 class PaceCheck:
     """A take's pace (``narration.qa.pace``) against the voice's curve: ``articulation_cps`` is judged,
     against ``expected_cps``; ``spoken_wpm`` and ``spoken_cps`` are over the whole voiced span (information);
-    ``expected_wpm`` is ``spoken_wpm`` at the expected pace (``pace.expected_wpm_at``)."""
+    ``expected_wpm`` is ``spoken_wpm`` at the expected pace (``pace.expected_wpm_at``); ``speaking_share`` is the
+    take's speaking time over its voiced span (information)."""
 
     spoken_wpm: float | None
     spoken_cps: float | None
@@ -282,6 +286,7 @@ class PaceCheck:
     expected_wpm: float | None
     tol: float | None
     flags: tuple[Flag, ...]
+    speaking_share: float | None = None
 
 
 def pace_check(
@@ -308,7 +313,10 @@ def pace_check(
         expected_cps=expected,
         expected_wpm=expected_wpm_at(rate, count, expected, segment.spoken_chars),
         tol=tol,
-        flags=pace_flags(rate.articulation_cps, expected, tol, profile, pause_s=rate.pause_s),
+        flags=pace_flags(
+            rate.articulation_cps, expected, tol, profile, pause_s=rate.pause_s, speaking_share=rate.speaking_share
+        ),
+        speaking_share=rate.speaking_share,
     )
 
 

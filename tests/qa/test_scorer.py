@@ -51,6 +51,7 @@ def test_a_clean_take_passes_with_every_metric_s11_1() -> None:
     assert m.expected_spoken_wpm is not None
     # No silences measured in this take: the pace is over the whole voiced span.
     assert (m.articulation_cps, m.spoken_cps, m.pause_s) == (pytest.approx(132 / 9.8), pytest.approx(132 / 9.8), None)
+    assert m.speaking_share is None  # no silences measured, so no share (WP47's F3)
     assert m.expected_articulation_cps == pytest.approx(expected_cps(MEASURED.pace, 132))
     assert (m.head_insertion_words, m.end_insertion_words, m.longest_silence_s) == (0, 0, 0.5)
     assert result.thresholds.spk_warn == 0.965
@@ -77,6 +78,7 @@ def test_a_take_half_again_as_fast_as_its_curve_warns_and_is_no_retake_dc19() ->
     result = Scorer().score(take)
     assert result.metrics.articulation_cps == pytest.approx(1.5 * expected)
     assert result.metrics.pause_s == pytest.approx(pause)
+    assert result.metrics.speaking_share == pytest.approx((span - pause) / span)  # information (WP47's F3)
     assert [(f.code, f.severity, f.retake_trigger) for f in result.flags] == [(codes.PACE_FAST, "warn", False)]
     assert result.verdict == "warn"
     assert not any(codes.is_retake_trigger(f.code, f.severity, f.details) for f in result.flags)

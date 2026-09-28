@@ -75,7 +75,9 @@ class TakeRate:
 
     ``articulation_cps`` is the pace (spoken characters per second of speaking time); ``spoken_cps`` and
     ``spoken_wpm`` are over the whole voiced span, pauses included, for information. ``pause_s`` is None when
-    the silences were not measured (the rate is then over the whole voiced span).
+    the silences were not measured (the rate is then over the whole voiced span). ``speaking_share`` is the
+    take's own speaking time over its voiced span, for information (WP47's F3); None, like ``pause_s``, when
+    the silences were not measured.
     """
 
     voiced_s: float | None
@@ -84,6 +86,7 @@ class TakeRate:
     articulation_cps: float | None
     spoken_cps: float | None
     spoken_wpm: float | None
+    speaking_share: float | None = None
 
 
 def take_rate(spoken_chars: int, spoken_words: int, signal: SignalStats) -> TakeRate:
@@ -103,6 +106,7 @@ def take_rate(spoken_chars: int, spoken_words: int, signal: SignalStats) -> Take
         articulation_cps=spoken_chars / speaking if speaking > 0 else None,
         spoken_cps=spoken_chars / voiced,
         spoken_wpm=spoken_words / voiced * 60.0,
+        speaking_share=max(0.0, speaking) / voiced if pause is not None else None,
     )
 
 

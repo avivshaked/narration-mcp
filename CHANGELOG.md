@@ -311,6 +311,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   means: jobs queued before it wait for the next start (`narration-admin daemon start`, or the next
   `submit_job` while `[daemon] autostart` is on), and that daemon runs the whole queue. It said "The next
   job starts a fresh daemon", which read as if a queued job would.
+- Each take's QA reports its own speaking share, its speaking time over its voiced span, beside `pause_s`:
+  in `qa.metrics.speaking_share` (contracts 1.6.10), in the pace flag's `details`, and as a column of
+  `narration-admin failures --export`'s `index.csv`. It is information only: nothing judges it. It is null
+  when the take's silences were not measured, and in a take scored before.
 - Pace is now measured in spoken characters per second of speaking time: the voiced span with its pauses
   (silences of at least 13 frames of 20 ms, 0.26 s) taken out (DC-18; the QA profile is now `default.v5`).
   Words per minute followed the corpus's word lengths rather than the voice, and a one-sentence segment, which
