@@ -281,6 +281,29 @@ def test_the_default_aligner_is_not_reported_s11_2(tmp_path: Path, platform: Sta
     assert not [f for f in findings if "the aligner cannot run" in f.summary]
 
 
+def test_the_qa_profile_this_build_scores_with_is_reported_s16(tmp_path: Path, platform: StandInPlatform) -> None:
+    config_path = write_config(tmp_path / "s", f'[qa]\nprofile = "{names.QA_PROFILE}"\n')
+    admin, _ = make_admin(config_path, platform)
+    (qa,) = [f for f in diagnose(admin, probes=probes()) if f.area == "qa"]
+    assert qa.level == "ok" and names.QA_PROFILE in qa.summary and qa.next_step is None
+
+
+def test_a_qa_profile_other_than_this_builds_is_a_warning_never_a_failure_s16(
+    ready: Path, config_path: Path, platform: StandInPlatform
+) -> None:
+    """``[qa] profile`` changes nothing (the scorer uses the build's profile): doctor says which profile runs and
+    to update the line, and the machine still passes."""
+    with config_path.open("a", encoding="utf-8") as fh:
+        fh.write('[qa]\nprofile = "an-older-profile.v1"\n')
+    admin, out = make_admin(config_path, platform)
+    (qa,) = [f for f in diagnose(admin, probes=probes(pins={names.MODEL_ALIGNER: REV_A})) if f.area == "qa"]
+    assert qa.level == "warn"
+    assert "an-older-profile.v1" in qa.summary and names.QA_PROFILE in qa.summary
+    assert qa.next_step is not None and f'profile = "{names.QA_PROFILE}"' in qa.next_step
+    assert run(admin, probes_=probes(pins={names.MODEL_ALIGNER: REV_A})) == EXIT_OK
+    assert "FAIL" not in out.getvalue()
+
+
 @pytest.mark.parametrize(
     ("synced", "level"),
     [

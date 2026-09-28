@@ -20,7 +20,14 @@ import narration.daemon.__main__ as entry
 import narration.platform
 import narration.store
 from narration.config import load_config
-from narration.daemon.__main__ import DEFAULT_RUNNER, aligner_method, launch_time, warn_without_safe_path
+from narration.contracts import names
+from narration.daemon.__main__ import (
+    DEFAULT_RUNNER,
+    aligner_method,
+    launch_time,
+    warn_on_qa_profile,
+    warn_without_safe_path,
+)
 from narration.daemon.seam import JobRunner, NullRunner
 from narration.daemon.start import daemon_argv
 from narration.engine.qa import aligner_method_id
@@ -168,6 +175,27 @@ def test_a_daemon_started_without_safe_path_says_so_once_s17(caplog: pytest.LogC
     message = record.getMessage()
     assert "without -P" in message and "sys.path" in message
     assert "narration-admin daemon start" in message and "start_detached" in message
+
+
+def test_a_qa_profile_other_than_this_builds_is_logged_once_at_start_s16(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``[qa] profile`` is inert: the daemon starts either way, and says which profile runs when they differ."""
+    path = write_config(tmp_path / "service")
+    with caplog.at_level(logging.WARNING, logger="narration.daemon"):
+        assert warn_on_qa_profile(load_config(path)) is False  # no [qa]: the default is the build's profile
+        with path.open("a", encoding="utf-8") as config:
+            config.write(f"\n[qa]\nprofile = '{names.QA_PROFILE}'\n")
+        assert warn_on_qa_profile(load_config(path)) is False
+        assert caplog.records == [], "the same profile: nothing to say"
+        text = path.read_text(encoding="utf-8").replace(names.QA_PROFILE, "an-older-profile.v1")
+        path.write_text(text, encoding="utf-8")
+        assert warn_on_qa_profile(load_config(path)) is True
+    (record,) = caplog.records
+    message = record.getMessage()
+    assert record.levelno == logging.WARNING
+    assert "an-older-profile.v1" in message and f"QA profile '{names.QA_PROFILE}'" in message
+    assert f'profile = "{names.QA_PROFILE}"' in message
 
 
 def test_the_default_runner_is_the_job_engine_s4() -> None:
