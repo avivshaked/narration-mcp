@@ -62,10 +62,19 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
       `check_text` flag for a transcript near-miss); design text for §3.2, §4, §4.1, §7.3, §14 and §15.
     - Open for the owner: `measure_voice` with a mistyped transcript still queues a new measurement.
   - Their worktrees and branches are removed.
-- **Merge order from here:** WP47 (PR #44, contracts 1.6.9), after its fix round (DC-20, the report's fallback
-  for older jobs) and green CI; told to merge main again first. **After WP47:**
-  re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in stages (remove
-  `.dev/service-setup/STOP`), both in a GPU window.
+- **Also merged 2026-09-28:** PR #44, WP47 (085da1b: pace in characters per second of speaking time, judged
+  against the voice's flat level; DC-18, DC-20; QA profile `default.v5`; contracts 1.6.9; one new field,
+  `Pace.level_cps`), and PR #47, design revision 5.16 (23eb57e). Their worktrees and branches are removed. The
+  owner's `narration.toml` `[qa] profile` now says `default.v5`. At the owner's request (token cost), the last
+  merges had no multi-agent review: the lead read WP47's DC-20 diff, and CI was green on both.
+- **Next, needs a GPU window from the owner (about 10 min):** a-warm-s101 now answers `VOICE_NOT_MEASURED`
+  (its measurement is `/v1`). Run `measure_voice` again: it reuses the cached renders and reruns QA only
+  (BELIEVE: not yet run on the real store). Then re-score the first job to check the 0.25 s pause threshold
+  (ASSUME until then; WP47's F2). Later, the rest of the ladder in stages (remove `.dev/service-setup/STOP`).
+- **Follow-ups:** WP47's F2–F4 and the flaky `test_a_worker_that_cannot_start_fails_the_job_once_s14`
+  (`status/WP47.md`); `contracts/codes.py` CLIP_TOO_LONG retake `always` → `never` (the design says never);
+  the stopped daemon's launch time or stop reason in `run/daemon.json` (also fixes a failed-start message that
+  can say "exited before it served" for a daemon that served; design 5.16 §4.1); `install`'s stop message.
 - **Decisions carried into the resumed agents:**
   - **PR #41, L1: option (b′).** A queued job under a `stopped` status counts as an operator's stop only if both
     hold:
@@ -115,8 +124,7 @@ Code session.
 
   | Package | Branch | Agent | State |
   |---|---|---|---|
-  | WP47 pace in characters per second, with the pauses excluded | `wp/47-pace-cps`, PR #44 | af6d02f523a3a52f0 | fixing its review: DC-20 (the flat level), the report's wording for pre-1.6.9 jobs, `Pace.method`; merging main (#41, #45) |
-  | Design revision 5.16 | `docs/design-5.16`, PR #47 | a184336c31c8b3167 | six commits: #41's liveness text, #45's `failures`, #46's `[qa] profile` note, §14 CLIP_TOO_LONG, then DC-18 (checked against PR #44 at b6507e9) and DC-20 (written from plan.md; its code is not pushed yet). Commits 1–4 in an adversarial review. **Merge after WP47**, checking the DC-18 and DC-20 commits against WP47's final code; bump AGENTS.md to 5.16 then |
+  | (none) | | | |
 
   Found while writing 5.16 (all low; not changed there):
   - `contracts/codes.py` gives CLIP_TOO_LONG the retake rule `always`, but the handler raises it with
