@@ -278,6 +278,13 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- `narration-admin doctor` reports the QA profile the service scores with, and warns when `[qa] profile` in
+  the configuration names another: the setting changes nothing, since every take is scored with the
+  build's profile. The warning says which profile runs and to update the line; it never fails the check.
+  The daemon logs the same warning once when it starts.
+- The daemon logs one INFO line when a job ends (completed, failed or cancelled): its id, kind, final
+  status and outcome, the number of segments, the retakes used, and the wall time since it took the job.
+  Nothing of the request is logged: no text, no transcript, no path.
 - `PACE_FAST` only warns; it never fails a take and never triggers a retake (the QA profile is now
   `default.v4`, DC-19). The words-per-minute pace model failed short paragraphs that listened fine, and
   wasted their retakes. `PACE_SLOW` is unchanged (it only warns). The flag's `details.fast_fail_above` is

@@ -40,6 +40,11 @@ released at the end of each piece of work, and lapse by their TTL if the process
 between steps.
 
 The drain estimate the daemon publishes (DC-2's ``admission.queue.est_drain_s``) is refreshed after each step.
+
+When a job it held ends (``completed``, ``failed`` or ``cancelled``), the runner logs one INFO line: the job id,
+its kind, its final status and outcome, the number of segments, the retakes used, and the wall time since it
+took the job (the last time, if the job gave way). Nothing of the request is logged: no text, no transcript,
+no path.
 """
 
 from __future__ import annotations
@@ -55,6 +60,7 @@ from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import AlignerCore
 from narration.contracts.models import JobRecord
+from narration.contracts.names import TERMINAL_JOB_STATUSES
 from narration.daemon.settings import LOG_NAME
 from narration.post import DeliveryPipeline
 from narration.qa import Scorer
@@ -87,10 +93,15 @@ class EngineRunner:
     It takes the job engine, a ``Registry`` of handlers by kind, or a factory that builds either at the first
     job claimed (the daemon constructs its runner before it has a host). A factory that raises
     ``NarrationError`` fails that job with the error, and is asked again at the next job, so an installation
-    completed meanwhile is picked up.
+    completed meanwhile is picked up. ``clock`` (monotonic seconds) times each job for the line logged when it
+    ends.
     """
 
-    def __init__(self, source: JobEngine | Registry | EngineFactory) -> None:
+    def __init__(
+        self, source: JobEngine | Registry | EngineFactory, *, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._clock = clock
+        self._taken_at = 0.0
         self._registry: Registry | None = None
         self._build: EngineFactory | None = None
         if isinstance(source, JobEngine | Registry):
@@ -145,6 +156,7 @@ class EngineRunner:
         if job is None:
             return False
         self._job = job
+        self._taken_at = self._clock()
         host.job_started(job)
         log.info("took job %s (%s, %s)", job.job_id, job.kind, job.priority)
         try:
@@ -262,12 +274,37 @@ class EngineRunner:
         self._done(host)
 
     def _done(self, host: RunnerHost) -> None:
+        job = self._job
         self._job = None
         self._handler = None
         self._run = None
         if self._registry is not None:
             self._registry.residency.reset_wait(host)
         host.job_finished()
+        if job is not None:
+            self._log_end(host, job.job_id)
+
+    def _log_end(self, host: RunnerHost, job_id: str) -> None:
+        """One INFO line when the job has ended (see the module docstring); none when it went back to the queue.
+        Only the record's counts and names are logged, never the request (its text, transcript or paths)."""
+        wall_s = self._clock() - self._taken_at
+        try:
+            job = host.store.get_job(job_id)
+        except Exception:  # the line is advice: a store hiccup must not fail a step
+            log.debug("job %s: its record could not be read for the end-of-job line", job_id, exc_info=True)
+            return
+        if job is None or job.status not in TERMINAL_JOB_STATUSES:
+            return
+        log.info(
+            "job %s ended: kind %s, status %s, outcome %s, segments %d, retakes used %d, wall %.1f s",
+            job.job_id,
+            job.kind,
+            job.status,
+            job.outcome or "none",
+            job.progress.segments_total,
+            sum(segment.retakes_used for segment in job.items),
+            wall_s,
+        )
 
     # ------------------------------------------------------------------ the drain estimate (DC-2)
     def _publish_drain(self, host: RunnerHost) -> None:
