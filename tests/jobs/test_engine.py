@@ -412,7 +412,8 @@ def test_progress_grows_with_retakes_and_never_goes_back_s7_4(world: World) -> N
     totals = [p.total_s for p in seen]
     finished = [p.segments_done for p in seen]
     assert dones == sorted(dones)
-    assert totals == sorted(totals) and totals[-1] == pytest.approx(3 * totals[0])
+    # total_s is stated to 0.001 s, so three rounded estimates can differ from the rounded total by 0.002.
+    assert totals == sorted(totals) and totals[-1] == pytest.approx(3 * totals[0], abs=0.002)
     assert finished == sorted(finished)  # a segment about to be retaken is not done yet
     assert seen[-1].fraction == 1.0 and seen[-1].segments_done == seen[-1].segments_total == 1
     phases = {p for p in world.host.phases if p is not None}
@@ -502,9 +503,9 @@ def test_a_cue_with_no_alignable_words_is_flagged_but_never_retaken_dc12(world: 
 
 
 def test_a_take_faster_than_its_pace_curve_warns_and_is_never_retaken_dc19(world: World) -> None:
-    """default.v4 (the owner's decision, 2026-09-27): PACE_FAST warns only. Under default.v3 a take this far
-    above the voice's curve failed and was retaken on every attempt."""
-    world.measure(intercept_wpm=20.0)  # the fake's takes read many times faster than this
+    """default.v4 and v5 (the owner's decision, 2026-09-27): PACE_FAST warns only. Under default.v3 a take this
+    far above the voice's curve failed and was retaken on every attempt."""
+    world.measure(level_cps=2.0)  # the fake's takes read many times faster than this
     job = world.submit(LAMPS, max_retakes=2)
     world.run()
     item = world.job(job.job_id).items[0]
@@ -514,7 +515,9 @@ def test_a_take_faster_than_its_pace_curve_warns_and_is_never_retaken_dc19(world
     (fast,) = [f for f in analysis.qa.flags if f.code == codes.PACE_FAST]
     assert (fast.severity, fast.retake_trigger) == ("warn", False)
     assert fast.details is not None and fast.details["fast_fail_above"] is None
-    assert analysis.qa.metrics.spoken_wpm is not None and analysis.qa.metrics.spoken_wpm > 20.0 * (1 + 2 * 0.6)
+    rate = analysis.qa.metrics.articulation_cps
+    assert rate is not None and rate > 2.0 * (1 + 2 * 0.6)
+    assert analysis.qa.metrics.pause_s is not None  # the service's signal stage measured the silences
     assert analysis.qa.verdict == "warn" and item.state == "warned"
 
 

@@ -481,7 +481,18 @@ class TermResult:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class QaMetrics:
     """QA's numbers (App. B ``qa.metrics``). ``spoken_cps`` and ``clipping_fraction`` (added): section
-    11.1 steps 1 and 9 name them."""
+    11.1 steps 1 and 9 name them.
+
+    Pace (step 9; contracts 1.6.9, WP47): ``articulation_cps`` is what the pace check judges, against
+    ``expected_articulation_cps`` from the voice's pace curve: spoken characters per second of speaking time,
+    the voiced span less the pauses inside it (``pause_s``, the silences of at least
+    ``narration.qa.pace.MIN_PAUSE_S``; null when the take's silences were not measured, and then the rate is over
+    the whole voiced span). ``spoken_wpm`` and ``spoken_cps`` are over the whole voiced span, pauses included,
+    and are information only. ``expected_spoken_wpm`` is ``spoken_wpm`` at the expected pace: the words per
+    minute this take would have if its speaking time ran at ``expected_articulation_cps`` and its pauses stayed
+    as they are; null without a pace curve. An analysis made before 1.6.9 has no articulation fields, and its
+    ``expected_spoken_wpm`` came from a pace curve in words per minute.
+    """
 
     wer_raw: float | None
     wer_adj: float | None
@@ -495,6 +506,9 @@ class QaMetrics:
     longest_silence_s: float | None
     spoken_cps: float | None = None
     clipping_fraction: float | None = None
+    articulation_cps: float | None = None
+    expected_articulation_cps: float | None = None
+    pause_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -585,37 +599,63 @@ class SimilarityBaseline:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PaceTrend:
-    """Pace against length, fitted over the rungs up to ``band_max_chars`` (section 3.2)."""
+    """Pace against length, fitted over the rungs up to ``band_max_chars`` (section 3.2). Pace is spoken
+    characters per second of speaking time (``Pace.method``): ``intercept_cps`` at no length, rising by
+    ``per_100_chars`` characters per second for every 100 spoken characters. Information only since contracts
+    1.6.9 (DC-20): no rung and no take is judged by it."""
 
-    intercept_wpm: float
+    intercept_cps: float
     per_100_chars: float
     band_max_chars: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PacePoint:
+    """The median pace of a passing rung's seeds, at its spoken length (spoken characters per second of
+    speaking time)."""
+
     chars: int
-    wpm: float
+    cps: float
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Pace:
+    """The voice's pace model (sections 3.2 and 11.1 step 9), in spoken characters per second of speaking
+    time: the voiced span with its pauses taken out (``names.PACE_METHOD``, ``narration.qa.pace``). Changed in
+    contracts 1.6.9 (WP47, D2): it was in spoken words per minute over the voiced span.
+
+    ``level_cps`` (DC-20) is the voice's pace: the median over the trend band's rungs of each rung's median
+    pace. The ladder judges every rung against it, and QA expects it when there is no ``curve`` (no rung
+    passed). ``trend`` is information only. ``speaking_share`` is the median share of the voiced span that was
+    speaking, over the trend band's takes. It is only for duration estimates (sections 7.3 and 12: a take lasts
+    its characters at the curve's pace, plus its pauses), never for a verdict.
+    """
+
+    method: str
+    level_cps: float
     trend: PaceTrend
     tol: float
     curve: tuple[PacePoint, ...]
+    speaking_share: float
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LadderSeed:
-    """One take of a ladder rung (section 7.6: per rung and seed: spoken wpm, wer_adj, similarity, verdict)."""
+    """One take of a ladder rung (section 7.6: per rung and seed: pace, wer_adj, similarity, verdict).
+
+    ``cps`` is the pace the rung is judged on (spoken characters per second of speaking time, QA's
+    ``articulation_cps``); ``spoken_cps`` (over the whole voiced span) and ``wpm`` (spoken words per minute over
+    it) are information only."""
 
     seed: int
     attempt: int
     take_id: str | None
-    wpm: float | None
+    cps: float | None
     wer_adj: float | None
     sim: float | None
     verdict: Verdict
+    spoken_cps: float | None = None
+    wpm: float | None = None
     duration_s: float | None = None
     flags: tuple[str, ...] = ()
 
@@ -952,9 +992,14 @@ class Suggestion:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PaceValue:
-    """A pace in spoken words per minute (section 7.5 ``qa.pace`` / ``qa.pace_expected``)."""
+    """A take's pace, or the pace expected of it (section 7.5 ``qa.pace`` / ``qa.pace_expected``).
+
+    ``articulation_cps`` (added, contracts 1.6.9) is what QA judges: spoken characters per second of speaking
+    time, pauses taken out (``QaMetrics``). ``spoken_wpm`` is spoken words per minute over the whole voiced span,
+    information only; in ``pace_expected`` it is the take's own words per minute at the expected pace."""
 
     spoken_wpm: float | None
+    articulation_cps: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -42,6 +42,7 @@ from narration.admin.failures import (
     csv_cell,
     export,
     export_dir,
+    metrics_line,
     retention_view,
 )
 from narration.backend.assemble import assemble, segments_json
@@ -453,6 +454,20 @@ def test_export_writes_each_wav_its_sidecar_and_the_index_wp48(audit: Audit, tmp
     assert again.code == EXIT_OK
     exported = json.loads(again.out)["export"]
     assert exported["written"] == [] and sorted(exported["unchanged"]) == sorted(names)
+
+
+def test_the_metrics_line_gives_the_pace_qa_judged_first_s11_1_wp47() -> None:
+    """Since contracts 1.6.9 QA judges pace in characters per second of speaking time (WP47); a take scored
+    before has only words per minute, and its line gives those."""
+    new = {
+        "spoken_wpm": 171.4,
+        "expected_spoken_wpm": 150.2,
+        "articulation_cps": 16.94,
+        "expected_articulation_cps": 16.41,
+    }
+    assert metrics_line(new) == "pace 16.94 cps of speaking (expected 16.41) · 171 spoken wpm (expected 150)"
+    assert metrics_line({"spoken_wpm": 171.4, "expected_spoken_wpm": 150.2}) == "171 spoken wpm (expected 150)"
+    assert {"articulation_cps", "expected_articulation_cps", "pause_s"} <= set(INDEX_COLUMNS)
 
 
 def test_index_cells_a_spreadsheet_would_run_are_neutralised_wp48() -> None:

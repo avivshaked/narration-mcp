@@ -32,6 +32,13 @@ keeps those takes as long as the measurement (above), so section 15's promise ho
 kept for ``measurement_retention_days``. Copying each take into the measurement's folder would store the
 same audio twice under two retention rules.
 
+**A measurement of an earlier schema or pace method is not read.** A measurement whose ``schema`` is not
+``names.MEASUREMENT_SCHEMA`` (``narration.measurement/v1``, whose pace was in words per minute), or whose
+``pace.method`` is not ``names.PACE_METHOD`` (its pace numbers are in another rule's units), reads as no
+measurement: ``get_measurement`` returns None and ``measurements_of`` leaves it out, so generation answers
+``VOICE_NOT_MEASURED`` and ``measure_voice`` measures the voice again, which replaces it. Until then it keeps
+its takes alive like any measurement, so measuring again reuses every render and take it made.
+
 **Concurrent collection.** ``gc`` works in short write transactions, a bounded batch of items each. In
 each one it renames every victim to a ``.trash-`` sibling and deletes its rows, and only after the commit
 does it remove those trash names, outside the lock. A key published again meanwhile goes to a fresh folder
@@ -76,7 +83,7 @@ from narration.contracts.models import (
     RenderRecord,
     TakeRecord,
 )
-from narration.contracts.names import DaemonCommandKind, EngineKind, JobStatus
+from narration.contracts.names import MEASUREMENT_SCHEMA, PACE_METHOD, DaemonCommandKind, EngineKind, JobStatus
 from narration.contracts.serial import ContractError, from_json, to_json
 from narration.keys.ulid import UlidGenerator
 from narration.platform import real_path
@@ -737,7 +744,12 @@ class NarrationStore:
         return self._read_all(self._fetch_all(sql, voice_hash), self._measurement)
 
     def _measurement(self, row: sqlite3.Row) -> MeasurementRecord | _Reread | None:
-        record = from_json(MeasurementRecord, json.loads(row["record"]))
+        data = json.loads(row["record"])
+        if not isinstance(data, dict) or data.get("schema") != MEASUREMENT_SCHEMA:  # pyright: ignore[reportUnknownMemberType]
+            return None  # an earlier schema is never read (the module docstring)
+        record = from_json(MeasurementRecord, data)
+        if record.pace.method != PACE_METHOD:
+            return None  # nor pace numbers in another rule's units (the module docstring)
         rel = f"{row['rel_dir']}/{MEASUREMENT_JSON}"
         if not self._present(rel):
             return None if self._drop("measurement", record.measurement_key, row["record"], rel) else _REREAD

@@ -60,7 +60,10 @@ VOICE_SCHEMA: Final = "narration.voice/v2"
 RENDER_SCHEMA: Final = "narration.render/v1"
 TAKE_SCHEMA: Final = "narration.take/v1"
 ANALYSIS_SCHEMA: Final = "narration.analysis/v1"
-MEASUREMENT_SCHEMA: Final = "narration.measurement/v1"
+MEASUREMENT_SCHEMA: Final = "narration.measurement/v2"
+"""``/v2`` (WP47, D2): the pace model is in spoken characters per second of speaking time (``PACE_METHOD``).
+A ``/v1`` measurement's pace was in spoken words per minute, so it is never read: to every reader it is not
+there (``VOICE_NOT_MEASURED``), and ``measure_voice`` measures the voice again."""
 # Not named by the design; chosen here so every record and key carries a versioned schema id.
 CANDIDATE_SCHEMA: Final = "narration.candidate/v1"
 PROFILE_SCHEMA: Final = "narration.profile/v1"
@@ -68,7 +71,8 @@ ENGINE_PROFILE_SCHEMA: Final = "narration.engine-profile/v1"
 ALIGNMENT_BENCHMARK_SCHEMA: Final = "narration.alignment-benchmark/v1"
 JOB_SCHEMA: Final = "narration.job/v1"
 REPORT_SCHEMA: Final = "narration.report/v1"
-MEASUREMENT_KEY_SCHEMA: Final = "narration.measurement-key/v1"
+MEASUREMENT_KEY_SCHEMA: Final = "narration.measurement-key/v2"
+"""``/v2`` (WP47): the key also names ``PACE_METHOD``."""
 DELIVERY_KEY_SCHEMA: Final = "narration.delivery-key/v1"
 ANALYSIS_KEY_SCHEMA: Final = "narration.analysis-key/v1"
 SEED_SCHEME: Final = "narration-seed/v1"
@@ -79,15 +83,24 @@ Changing it designs other voices from every request, so it changes only with a n
 
 # ---------------------------------------------------------------- versions of the service's rules
 TEXT_CHECKS_VERSION: Final = "text-1.1.0"
-QA_PROFILE: Final = "default.v4"
-"""The QA profile (``narration.qa.profile``), part of the analysis key (section 10.2). ``default.v4``
-(contracts 1.6.7; DC-19, the owner's decision of 2026-09-27): ``PACE_FAST`` warns only and never fails, so it
-never triggers a retake. ``default.v3`` failed it above curve x (1 + 2 tol). The measurement key does not
-include the QA profile, so a voice measured under ``default.v3`` stays measured; takes are scored again."""
+QA_PROFILE: Final = "default.v5"
+"""The QA profile (``narration.qa.profile``), part of the analysis key (section 10.2). ``default.v5``
+(contracts 1.6.9; DC-18, WP47): pace is spoken characters per second of speaking time, the voiced span less
+its pauses (``PACE_METHOD``), judged against a pace curve measured the same way. ``default.v4`` (contracts
+1.6.7; DC-19, the owner's decision of 2026-09-27): ``PACE_FAST`` warns only and never fails, so it never
+triggers a retake; ``default.v5`` keeps that. ``default.v3`` failed it above curve x (1 + 2 tol). Every take
+is scored again under a new profile; nothing is rendered again."""
 NUMBER_READER: Final = "whisper-english-normalizer+nought@2"
 """The number reader of section 11.3. ``@2`` (plan.md DC-7): number words never merge across punctuation
 (each side is read in phrases split at punctuation, so "two thousand, forty" is 2000 and 40, not 2040), and
 ’ ‘ ʼ are read as the straight apostrophe on both sides. ``@1`` was the vendored reader as-is."""
+PACE_METHOD: Final = "narration.pace/articulation-cps@1"
+"""How pace is measured (sections 3.2 and 11.1 step 9; ``narration.qa.pace``): spoken characters per second of
+speaking time, which is the voiced span with every pause inside it (a silence of at least
+``narration.qa.pace.MIN_PAUSE_S``) taken out. The measurement's pace model and QA's pace check use this one
+rule. It is in the measurement key, so a change to the rule measures every voice again; a change that makes a
+stored measurement's pace mean something else must also bump ``MEASUREMENT_SCHEMA``, so that none is read under
+the new rule, and ``QA_PROFILE``, so that no cached verdict is reused."""
 ALIGNMENT_METHOD: Final = "ctc-forced-align+silence-snap"
 POST_RULES: Final = "narration.post/1"
 """The version of the delivery post-processing's own rules (section 13): framing, percentile, fade shape,

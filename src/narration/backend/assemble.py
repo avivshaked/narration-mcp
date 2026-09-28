@@ -170,8 +170,10 @@ def take_result(
             exact=tuple(restamp_exact(r, spans) for r in q.exact),
             terms=q.terms,
             spk_sim_anchor=q.metrics.spk_sim_anchor,
-            pace=PaceValue(spoken_wpm=q.metrics.spoken_wpm),
-            pace_expected=PaceValue(spoken_wpm=q.metrics.expected_spoken_wpm),
+            pace=PaceValue(spoken_wpm=q.metrics.spoken_wpm, articulation_cps=q.metrics.articulation_cps),
+            pace_expected=PaceValue(
+                spoken_wpm=q.metrics.expected_spoken_wpm, articulation_cps=q.metrics.expected_articulation_cps
+            ),
             transcript=q.transcript if include_transcripts else None,
         )
         cues = _cues(a.cues, include_words)

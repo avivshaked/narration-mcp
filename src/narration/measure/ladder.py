@@ -1,18 +1,29 @@
-"""The length ladder's judgement (design section 3.2, R8): the pace trend, ``tol``, whether each rung passes,
+"""The length ladder's judgement (design section 3.2, R8): the pace level, ``tol``, whether each rung passes,
 ``max_segment_chars``, ``max_segment_seconds`` and the pace curve.
 
 Pure functions over what QA measured on each rung's takes (``SeedTake``: one per seed). The rules, as section
 3.2 states them, with the choices it leaves open made explicit:
 
-- **Pace** is spoken words per minute over the voiced span (QA's ``spoken_wpm``; section 11.1 step 9).
-- **The trend** is a straight line of pace against length, fitted by ordinary least squares over the rungs of
-  the trend band (target length at most ``trend_band_max_chars``, 300 by default), one point per rung: its
-  spoken length and the median pace over its seeds. One point per rung, not per take, so a rung counts once
-  and one odd seed cannot tilt the line. A band with a single length gives a flat line through it.
+- **Pace** is spoken characters per second of speaking time: the voiced span with its pauses taken out (QA's
+  ``articulation_cps``; ``narration.qa.pace``, ``names.PACE_METHOD``). Every take of the ladder is scored by
+  the same QA as a caller's take, so the curve and a take's pace are one quantity. (Before WP47 it was spoken
+  words per minute, which followed the corpus's word lengths rather than the voice.)
+- **The level** (DC-20) is the voice's pace: the median over the rungs of the trend band (target length at
+  most ``trend_band_max_chars``, 300 by default) of each rung's median pace over its seeds. One value per rung,
+  not per take, so a rung counts once and one odd seed cannot move it. Every rung, in the band and above it, is
+  judged against this one level: in characters per second of speaking time a voice's pace is flat with length
+  (D2), so a slope fitted through a few rungs is noise, and extended to longer rungs it would move their limit
+  by several per cent (plan.md, DC-20).
+- **The trend** is still fitted and published, for information only: a straight line of pace against length,
+  by ordinary least squares through the band's (spoken length, median pace) points. Nothing judges by it. A
+  band with a single length gives a flat line through it.
 - **The seed spread** of a rung is (highest - lowest) / median of its seeds' paces. ``tol`` is the larger of
   ``pace_tol_min`` (0.10) and the largest spread in the band, so it is never below the spread the voice showed.
+  It is derived exactly as it was in words per minute, on the new pace: a relative spread has no unit.
+- **The speaking share** is the median over the band's takes of speaking time / voiced span (QA's
+  ``spoken_cps`` / ``articulation_cps``, which have the same characters). It is only for duration estimates.
 - **A rung passes** when all of these hold:
-  - the median pace over its seeds is at most the trend at the rung's length x (1 + ``tol``);
+  - the median pace over its seeds is at most the level x (1 + ``tol``), at every length;
   - the medians of ``wer_adj`` and of the word errors do not meet QA's fail rule (``wer_adj`` above 0.06 with
     at least 2 word errors; ``QaProfile``). That is what "the median ``wer_adj`` passes" means (the lead's
     ruling): the fail rule already holds a one-word allowance, so one slip in a short rung does not end the
@@ -26,7 +37,8 @@ Pure functions over what QA measured on each rung's takes (``SeedTake``: one per
   ``ladder-150`` may be 151 characters), because that is what the voice read. **``max_segment_seconds``** is
   the median delivery duration over that rung's seeds. With no passing rung both are None.
 - **The pace curve** is the median pace by spoken length over the passing run, which QA reads at a segment's
-  length (``narration.qa.checks.expected_wpm``).
+  length (``narration.qa.pace.expected_cps``: straight lines between its points, its end values held flat
+  outside them, and the level when there is no curve).
 """
 
 from __future__ import annotations
@@ -46,12 +58,14 @@ DECIMALS: Final = 6
 
 @dataclass(frozen=True, slots=True)
 class SeedTake:
-    """One seed's take of a rung, as QA measured it. ``flags`` are its QA flag codes."""
+    """One seed's take of a rung, as QA measured it. ``cps`` is its pace (QA's ``articulation_cps``);
+    ``spoken_cps`` and ``wpm`` are over the whole voiced span (information, and the speaking share). ``flags``
+    are its QA flag codes."""
 
     seed: int
     attempt: int
     take_id: str | None
-    wpm: float | None
+    cps: float | None
     wer_adj: float | None
     word_errors: int | None
     sim: float | None
@@ -61,6 +75,8 @@ class SeedTake:
     head_insertion: bool = False
     token_cap: bool = False
     flags: tuple[str, ...] = ()
+    spoken_cps: float | None = None
+    wpm: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +96,8 @@ class RungJudgement:
 
     passes: bool
     reasons: tuple[str, ...] = ()
-    median_wpm: float | None = None
-    limit_wpm: float | None = None
+    median_cps: float | None = None
+    limit_cps: float | None = None
     median_wer_adj: float | None = None
     median_word_errors: float | None = None
     median_sim: float | None = None
@@ -110,37 +126,54 @@ def in_band(rung: Rung, band_max_chars: int) -> bool:
     return rung.target <= band_max_chars
 
 
-def fit_trend(rungs: Sequence[Rung], band_max_chars: int) -> PaceTrend:
-    """The pace trend over the band's rungs: least squares through (spoken length, median pace) per rung.
-
-    Raises ValueError when no rung in the band has a measured pace."""
+def _band_points(rungs: Sequence[Rung], band_max_chars: int) -> list[tuple[int, float]]:
+    """(spoken length, median pace) of every band rung with a measured pace. Raises ValueError when none has."""
     points: list[tuple[int, float]] = []
     for rung in rungs:
-        pace = median([s.wpm for s in rung.seeds]) if in_band(rung, band_max_chars) else None
+        pace = median([s.cps for s in rung.seeds]) if in_band(rung, band_max_chars) else None
         if pace is not None:
             points.append((rung.chars, pace))
     if not points:
         raise ValueError("no rung in the trend band has a measured pace")
+    return points
+
+
+def band_level(rungs: Sequence[Rung], band_max_chars: int) -> float:
+    """The voice's pace level (DC-20): the median over the band's rungs of each rung's median pace. Every rung
+    is judged against it, and QA reads it when the voice has no pace curve.
+
+    Raises ValueError when no rung in the band has a measured pace."""
+    level = median([pace for _, pace in _band_points(rungs, band_max_chars)])
+    assert level is not None
+    return round(level, DECIMALS)
+
+
+def fit_trend(rungs: Sequence[Rung], band_max_chars: int) -> PaceTrend:
+    """The pace trend over the band's rungs: least squares through (spoken length, median pace) per rung. For
+    information only (DC-20): nothing is judged by it.
+
+    Raises ValueError when no rung in the band has a measured pace."""
+    points = _band_points(rungs, band_max_chars)
     xs = [float(x) for x, _ in points]
     ys = [y for _, y in points]
     mean_x, mean_y = statistics.fmean(xs), statistics.fmean(ys)
     var = sum((x - mean_x) ** 2 for x in xs)
     slope = sum((x - mean_x) * (y - mean_y) for x, y in points) / var if var > 0 else 0.0
     return PaceTrend(
-        intercept_wpm=round(mean_y - slope * mean_x, DECIMALS),
+        intercept_cps=round(mean_y - slope * mean_x, DECIMALS),
         per_100_chars=round(slope * 100.0, DECIMALS),
         band_max_chars=band_max_chars,
     )
 
 
 def trend_at(trend: PaceTrend, chars: int) -> float:
-    """The trend's pace at a spoken length, in spoken words per minute."""
-    return trend.intercept_wpm + trend.per_100_chars * chars / 100.0
+    """The trend's pace at a spoken length, in spoken characters per second of speaking time (information)."""
+    return trend.intercept_cps + trend.per_100_chars * chars / 100.0
 
 
 def seed_spread(rung: Rung) -> float:
     """(highest - lowest) / median of the rung's seeds' paces; 0 with fewer than two."""
-    paces = [s.wpm for s in rung.seeds if s.wpm is not None]
+    paces = [s.cps for s in rung.seeds if s.cps is not None]
     if len(paces) < 2:
         return 0.0
     mid = statistics.median(paces)
@@ -153,22 +186,40 @@ def pace_tol(rungs: Sequence[Rung], band_max_chars: int, tol_min: float) -> floa
     return round(max([tol_min, *spreads]), DECIMALS)
 
 
+def speaking_share(rungs: Sequence[Rung], band_max_chars: int) -> float:
+    """The median over the band's takes of speaking time / voiced span (``spoken_cps / cps``: both have the
+    rung's spoken characters), at most 1; 1.0 when no take of the band has both (then no pause is assumed)."""
+    shares = [
+        min(1.0, s.spoken_cps / s.cps)
+        for r in rungs
+        if in_band(r, band_max_chars)
+        for s in r.seeds
+        if s.spoken_cps is not None and s.cps is not None and s.cps > 0
+    ]
+    found = median(shares)
+    return round(found, DECIMALS) if found is not None else 1.0
+
+
 def judge(
     rung: Rung,
     *,
-    trend: PaceTrend,
+    level: float,
     tol: float,
     sim_warn: float,
     profile: QaProfile = DEFAULT_PROFILE,
 ) -> RungJudgement:
-    """Whether the rung passes (the module docstring), with the reasons it does not."""
+    """Whether the rung passes (the module docstring), with the reasons it does not. ``level`` is the band's
+    (``band_level``), the same for every rung."""
     reasons: list[str] = []
-    wpm = median([s.wpm for s in rung.seeds])
-    limit = trend_at(trend, rung.chars) * (1.0 + tol)
-    if wpm is None:
+    cps = median([s.cps for s in rung.seeds])
+    limit = level * (1.0 + tol)
+    if cps is None:
         reasons.append("no seed's pace could be measured")
-    elif wpm > limit:
-        reasons.append(f"median pace {wpm:.1f} wpm is above the trend x (1 + tol) = {limit:.1f} wpm")
+    elif cps > limit:
+        reasons.append(
+            f"median pace {cps:.2f} characters per second of speaking time is above the voice's level x (1 + tol) "
+            f"= {limit:.2f}"
+        )
     wer = median([s.wer_adj for s in rung.seeds])
     errors = median([None if s.word_errors is None else float(s.word_errors) for s in rung.seeds])
     if wer is None or errors is None:
@@ -193,8 +244,8 @@ def judge(
     return RungJudgement(
         passes=not reasons,
         reasons=tuple(reasons),
-        median_wpm=_round(wpm),
-        limit_wpm=_round(limit),
+        median_cps=_round(cps),
+        limit_cps=_round(limit),
         median_wer_adj=_round(wer),
         median_word_errors=errors,
         median_sim=_round(sim),
@@ -215,7 +266,7 @@ def outcome(rungs: Sequence[Rung], judgements: Sequence[RungJudgement]) -> Ladde
         return LadderOutcome(run=0, max_segment_chars=None, max_segment_seconds=None)
     passing = list(zip(rungs[:run], judgements[:run], strict=True))
     top_rung, top = passing[-1]
-    curve = tuple(PacePoint(chars=r.chars, wpm=j.median_wpm) for r, j in passing if j.median_wpm is not None)
+    curve = tuple(PacePoint(chars=r.chars, cps=j.median_cps) for r, j in passing if j.median_cps is not None)
     return LadderOutcome(
         run=run, max_segment_chars=top_rung.chars, max_segment_seconds=top.median_duration_s, curve=curve
     )
@@ -232,10 +283,12 @@ def ladder_rung(rung: Rung, judgement: RungJudgement) -> LadderRung:
                 seed=s.seed,
                 attempt=s.attempt,
                 take_id=s.take_id,
-                wpm=_round(s.wpm),
+                cps=_round(s.cps),
                 wer_adj=_round(s.wer_adj),
                 sim=_round(s.sim),
                 verdict=s.verdict,
+                spoken_cps=_round(s.spoken_cps),
+                wpm=_round(s.wpm),
                 duration_s=_round(s.duration_s),
                 flags=s.flags,
             )
@@ -254,6 +307,7 @@ __all__ = [
     "Rung",
     "RungJudgement",
     "SeedTake",
+    "band_level",
     "fit_trend",
     "in_band",
     "judge",
@@ -262,5 +316,6 @@ __all__ = [
     "outcome",
     "pace_tol",
     "seed_spread",
+    "speaking_share",
     "trend_at",
 ]

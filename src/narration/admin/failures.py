@@ -83,8 +83,20 @@ FAILURES_SCHEMA_ID: Final = "narration.failures/v1"
 """The schema id of ``failures --json`` and of each export sidecar (operator output; not a record the store
 keeps)."""
 INDEX_CSV: Final = "index.csv"
-METRIC_COLUMNS: Final = ("wer_adj", "word_errors", "spk_sim_anchor", "spoken_wpm", "expected_spoken_wpm", "spoken_cps")
-"""The QA metrics ``index.csv`` has a column for (``QaMetrics``' names)."""
+METRIC_COLUMNS: Final = (
+    "wer_adj",
+    "word_errors",
+    "spk_sim_anchor",
+    "spoken_wpm",
+    "expected_spoken_wpm",
+    "spoken_cps",
+    "articulation_cps",
+    "expected_articulation_cps",
+    "pause_s",
+)
+"""The QA metrics ``index.csv`` has a column for (``QaMetrics``' names). The pace QA judges since contracts
+1.6.9 is ``articulation_cps`` against ``expected_articulation_cps`` (WP47); a take scored before has them
+empty."""
 INDEX_COLUMNS: Final = (
     "job_id",
     "job_created_at",
@@ -693,7 +705,8 @@ def _filled(f: FailedTake) -> str:
 
 def metrics_line(metrics: Mapping[str, Any]) -> str:
     """The key QA metrics on one line: adjusted WER and word errors, similarity to the anchor, and whichever
-    pace metrics the analysis has (words per minute, and characters per second where measured)."""
+    pace metrics the analysis has (the pace QA judged, in characters per second of speaking time since contracts
+    1.6.9; words per minute; characters per second over the voiced span)."""
 
     def num(key: str, digits: int) -> str | None:
         value = metrics.get(key)
@@ -707,6 +720,9 @@ def metrics_line(metrics: Mapping[str, Any]) -> str:
         parts.append(f"wer_adj {wer}" + (f" ({errors} word errors)" if isinstance(errors, int) else ""))
     if (similarity := num("spk_sim_anchor", 4)) is not None:
         parts.append(f"similarity {similarity}")
+    if (pace := num("articulation_cps", 2)) is not None:
+        expected = num("expected_articulation_cps", 2)
+        parts.append(f"pace {pace} cps of speaking" + (f" (expected {expected})" if expected is not None else ""))
     if (wpm := num("spoken_wpm", 0)) is not None:
         expected = num("expected_spoken_wpm", 0)
         parts.append(f"{wpm} spoken wpm" + (f" (expected {expected})" if expected is not None else ""))

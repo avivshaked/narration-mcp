@@ -170,12 +170,13 @@ class KeyBuilder(Protocol):
     def measurement_key(
         self, *, voice_hash: str, engine_profile_hash: str, corpus_version: str, settings: MeasurementConfig
     ) -> str:
-        """H({schema, voice_hash, engine_profile_hash, corpus version, ladder settings}).
+        """H({schema, voice_hash, engine_profile_hash, corpus version, ladder settings, pace method}).
 
         ``corpus_version`` names the corpus set and its content: ``"<set id>@sha256:<hex>"`` from the
         ``MaterialSet``. The ladder settings are every field of ``settings`` except ``corpus``: ``seeds``,
         ``length_ladder_spoken_chars``, ``trend_band_max_chars``, ``pace_tol_min``, ``sim_warn_margin``,
-        ``sim_fail_floor``.
+        ``sim_fail_floor``. The pace method is ``names.PACE_METHOD`` (``narration.measurement-key/v2``,
+        contracts 1.6.9).
         """
         ...
 
@@ -456,6 +457,9 @@ class SignalStats:
     ``voiced_start_s`` / ``voiced_end_s`` bound the speech in the delivery file (for pace, section 11.1
     step 9); ``longest_internal_silence_s`` is the longest pause strictly inside them. Speech here uses the
     trim's rule (section 13, DC-10: frame RMS with the mean removed, against max(p95 - 40 dB, -70 dBFS)).
+    ``internal_silences_s`` (added, contracts 1.6.9) is the length of every run of non-speech frames strictly
+    inside the voiced span, in order: QA's pace takes the pauses out of the voiced span with it
+    (``narration.qa.pace``). None when they were not measured; QA's pace is then over the whole voiced span.
 
     These rules feed QA verdicts, and the analysis key covers them only through ``names.QA_PROFILE``. A
     change to any of them (the frame, the percentile, the thresholds, what counts as clipping) needs a new
@@ -471,6 +475,7 @@ class SignalStats:
     voiced_start_s: float | None
     voiced_end_s: float | None
     longest_internal_silence_s: float
+    internal_silences_s: tuple[float, ...] | None = None
 
 
 @runtime_checkable
@@ -544,7 +549,7 @@ class QaScorer(Protocol):
         ...
 
     def score(self, inputs: QaInputs) -> QaResult:
-        """The take's verdict (section 11.1, thresholds ``default.v4``): signal, text match with the word-count
+        """The take's verdict (section 11.1, thresholds ``default.v5``): signal, text match with the word-count
         rule, exact spans (11.3), terms, insertions, speaker, pace; cue-alignment flags are included.
 
         The result is cached under the analysis key and reused by any request with the same key, so it must hold

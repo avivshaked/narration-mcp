@@ -307,6 +307,20 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- Pace is now measured in spoken characters per second of speaking time: the voiced span with its pauses
+  (silences of at least 13 frames of 20 ms, 0.26 s) taken out (DC-18; the QA profile is now `default.v5`).
+  Words per minute followed the corpus's word lengths rather than the voice, and a one-sentence segment, which
+  has no pause between sentences, read as fast against a curve measured on paragraphs. The voice's
+  measurement uses the same rule, so its pace curve and tolerance are in these units too, and `measurement.json`
+  is now `narration.measurement/v2`, with the voice's pace `level_cps` and a `speaking_share` used for duration
+  estimates. Pace is judged against the voice's flat level (DC-20): every ladder rung against the band's
+  level, and a take between the curve's points or held flat at its ends; the fitted trend is kept for
+  information only. **A voice measured before must be measured again**: it answers `VOICE_NOT_MEASURED` until
+  it is. Measuring again reuses every render and take the earlier measurement made. Only QA runs again, plus
+  renders for any rung beyond where the earlier ladder stopped, if the new rule lets it go further.
+  `get_results` shows `qa.pace.articulation_cps` and `qa.pace_expected.articulation_cps` beside `spoken_wpm`,
+  which stays as information; the report of a job finished before keeps its pace in words per minute.
+  `narration-admin failures` shows the pace QA judged. `PACE_FAST` still only warns.
 - `get_job` and `cancel_job` notice a job whose daemon has gone (a crash, a restart, a daemon that ended
   with its client), which before read `running` or `cancelling` forever. When no daemon runs, they start one
   (as `submit_job` does, following `[daemon] autostart`); its start-up puts a job left `running` back on the

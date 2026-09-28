@@ -125,3 +125,24 @@ def test_signal_stats_reads_the_two_files_s11_1(tmp_path: Path) -> None:
     delivery, rate = decode_wav(out.read_bytes())
     expected = measure_signal(raw.astype("float32").astype("float64"), 24000, delivery, rate)
     assert pipeline.signal_stats(raw_path, out) == expected
+
+
+def test_every_internal_silence_is_reported_in_order_s11_1() -> None:
+    """``internal_silences_s`` (WP47): every run of non-speech frames between the voiced edges, for QA's pace,
+    which takes the pauses out of the voiced span; the longest of them is ``longest_internal_silence_s``."""
+    raw = speech_like(24000, head_s=0.5, bursts=(1.0, 0.8, 1.2), gaps=(0.6, 0.12), tail_s=0.7)
+    delivery, rate = decode_wav(deliver(raw, 24000, DeliveryConfig()).wav)
+    stats = measure_signal(raw, 24000, delivery, rate)
+    assert stats.internal_silences_s is not None
+    assert len(stats.internal_silences_s) == 2
+    assert stats.internal_silences_s[0] == pytest.approx(0.6, abs=0.04)
+    assert stats.internal_silences_s[1] == pytest.approx(0.12, abs=0.04)
+    assert max(stats.internal_silences_s) == stats.longest_internal_silence_s
+
+
+def test_no_speech_means_no_internal_silences_s11_1() -> None:
+    stats = measure_signal(np.zeros(2400), 24000, np.zeros(4800), 48000)
+    assert stats.internal_silences_s == ()
+    one = speech_like(24000, head_s=0.5, bursts=(1.0,), gaps=(), tail_s=0.7)
+    delivery, rate = decode_wav(deliver(one, 24000, DeliveryConfig()).wav)
+    assert measure_signal(one, 24000, delivery, rate).internal_silences_s == ()

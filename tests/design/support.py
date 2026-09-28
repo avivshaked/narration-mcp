@@ -48,7 +48,14 @@ from tests.jobs.support import (
     qa_pins,
     snapshot,
 )
-from tests.measure.support import SHORT_CALIBRATION, SHORT_LADDER, corpus_data, write_corpus, write_spec
+from tests.measure.support import (
+    FAKE_PACE_TOL_MIN,
+    SHORT_CALIBRATION,
+    SHORT_LADDER,
+    corpus_data,
+    write_corpus,
+    write_spec,
+)
 from tests.store.standin import StandInPlatform
 
 DESIGN_ENGINE_ID: Final = "qwen3-design-1.7b.test"
@@ -218,7 +225,10 @@ def make_world(
     (store_root / "scratch").mkdir(parents=True, exist_ok=True)
     base = Config.for_tests(store_root, models_root)
     config = dataclasses.replace(
-        base, measurement=MeasurementConfig(seeds=2, length_ladder_spoken_chars=tuple(SHORT_LADDER))
+        base,
+        measurement=MeasurementConfig(
+            seeds=2, length_ladder_spoken_chars=tuple(SHORT_LADDER), pace_tol_min=FAKE_PACE_TOL_MIN
+        ),
     )
     write_corpus(root / "material", corpus_data(calibration=SHORT_CALIBRATION))
     store = NarrationStore(store_root, StandInPlatform(), alignment_method_id=METHOD_ID)

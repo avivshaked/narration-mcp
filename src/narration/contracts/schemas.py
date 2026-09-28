@@ -477,7 +477,7 @@ _EXACT_RESULT = _obj(
     }
 )
 _TERM_RESULT = _obj({"term": _STR, "cue": _INT, "heard": _STR_OR_NULL, "ok": _BOOL})
-_PACE = _obj({"spoken_wpm": _NUM_OR_NULL})
+_PACE = _obj({"spoken_wpm": _NUM_OR_NULL, "articulation_cps": _NUM_OR_NULL})
 _QA = _obj(
     {
         "verdict": {"enum": ["pass", "warn", "fail"]},

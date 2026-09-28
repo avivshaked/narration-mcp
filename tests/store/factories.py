@@ -225,7 +225,14 @@ def measurement_record(
         transcript_check=TranscriptCheck(heard="good bread asks for patience", wer=0.0, ok=True),
         corpus=names.CORPUS,
         similarity=SimilarityBaseline(anchor_p5=0.98, anchor_p50=0.987, consistency_p5=0.983),
-        pace=Pace(trend=PaceTrend(intercept_wpm=118.0, per_100_chars=12.5, band_max_chars=300), tol=0.17, curve=()),
+        pace=Pace(
+            method=names.PACE_METHOD,
+            level_cps=16.4,
+            trend=PaceTrend(intercept_cps=16.2, per_100_chars=0.4, band_max_chars=300),
+            tol=0.17,
+            curve=(),
+            speaking_share=0.9,
+        ),
         max_segment_chars=450,
         max_segment_seconds=31.5,
         ladder=(
@@ -233,7 +240,7 @@ def measurement_record(
                 LadderRung(
                     chars=80,
                     seeds=tuple(
-                        LadderSeed(seed=i, attempt=0, take_id=t, wpm=150.0, wer_adj=0.0, sim=0.98, verdict="pass")
+                        LadderSeed(seed=i, attempt=0, take_id=t, cps=16.5, wer_adj=0.0, sim=0.98, verdict="pass")
                         for i, t in enumerate(ladder_takes)
                     ),
                     passes=True,

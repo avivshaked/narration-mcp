@@ -67,7 +67,7 @@ class Scorer:
     """QA logic for takes (``narration.contracts.interfaces.QaScorer``).
 
     ``config`` supplies the speaker margins and the pace-tolerance floor (``[measurement]`` in design section
-    16); ``profile`` the fixed thresholds of ``default.v4``. Both are fixed for the scorer's lifetime.
+    16); ``profile`` the fixed thresholds of ``default.v5``. Both are fixed for the scorer's lifetime.
     """
 
     def __init__(self, config: MeasurementConfig | None = None, profile: QaProfile = DEFAULT_PROFILE) -> None:
@@ -87,7 +87,7 @@ class Scorer:
 
     def score(self, inputs: QaInputs) -> QaResult:
         """One take's QA: signal, text match with the word-count rule, exact spans, terms, insertions, speaker,
-        pace and the aligner's cue flags, then the verdict (section 11.1, thresholds ``default.v4``).
+        pace and the aligner's cue flags, then the verdict (section 11.1, thresholds ``default.v5``).
 
         The result holds nothing the analysis key does not cover: no flag carries a segment id, and each exact
         result is placed by its ``words`` (its ``start``/``end`` are the span's code points in the cue's spoken
@@ -122,6 +122,9 @@ class Scorer:
                 longest_silence_s=inputs.signal.longest_internal_silence_s,
                 spoken_cps=pace.spoken_cps,
                 clipping_fraction=inputs.signal.raw_clipping_fraction,
+                articulation_cps=pace.articulation_cps,
+                expected_articulation_cps=pace.expected_cps,
+                pause_s=pace.pause_s,
             ),
             thresholds=QaThresholds(spk_warn=speaker.warn_below, spk_fail=speaker.fail_below, pace_tol=pace.tol),
             flags=flags,

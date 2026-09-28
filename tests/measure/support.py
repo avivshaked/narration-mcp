@@ -58,6 +58,35 @@ SHORT_LADDER: Final = (80, 150, 350)
 SHORT_CALIBRATION: Final = ("cal-02",)
 """The corpus paragraphs the tests' calibration set keeps, beside the design text."""
 DESIGN_SEGMENT: Final = "cal-design"
+FAKE_PACE_TOL_MIN: Final = 0.6
+"""The measure tests' pace tolerance floor, wide on purpose, like the job tests' measurement (tol 0.6). The
+fake gives every word a fixed 0.2 s beside its letters, so its pace in characters per second rises as its
+words get longer: on the corpus, its 80-character rung reads about 9 % faster than its 150 (KNOW, computed
+through the delivery pipeline), which is close to the default 10 % on its own. A real voice's rate does not
+follow word length that way (plan.md WP47). The ladder's pace rule is tested on numbers in ``test_ladder``,
+and at the default floor on a corpus the fake reads at one rate (``flat_rate_corpus``); the other tests are
+about the job, so the fake's arithmetic must not end their ladders."""
+FLAT_WORDS: Final = (
+    "amber",
+    "birch",
+    "cedar",
+    "dunes",
+    "ember",
+    "flint",
+    "grove",
+    "heath",
+    "inlet",
+    "knoll",
+    "larch",
+    "maple",
+    "north",
+    "ocean",
+    "pines",
+    "ridge",
+    "stone",
+    "thorn",
+)
+"""Invented five-letter words: every word of ``flat_rate_corpus`` has as many letters as every other."""
 
 
 # ======================================================================== the corpus
@@ -72,6 +101,29 @@ def corpus_data(*, design: bool = True, calibration: Sequence[str] | None = None
         data["calibration"] = [p for p in data["calibration"] if p["segment_id"] in calibration]
     if not design:
         data.pop(DESIGN_TEXT, None)
+    return data
+
+
+def flat_rate_corpus(ladder: Sequence[int]) -> dict[str, Any]:
+    """The service's corpus with its ladder paragraphs replaced by sentences of six five-letter words
+    (``FLAT_WORDS``), as many sentences as come nearest each rung's target. The fake takes the same time for every
+    such word and pauses between sentences, so it reads every rung at one rate in characters per second of
+    speaking time (KNOW, computed through the delivery pipeline: 14.0 to 14.2 from 73 to 591 characters)."""
+    data = corpus_data(calibration=SHORT_CALIBRATION)
+    sentence_chars = 6 * 5 + 5 + 1  # six words, five spaces, a full stop
+
+    def sentence(k: int) -> str:
+        return " ".join(FLAT_WORDS[(6 * k + i) % len(FLAT_WORDS)] for i in range(6)).capitalize() + "."
+
+    paragraphs: list[dict[str, Any]] = []
+    for target in sorted(ladder):
+        count = max(1, round((target + 1) / (sentence_chars + 1)))
+        cues = [{"text": sentence(k)} for k in range(count)]
+        spoken = sum(len(c["text"]) for c in cues) + count - 1
+        paragraphs.append(
+            {"segment_id": f"ladder-{target:03d}", "target_spoken_chars": target, "spoken_chars": spoken, "cues": cues}
+        )
+    data["ladder"] = paragraphs
     return data
 
 
@@ -234,6 +286,7 @@ def make_world(
     status: str = "draft",
     material: Path | None = None,
     check_path: PathCheck | None = None,
+    pace_tol_min: float = FAKE_PACE_TOL_MIN,
 ) -> MeasureWorld:
     """A store with a pinned engine and a designed clip that is not measured yet, and the runner over the job
     engine and the ``measure`` handler. The engine is built as the daemon builds it: with no path check of its
@@ -242,7 +295,8 @@ def make_world(
     (store_root / "scratch").mkdir(parents=True, exist_ok=True)
     base = Config.for_tests(store_root, models_root)
     config = dataclasses.replace(
-        base, measurement=MeasurementConfig(seeds=seeds, length_ladder_spoken_chars=tuple(ladder))
+        base,
+        measurement=MeasurementConfig(seeds=seeds, length_ladder_spoken_chars=tuple(ladder), pace_tol_min=pace_tol_min),
     )
     data = dict(corpus) if corpus is not None else corpus_data(calibration=SHORT_CALIBRATION)
     material_root = material if material is not None else write_corpus(root / "material", data, status=status)
