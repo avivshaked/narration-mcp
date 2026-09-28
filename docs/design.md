@@ -83,12 +83,18 @@ applied here, each listed in the revision history below.*
   audio over 60 s is embedded in windows of at most 60 s; the QA group needs about 11.5 GB.*
 - *Revision 5.14 (the same day) applies DC-16 (section 6, EngineProfile): `vram_need_mb` is recorded in
   the engine profile but not hashed; it changes no audio. The owner approved it.*
-- *Revision 5.15 (2026-09-28) applies two changes the owner approved.
+- *Revision 5.15 (2026-09-28) applies two changes the owner approved, and describes the daemon's
+  detachment as built.
   - **DC-17**: `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices]
     allow_sha256` once the operator confirms that it is synthetic, and `voices list` shows the list. It is
     an operator command, never an MCP tool (sections 7.1, 16, and 17 items 4 and 10).
   - **DC-19**: `PACE_FAST` warns only; it never fails and never triggers a retake. The QA profile becomes
-    `default.v4` (sections 11.1, 14, 16 and Appendix B).*
+    `default.v4` (sections 11.1, 14, 16 and Appendix B).
+  - **The daemon runs only once it is in no Job Object at all** (the lead's rule, PR #37; spike k). It is
+    created suspended and resumed only when Windows says it is in no job; otherwise the front-end
+    returns `DAEMON_UNAVAILABLE`. On a host whose jobs forbid breakaway, the route is `[daemon] autostart
+    = false` and a daemon started by hand with `daemon start --foreground` (sections 4.1, 7.1, 14 and
+    16). Section 7.1 also lists `narration-admin render`, as built.*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -687,13 +693,34 @@ provides:
   work need not wait for the idle timeout. If a job is running it changes nothing and says which job
   holds the GPU.
 - **Detachment (Windows).** The front-end starts the daemon with
-  `CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, with stdin, stdout and
-  stderr on `NUL` and all inherited handles closed (`close_fds=True`). The daemon's working directory
-  is `store_root`, and it writes its own log. A worker's working directory is its own project folder.
-  - If the client's Job Object forbids breakaway, `CreateProcess` fails with access denied. The
-    front-end then does **not** start a non-detached daemon, because it would die with the client
-    mid-job. It returns `DAEMON_UNAVAILABLE` with the hint *"run `narration-admin daemon start` in a
-    terminal"*.
+  `CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, and `CREATE_SUSPENDED`
+  (below), with stdin, stdout and stderr on `NUL` and all inherited handles closed (`close_fds=True`).
+  The daemon's working directory is `store_root`, and it writes its own log. A worker's working
+  directory is its own project folder.
+  - **The daemon runs only once it is in no Job Object at all** (revision 5.15, PR #37). If the
+    client's Job Object forbids breakaway, `CreateProcess` fails with access denied, but only when that
+    is the front-end's innermost job. Jobs nest, and the venv's `python.exe` launcher puts the
+    interpreter in a job of its own, inside the client's, that allows silent breakaway. Then
+    `CreateProcess` succeeds and leaves the daemon in the client's job, to die with the client (KNOW,
+    spike k, `spikes/k-job-escape/`). So the front-end creates the daemon suspended, asks Windows
+    (`IsProcessInJob`) whether it is in any job, and resumes it only if it is in none.
+  - Otherwise the daemon is ended before its first instruction. The front-end does **not** start a
+    non-detached daemon, because it would die with the client mid-job. The job stays queued, and the
+    front-end returns `DAEMON_UNAVAILABLE` (retryable, `retry_after_s` 60) with the hint *"run
+    `narration-admin daemon start` in a terminal"*. `details.reason` says why: `breakaway_refused`
+    (access denied), `left_in_job` (the daemon was left in an enclosing job), or `job_check_failed`
+    (Windows could not say, which is refused the same way).
+  - The rule is deliberate: any enclosing job that forbids breakaway refuses the detached start, even
+    one that would not end the daemon, because the front-end cannot read such a job's limits or know who
+    will close it. The known case is a CI runner (KNOW: GitHub's hosted Windows runner).
+  - **On a host whose jobs forbid breakaway**, set `[daemon] autostart = false`, so the front-end starts
+    no daemon and a job waits in the queue, and start the daemon by hand with `narration-admin daemon
+    start --foreground`, as its own process in a terminal that stays open while it works. It serves
+    every client, and exits after `[daemon] idle_exit_min` without work. `daemon start` without
+    `--foreground` is refused there too, and offers it.
+  - The check is on the process created: under a venv, the launcher. Its interpreter, the daemon that
+    records its own pid in `run/daemon.json`, runs in the launcher's own kill-on-close job, not the
+    client's, so the launcher is never ended by pid.
   - Phase 0 checks that a daemon started from an MCP session survives the client exiting.
 - **Process identity** (for an orphan sweep):
 
@@ -818,11 +845,14 @@ send the identical request again, which is deduplicated. The service suggests; t
 
 **Operator CLI (`narration-admin`)**, for the machine, not for any use of it: `install`, `engine
 pin|repin|bridge` (section 10.1), `gc` (dry-run default), `verify`, `bench alignment` (section 11.2),
-`daemon start|stop [--now]|status`, `doctor`, and `voices allow <clip.wav>|list` (revision 5.15, DC-17;
-section 17.4). None of them approves anything; the service has no approvals. `voices allow` records the
-owner's own configuration of the machine (which clips designed elsewhere may be cloned) and approves no
-caller's work. It is **never an MCP tool**: the allowlist is the synthetic-voices gate, and a tool would
-let any caller allow a recording of a real person.
+`daemon start [--foreground]|stop [--now]|status` (section 4.1), `doctor`, `render`, and `voices allow
+<clip.wav>|list` (revision 5.15, DC-17; section 17.4). `render` speaks one text in a voice from the
+terminal, as a thin client of the same backend: one `submit_job` request with the tool's own checks, then
+`get_job` and `get_results`, and `--out` copies the suggested take's delivery WAV. None of them approves
+anything; the service has no approvals. `voices allow` records the owner's own configuration of the
+machine (which clips designed elsewhere may be cloned) and approves no caller's work. It is **never an
+MCP tool**: the allowlist is the synthetic-voices gate, and a tool would let any caller allow a recording
+of a real person.
 
 ### 7.2 Shared definitions
 
@@ -1898,7 +1928,7 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 | `TEXT_REFUSED` | no | markup characters, or `strict_text` with text warnings left; every offender listed |
 | `ENGINE_DRIFT` | no | fingerprint mismatch, or the canary similarity is below threshold |
 | `BACKEND_NOT_INSTALLED` | no | weights or worker env missing |
-| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused), or stopping; hint: `narration-admin daemon start` |
+| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1), or stopping; `retry_after_s` 60; hint: `narration-admin daemon start` |
 | `GPU_UNAVAILABLE` | yes | the VRAM wait timed out |
 | `STORE_FULL` | yes | free disk below the minimum |
 | `JOB_NOT_CANCELLABLE` | no | the job is already terminal |
@@ -2007,6 +2037,8 @@ measurement_retention_days = 365
 
 [daemon]
 autostart = true             # detached: BREAKAWAY_FROM_JOB | DETACHED_PROCESS | NEW_PROCESS_GROUP
+                             # false where the host's jobs forbid breakaway: run the daemon by hand,
+                             # `narration-admin daemon start --foreground` (section 4.1)
 idle_unload_s = 120
 idle_exit_min = 15
 
