@@ -1,6 +1,6 @@
 # HANDOFF
 
-*Updated 2026-09-27, evening. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-28. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Paused by the owner (2026-09-27, about 22:10): resume here
@@ -11,23 +11,24 @@ push, set its status file to `blocked:paused-by-owner`, and stop. To resume:
 2. Resume each agent with SendMessage, using its id in the table below. Each one continues from its status
    file.
 3. **Merge order:**
-   - the pace hotfix (`wp/47-pace-warn`; PR opened by its agent, or open one) first, after an adversarial
-     review and green CI;
-   - PR #40 is merged;
+   - **merged:** the pace hotfix (PR #42, fda412f, 2026-09-28) and PR #40;
    - then PR #37;
    - then PR #41 (its fixes in progress) and PR #39 (WP34; renumber its contracts to 1.6.8);
    - then WP47 (contracts 1.6.9; merges main first).
-4. **After the hotfix merges, restart the daemon** (`narration-admin … daemon stop`, then the next job starts it)
-   so the running service picks up QA profile `default.v4`. No re-measure is needed: the measurement key does
-   not include the QA profile (KNOW, `keys/__init__.py` `measurement_key_object`).
+4. **Done (2026-09-28):** the hotfix is live. No daemon was running at the merge, so the next job starts one on
+   `default.v4`, and the owner's `narration.toml` `[qa] profile` now says `default.v4` (the key is inert). No
+   re-measure was needed: the measurement key does not include the QA profile (KNOW, and verified by PR #42's
+   reviewers). The owner's Claude Code session reads PR #40's tool texts after a `/mcp` reconnect.
 5. **After WP47 merges:** re-measure a-warm-s101 (cached renders, QA only), then the rest of the ladder in
    stages (remove `.dev/service-setup/STOP`).
 
 Where each one stopped (all pushed, with `blocked:paused-by-owner` in each status file):
-- **Pace hotfix, `wp/47-pace-warn` d419b5c** (one `wip:` commit):
-  - the code and the tests are done: targeted suites pass, and the store tests were fixed;
-  - the check that a measured voice stays measured is done (KNOW, with file:line in its status);
-  - left: ruff, basedpyright and check_tracked; a final commit message; open the PR.
+- **The pace hotfix: PR #42 merged** (fda412f; DC-19; contracts 1.6.7). Two adversarial reviews found no
+  blocking issue; CI was green. Its worktree and branch can be removed. Follow-ups (low):
+  - `narration-admin doctor` should warn when `[qa] profile` differs from the code's profile (the key is inert);
+  - pin `delivery_key` by value in the keys test;
+  - apply DC-19 to docs/design.md (§11.1 pace row, §14 `PACE_FAST`, §16 `[qa]`);
+  - WP34 renumbers its contracts to 1.6.8, and WP47 moves to 1.6.9.
 - **PR #40 merged** (e9334e1, 2026-09-27, CI green). Its worktree and branch can be removed. **WP34 must now take design_voice and profile_voice out of `NOT_IN_THIS_BUILD`** when it merges main (the equality test enforces it).
 - **WP47, `wp/47-pace-cps` bcdc7b2** (`wip:`, untested):
   - the rate is characters per second of speaking time, excluding silences of 0.25 s or more, taken from the
