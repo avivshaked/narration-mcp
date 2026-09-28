@@ -12,6 +12,7 @@ import sys
 if sys.platform != "win32":  # the factory imports this module only on Windows
     raise ImportError("narration.platform._windows is for Windows only; use narration.platform.get_platform()")
 
+import contextlib
 import ctypes
 import hashlib
 import ntpath
@@ -30,7 +31,7 @@ import psutil
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
 
-from . import real_path, winpaths
+from . import BREAKAWAY_REFUSED, DAEMON_RETRY_AFTER_S, JOB_CHECK_FAILED, LEFT_IN_JOB, real_path, winpaths
 
 # ---------------------------------------------------------------- constants (Windows SDK values)
 CREATE_BREAKAWAY_FROM_JOB: Final = 0x01000000
@@ -38,6 +39,10 @@ DETACHED_PROCESS: Final = 0x00000008
 CREATE_NEW_PROCESS_GROUP: Final = 0x00000200
 DETACHED_CREATION_FLAGS: Final = CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
 """The creation flags of a detached daemon, exactly as section 4.1 lists them."""
+
+CREATE_SUSPENDED: Final = 0x00000004
+"""Added to ``DETACHED_CREATION_FLAGS``: the daemon is created suspended, and runs its first instruction only
+once Windows has confirmed that it is in no Job Object (``WindowsPlatform.spawn_detached``, "Nested jobs")."""
 
 BELOW_NORMAL_PRIORITY_CLASS: Final = 0x00004000
 CREATE_NO_WINDOW: Final = 0x08000000
@@ -55,6 +60,7 @@ _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: Final = 9
 _PROCESS_TERMINATE: Final = 0x0001
 _PROCESS_SET_QUOTA: Final = 0x0100
 _PROCESS_SET_INFORMATION: Final = 0x0200
+_PROCESS_QUERY_LIMITED_INFORMATION: Final = 0x1000
 
 _WAIT_OBJECT_0: Final = 0x00000000
 _WAIT_ABANDONED: Final = 0x00000080
@@ -78,10 +84,8 @@ SINGLETON_PREFIX: Final = "Global\\narration-mcp.daemon."
 """The daemon mutex's name before the store path's hash. Never change it: a daemon of an older version and
 one of a newer version must still exclude each other on the same store."""
 
-DAEMON_RETRY_AFTER_S: Final = 60.0
-"""``retry_after_s`` of ``DAEMON_UNAVAILABLE`` when breakaway is refused (DC-2 asks every retryable error for
-one). The fix needs a person: someone must read the hint, run ``narration-admin daemon start`` in a terminal,
-and let the daemon come up. A retry sooner than that fails the same way (lead ruling, WP19 review)."""
+# DAEMON_RETRY_AFTER_S, BREAKAWAY_REFUSED, LEFT_IN_JOB and JOB_CHECK_FAILED are defined in narration.platform
+# (OS-neutral values the front-end and narration-admin read too) and imported above.
 
 
 # ---------------------------------------------------------------- kernel32
@@ -262,16 +266,23 @@ class _JobObject:
     With ``kill_on_close``, every process in it is terminated when the last handle closes: when ``close`` is
     called, or when this process dies, since Windows closes a dead process's handles. The handle is not
     inheritable, so no child can keep the job alive. ``allow_breakaway`` lets the job's processes start
-    children outside it (the tests use it to stand in for an MCP client's job).
+    children outside it with ``CREATE_BREAKAWAY_FROM_JOB``; ``silent_breakaway`` keeps their children out of
+    it whether they ask or not. The tests use both to stand in for the jobs of MCP clients (the Python SDK's
+    has neither; libuv's has both, so Node.js's does, as measured, and, we believe, Claude Code's) and for a
+    venv launcher's (silent only).
     """
 
-    def __init__(self, *, kill_on_close: bool = True, allow_breakaway: bool = False) -> None:
+    def __init__(
+        self, *, kill_on_close: bool = True, allow_breakaway: bool = False, silent_breakaway: bool = False
+    ) -> None:
         handle = _CreateJobObjectW(None, None)
         if not handle:
             raise _last_error()
         limits = _ExtendedLimitInformation()
-        limits.BasicLimitInformation.LimitFlags = (_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE if kill_on_close else 0) | (
-            _JOB_OBJECT_LIMIT_BREAKAWAY_OK if allow_breakaway else 0
+        limits.BasicLimitInformation.LimitFlags = (
+            (_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE if kill_on_close else 0)
+            | (_JOB_OBJECT_LIMIT_BREAKAWAY_OK if allow_breakaway else 0)
+            | (_JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK if silent_breakaway else 0)
         )
         if not _SetInformationJobObject(
             handle, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION, ctypes.byref(limits), ctypes.sizeof(limits)
@@ -297,12 +308,43 @@ class _JobObject:
             finally:
                 _CloseHandle(process)
 
+    def contains(self, pid: int) -> bool:
+        """Whether process ``pid`` is in this job (``IsProcessInJob``); raises ``OSError`` if it cannot be asked."""
+        with self._lock:
+            if self._handle is None:
+                raise ValueError("this kill-on-close group is closed")
+            return _in_job(pid, self._handle)
+
     def close(self) -> None:
         """Close this process's handle; with ``kill_on_close``, the job's processes are then terminated."""
         with self._lock:
             handle, self._handle = self._handle, None
             if handle is not None:
                 _CloseHandle(handle)
+
+
+def _in_job(pid: int, job: object | None) -> bool:
+    """Whether process ``pid`` is in the Job Object ``job``, or in any job when ``job`` is None. Raises
+    ``OSError`` when Windows cannot answer (no such process, say)."""
+    process = _OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not process:
+        raise _last_error()
+    try:
+        in_job = wintypes.BOOL()
+        if not _IsProcessInJob(process, job, ctypes.byref(in_job)):
+            raise _last_error()
+        return bool(in_job.value)
+    finally:
+        _CloseHandle(process)
+
+
+def _resume(pid: int) -> None:
+    """Let a process created with ``CREATE_SUSPENDED`` run (every thread's suspend count goes down by one).
+    Raises ``OSError`` if it cannot be resumed."""
+    try:
+        psutil.Process(pid).resume()
+    except psutil.Error as exc:
+        raise OSError(f"cannot resume process {pid}: {exc}") from exc
 
 
 def _own_job_breakaway() -> tuple[bool | None, bool | None]:
@@ -329,6 +371,14 @@ class _DetachedPopen(subprocess.Popen[bytes]):
 
     def __del__(self) -> None:
         return None
+
+
+def _end(process: subprocess.Popen[bytes]) -> None:
+    """End a suspended child that must never run, and wait until it is gone (``kill`` is harmless if it has
+    already gone)."""
+    process.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=10)
 
 
 # ---------------------------------------------------------------- paths (sections 17.2 and 17.3)
@@ -398,18 +448,41 @@ class WindowsPlatform:
             holder.release()
 
     def spawn_detached(self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str]) -> int:
-        """Start ``argv`` detached (section 4.1) and return its pid, without waiting for it.
+        """Start ``argv`` detached (section 4.1), in no Job Object, and return its pid without waiting for it.
 
         The pid is that of ``argv[0]``. When that is a venv's ``Scripts\\python.exe`` (a launcher), the
         interpreter runs as the launcher's child with a pid of its own, so a daemon should record its own
         ``os.getpid()`` rather than rely on this value.
 
-        Creation flags ``CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``; stdin,
-        stdout and stderr on ``NUL``; no other handle inherited (``close_fds``); ``env`` is the whole
-        environment. If Windows refuses with access denied (the Job Object this process runs in forbids
-        breakaway), raises ``NarrationError(DAEMON_UNAVAILABLE)``: a daemon that is not detached would die
-        with its client mid-job, so none is started. Any other failure to start (a missing executable, say)
-        propagates as ``OSError``.
+        Creation flags ``CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``, plus
+        ``CREATE_SUSPENDED`` (below); stdin, stdout and stderr on ``NUL``; no other handle inherited
+        (``close_fds``); ``env`` is the whole environment. Raises ``NarrationError(DAEMON_UNAVAILABLE)``
+        (retryable; ``details["reason"]`` says which) and starts nothing that runs when the daemon cannot leave
+        this process's Job Objects: a daemon still in a client's kill-on-close job would die with the client
+        mid-job. Any other failure to start (a missing executable, say) propagates as ``OSError``.
+
+        **Nested jobs.** KNOW (spike k): since Windows 8 a process can be in nested jobs, and ``CreateProcess``
+        with ``CREATE_BREAKAWAY_FROM_JOB`` refuses (access denied, ``BREAKAWAY_REFUSED``) only when this
+        process's *innermost* job forbids breakaway. When that job allows it and an enclosing one does not,
+        the call succeeds and the child is put in the enclosing job. That is the front-end's situation under
+        the MCP Python SDK: its kill-on-close job forbids breakaway, but the venv's ``python.exe`` launcher
+        puts the interpreter in a job of its own, nested inside it, that allows silent breakaway. So the daemon
+        is created suspended, Windows is asked whether it is in any job (``IsProcessInJob``), and only a
+        daemon in none is let run. One still in a job is ended before its first instruction
+        (``LEFT_IN_JOB``); so is one whose membership cannot be read (``JOB_CHECK_FAILED``).
+
+        **The rule is "in no Job Object at all"** (lead decision, WP30-escape review). Any enclosing job that
+        forbids breakaway refuses the detached start, even one that would not end the daemon: this process
+        cannot read an enclosing job's limits or know who holds its handle (the MCP Python SDK, for one,
+        terminates its job whatever the job's flags). The known case (KNOW, PR #37's CI): GitHub's hosted
+        Windows runner puts its steps in such a job. The supported route there is ``narration-admin daemon
+        start --foreground``, or a host whose jobs allow breakaway.
+
+        **What is checked.** The process created, ``argv[0]``. Under a venv that is the launcher; its child,
+        the interpreter that records its own pid in ``run/daemon.json``, is born into the launcher's own
+        kill-on-close job (the launcher's, not the client's; the launcher holds its only handle while it waits
+        for the interpreter). So the daemon runs in no job of the client's, and its launcher must never be
+        ended by pid: the daemon would go with it.
         """
         if not argv:
             raise ValueError("argv is empty")
@@ -422,7 +495,7 @@ class WindowsPlatform:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 close_fds=True,
-                creationflags=DETACHED_CREATION_FLAGS,
+                creationflags=DETACHED_CREATION_FLAGS | CREATE_SUSPENDED,
             )
         except OSError as exc:
             if exc.winerror != _ERROR_ACCESS_DENIED:
@@ -434,13 +507,53 @@ class WindowsPlatform:
                 "Object this process runs in forbids breakaway; a daemon that is not detached would die with "
                 "this client mid-job, so none was started.",
                 details={
-                    "reason": "breakaway_refused",
+                    "reason": BREAKAWAY_REFUSED,
                     "winerror": exc.winerror,
                     "in_job": in_job,
                     "job_allows_breakaway": allows_breakaway,
                 },
                 retry_after_s=DAEMON_RETRY_AFTER_S,
             ) from exc
+        # The child is suspended and this Popen holds its handle, so its pid names it until it is resumed.
+        # Whatever interrupts the check or the resume (an OSError, Ctrl+C in narration-admin's main thread, any
+        # exception at all), the suspended child is ended first: none is ever left suspended and unreaped.
+        try:
+            try:
+                still_in_job = _in_job(process.pid, None)
+            except OSError as exc:
+                in_job, allows_breakaway = _own_job_breakaway()
+                raise NarrationError(
+                    codes.DAEMON_UNAVAILABLE,
+                    "Windows could not say whether the daemon had left this process's Job Objects "
+                    f"({exc.strerror or exc}); a daemon that may die with this client mid-job is never let run, "
+                    "so it was ended before it started.",
+                    details={
+                        "reason": JOB_CHECK_FAILED,
+                        "winerror": exc.winerror,
+                        "in_job": in_job,
+                        "job_allows_breakaway": allows_breakaway,
+                    },
+                    retry_after_s=DAEMON_RETRY_AFTER_S,
+                ) from exc
+            if still_in_job:
+                in_job, allows_breakaway = _own_job_breakaway()
+                raise NarrationError(
+                    codes.DAEMON_UNAVAILABLE,
+                    "Windows started the daemon inside a Job Object it could not leave: this process's innermost "
+                    "job allows breakaway (a venv launcher's does), but one around it does not, and the daemon "
+                    "stayed in that one. A daemon runs only in no Job Object at all, so it was ended before it "
+                    "started.",
+                    details={
+                        "reason": LEFT_IN_JOB,
+                        "in_job": in_job,
+                        "job_allows_breakaway": allows_breakaway,
+                    },
+                    retry_after_s=DAEMON_RETRY_AFTER_S,
+                )
+            _resume(process.pid)
+        except BaseException:
+            _end(process)
+            raise
         return process.pid
 
     @contextmanager

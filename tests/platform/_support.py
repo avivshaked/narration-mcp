@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import subprocess
 import sys
@@ -13,6 +14,40 @@ from typing import Any
 
 WINDOWS_ONLY = "narration.platform is implemented for Windows only in v1 (plan.md Q2)"
 CHILD = Path(__file__).with_name("_child.py")
+
+HOST_FORBIDS_BREAKAWAY = (
+    "this host's own Job Objects forbid breakaway (KNOW: GitHub's hosted Windows runner does), so no child of "
+    "this test can be in no job at all, and a detached start is refused here (left_in_job): the test asserts "
+    "that refusal instead of the daemon's survival"
+)
+
+
+@functools.cache
+def host_lets_a_child_leave_every_job() -> bool:
+    """Whether a child this process starts with ``CREATE_BREAKAWAY_FROM_JOB`` ends up in no Job Object at all.
+
+    False where a job around this process forbids breakaway (GitHub's hosted Windows runner is one, KNOW from
+    PR #37's CI): then ``spawn_detached`` refuses with ``left_in_job`` (or ``breakaway_refused``, if that job is
+    the innermost) rather than run a daemon, and the survival tests assert the refusal. Probed once per test
+    process with a suspended child that never runs. Windows only.
+    """
+    from narration.platform import _windows  # pyright: ignore[reportPrivateUsage]
+
+    try:
+        probe = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=_windows.CREATE_BREAKAWAY_FROM_JOB | _windows.CREATE_SUSPENDED,
+        )
+    except PermissionError:
+        return False  # the innermost job forbids breakaway: CreateProcess itself refused
+    try:
+        return not _windows._in_job(probe.pid, None)  # pyright: ignore[reportPrivateUsage]
+    finally:
+        probe.kill()
+        probe.wait(timeout=30)
 
 
 def child_argv(*args: object) -> list[str]:
@@ -38,6 +73,36 @@ def started(*args: object) -> Iterator[subprocess.Popen[bytes]]:
         if process.poll() is None:
             process.kill()
         process.wait(timeout=30)
+
+
+def start_in_job(job: Any, argv: list[str]) -> subprocess.Popen[bytes]:
+    """Start ``argv`` inside the Job Object ``job`` (a ``narration.platform._windows._JobObject``) from its
+    first instruction: created suspended, assigned, then resumed. This is how a client that wants every
+    descendant in its job should start a server; the MCP Python SDK and libuv assign after the start instead,
+    so a child the server starts in the meantime lands outside. Windows only."""
+    from narration.platform import _windows  # pyright: ignore[reportPrivateUsage]
+
+    process = subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=_windows.CREATE_SUSPENDED,
+    )
+    try:
+        job.add(process.pid)
+        _windows._resume(process.pid)  # pyright: ignore[reportPrivateUsage]
+    except BaseException:
+        process.kill()
+        process.wait(timeout=30)
+        raise
+    return process
+
+
+def run_in_job(job: Any, *args: object, timeout_s: float = 60.0) -> None:
+    """Run a child mode to completion inside ``job`` (``start_in_job``); fail if it fails."""
+    process = start_in_job(job, child_argv(*args))
+    assert process.wait(timeout=timeout_s) == 0, f"the child in the job exited with {process.returncode}"
 
 
 def wait_for_file(path: Path, timeout_s: float = 30.0) -> bool:

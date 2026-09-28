@@ -7,9 +7,10 @@ read sees it ``stopping`` and starts another.
 
 ``DetachedLauncher`` uses WP30's ``narration.daemon.start``: ``ensure_daemon`` starts ``python -m
 narration.daemon`` detached unless a daemon already serves the store, and ``running_daemon`` reads
-``run/daemon.json`` and checks its pid. A start the platform refuses (breakaway forbidden by the client's Job
-Object) is ``DAEMON_UNAVAILABLE``, retryable, with the hint to run ``narration-admin daemon start`` in a
-terminal; a daemon that is not detached is never started, since it would die with its client mid-job.
+``run/daemon.json`` and checks its pid. A start the platform refuses (the daemon could not leave the client's
+Job Objects: breakaway forbidden, or the daemon left in an enclosing job and ended before it ran) is
+``DAEMON_UNAVAILABLE``, retryable, with the hint to run ``narration-admin daemon start`` in a terminal; a
+daemon that is not detached never runs, since it would die with its client mid-job.
 """
 
 from __future__ import annotations
@@ -24,11 +25,14 @@ from narration.contracts.errors import NarrationError
 from narration.contracts.interfaces import Store
 from narration.contracts.models import DaemonStatus
 from narration.daemon import start as daemon_start
+from narration.platform import DAEMON_RETRY_AFTER_S
 
 log = logging.getLogger(__name__)
 
-DAEMON_RETRY_S: Final = 30.0
-"""``DAEMON_UNAVAILABLE``'s ``retry_after_s`` (DC-2): time for an operator to start the daemon by hand."""
+DAEMON_RETRY_S: Final = DAEMON_RETRY_AFTER_S
+"""``DAEMON_UNAVAILABLE``'s ``retry_after_s`` (DC-2): time for an operator to start the daemon by hand. One
+value at every level: the platform's (``narration.platform.DAEMON_RETRY_AFTER_S``, the lead's ruling), so an
+MCP client sees the same figure as the operator's terminal."""
 SERVING_STATES: Final = ("idle", "busy")
 """The daemon states that serve the queue (``stopping`` is on its way out)."""
 START_HINT: Final = (
