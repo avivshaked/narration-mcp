@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.14 (2026-09-27); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.15 (2026-09-28); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -83,6 +83,12 @@ applied here, each listed in the revision history below.*
   audio over 60 s is embedded in windows of at most 60 s; the QA group needs about 11.5 GB.*
 - *Revision 5.14 (the same day) applies DC-16 (section 6, EngineProfile): `vram_need_mb` is recorded in
   the engine profile but not hashed; it changes no audio. The owner approved it.*
+- *Revision 5.15 (2026-09-28) applies two changes the owner approved.
+  - **DC-17**: `narration-admin voices allow <clip.wav>` adds a clip designed elsewhere to `[voices]
+    allow_sha256` once the operator confirms that it is synthetic, and `voices list` shows the list. It is
+    an operator command, never an MCP tool (sections 7.1, 16, and 17 items 4 and 10).
+  - **DC-19**: `PACE_FAST` warns only; it never fails and never triggers a retake. The QA profile becomes
+    `default.v4` (sections 11.1, 14, 16 and Appendix B).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -812,8 +818,11 @@ send the identical request again, which is deduplicated. The service suggests; t
 
 **Operator CLI (`narration-admin`)**, for the machine, not for any use of it: `install`, `engine
 pin|repin|bridge` (section 10.1), `gc` (dry-run default), `verify`, `bench alignment` (section 11.2),
-`daemon start|stop [--now]|status`, `doctor`. None of them approves anything; the service has no
-approvals.
+`daemon start|stop [--now]|status`, `doctor`, and `voices allow <clip.wav>|list` (revision 5.15, DC-17;
+section 17.4). None of them approves anything; the service has no approvals. `voices allow` records the
+owner's own configuration of the machine (which clips designed elsewhere may be cloned) and approves no
+caller's work. It is **never an MCP tool**: the allowlist is the synthetic-voices gate, and a tool would
+let any caller allow a recording of a real person.
 
 ### 7.2 Shared definitions
 
@@ -1583,7 +1592,7 @@ verdict or a suggestion: it depends on which other takes are in the request, so 
 and cached nowhere. (Revision 4 compared each take with a running centroid inside its cached verdict,
 which made verdicts depend on render order and leak from one script to another.)
 
-**Default thresholds** (QA profile `default.v3`)
+**Default thresholds** (QA profile `default.v4`; revision 5.15, DC-19)
 
 | Check | Warn | Fail | Rationale / evidence |
 |---|---|---|---|
@@ -1592,7 +1601,7 @@ which made verdicts depend on render order and leak from one script to another.)
 | terms | unverified | never | The probe heard stable, unstable and split variants of names (section 1). |
 | spk_sim vs anchor | < **voice `anchor_p5` − 0.01** | < **0.90** (absolute floor, ASSUME) | Per-voice thresholds from the voice's measurement: the probe's d4 scored 0.966–0.969 vs its clip and d2 0.978–0.984, so a fixed 0.975 would flag every d4 take. The floor only catches gross failure; unseeded VoiceDesign drift sat at 0.898–0.932. |
 | consistency across the request | — (report only: `SPK_OUTLIER`, info) | — | Probe `spk_consist` 0.981–0.992. |
-| pace vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | > curve × (1 + 2·tol) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe). |
+| pace vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | — (`PACE_FAST` and `PACE_SLOW` warn only; DC-19) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe). `default.v3` failed above curve × (1 + 2·tol). In the first real narration session 24 takes failed on pace alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast; so pace never fails and never triggers a retake. |
 | head / end insertion | ≥ 1 word | ≥ 3 words, or a match of the voice's transcript at the head | Reference bleed; hallucinated tail. |
 | longest internal silence | > 1.2 s | > 2.5 s | Dropout or hang. |
 | clipping (raw) | > 0.01 % of samples at full scale | — | Gain problem. |
@@ -1605,7 +1614,8 @@ which made verdicts depend on render order and leak from one script to another.)
 (warn-level, but a caller cannot time the cue), or `HEAD_INSERTION`. Each failing take slot gets up to
 `max_retakes` automatic retakes (section 8). The exception (DC-12): a `CUE_UNALIGNED` whose
 `details.reason` is `no_alignable_words` is not a trigger. That cue's text gives the aligner no word to
-place, so every retake would fail the same way; it stays in listen-first.
+place, so every retake would fail the same way; it stays in listen-first. Pace is never a trigger:
+`PACE_FAST` and `PACE_SLOW` only warn (DC-19), and a fast take goes to listen-first instead.
 
 **Report and listen-first.**
 
@@ -1911,7 +1921,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `TERM_UNVERIFIED` | warn | | ASR did not match a hinted term |
 | `SPK_SIM_LOW` | warn / fail | fail | similarity to the voice's anchor below the measured warn threshold / the floor |
 | `SPK_OUTLIER` | info | | a suggested take stands apart from the rest of the request (a report, never a verdict) |
-| `PACE_FAST` / `PACE_SLOW` | warn / fail | fail | against the voice's pace curve at this length |
+| `PACE_FAST` / `PACE_SLOW` | warn | | against the voice's pace curve at this length; neither fails nor triggers a retake (revision 5.15, DC-19) |
 | `HEAD_INSERTION` | warn / fail | ✓ | words before cue 0, or reference bleed |
 | `END_INSERTION` | warn / fail | fail | words after the last cue |
 | `SILENCE_LONG` | warn / fail | fail | longest internal silence |
@@ -1984,6 +1994,8 @@ models_root  = '<service_root>\models'     # pinned HF snapshots (read-only at r
 [voices]
 # Synthetic voices only (section 17). Clips the service designed are accepted by its provenance list;
 # these are clips designed before the service existed, allowlisted by the owner by sha256.
+# `narration-admin voices allow <clip.wav>` adds one once the operator confirms it is synthetic, and
+# `voices list` shows them (section 17.4, DC-17).
 allow_sha256 = [
   "8ab91fd91dee1d6d80e38f80fef5d36ee3dc9a3af39be3d3e74b7df3a5b851ac",   # refs/auditions/qwen3-tts-voicedesign_d2-late-night_take1.wav
   "e07a0199b33f34ac6d1d81b9ae54ae8fac49a13a0421148c51595462a804ba75",   # refs/auditions/qwen3-tts-voicedesign_d4-radio-drama_take2.wav
@@ -2062,7 +2074,7 @@ unplaced_below = 0.50          # ASSUME; below this the cue is not placed (CUE_U
 benchmark = "alignment-en.v1"  # the service's own; its measured error is published (R1, section 11.2)
 
 [qa]
-profile = "default.v3"
+profile = "default.v4"         # DC-19: PACE_FAST warns only (section 11.1)
 
 [engines.qwen3_base]
 non_streaming_mode = false     # all clone evidence used this; change only after a Phase 0 A/B
@@ -2114,6 +2126,27 @@ Client launch configuration, e.g. a `.mcp.json` for Claude Code:
    provenance list (it designed the clip) or in the owner's `allow_sha256`. A recording of a real person
    is therefore never cloned, whoever the caller is, wherever the file is. This is a safety rule of the
    service and does not depend on any use (owner decision, 2026-09-26).
+   - **Allowing a clip** (revision 5.15, DC-17). The owner adds a clip designed elsewhere with
+     `narration-admin voices allow <clip.wav>`, instead of hashing it and editing the configuration by
+     hand. The command:
+     - reads the clip through the path check of item 3 (a relative path is taken from the operator's own
+       working folder), and refuses a file that is not a WAV with audio in it, or is over 20 MB;
+     - prints the clip's path, length and sha256, and warns when the clip is longer than `[limits]
+       max_clip_seconds`, since the service would refuse to clone it as the limit stands;
+     - asks the operator to confirm that the clip is synthetic, not a recording of a real person. Only
+       `yes`, typed in full, goes on; any other answer, or none (input closed), changes nothing. `--yes`
+       skips the question, and is only for the operator's own scripts: a person confirms, never a calling
+       agent;
+     - adds the hash, in lower case, to `[voices] allow_sha256`, with a comment naming the file, and keeps
+       every other line and comment. The edited file must load with every other setting unchanged, and is
+       written to a temporary name and renamed. A hash already listed changes nothing.
+
+     `narration-admin voices list` prints the list.
+   - It is an operator command and **never an MCP tool** (section 7.1): a tool would let any caller allow
+     a recording of a real person.
+   - The front-end and the daemon each read the list once, when they start, and both check it (the daemon
+     again when it opens a job). So a new hash takes effect after a restart: the daemon first
+     (`narration-admin daemon stop`), then the front-end in every client that runs it.
 5. **Validation and limits.** In-handler validation (section 14), NFC, control characters rejected, rate
    and queue caps.
 6. **No markup or instruction injection** (section 9.1 step 1, section 3.3).
@@ -2136,7 +2169,9 @@ Client launch configuration, e.g. a `.mcp.json` for Claude Code:
 10. **No approvals to protect.** The service keeps no lock, no voice registry and no approval, so there
     is nothing an agent could approve for itself. The operator commands (install, engine pins, gc,
     bench, daemon stop) are machine chores that change no caller's result; `gc` is a dry run by default.
-    Whether an agent may run them is governed by that agent's own permissions.
+    `voices allow` changes which clips may be cloned: it records the owner's own configuration, and asks
+    a person to confirm that the clip is synthetic (item 4). Whether an agent may run any of them is
+    governed by that agent's own permissions.
 11. **Output handling.** Transcripts, descriptions and notes are data, never instructions.
 12. **Privacy.** Nothing leaves the machine; no telemetry.
 
@@ -2388,7 +2423,7 @@ daemon computes the hashes. All times are in seconds.
     "exact": [{"start": 17, "end": 43, "words": [3, 7]}]}],
   "text_checks": {"version": "text-1.1.0", "rules_sha256": "…"},
   "hints_used": [{"term": "Ossavine", "respell": "Oss-a-veen"}]},
- "versions": {"qa_profile": "default.v3", "asr": "openai/whisper-large-v3@…", "sv": "microsoft/wavlm-base-plus-sv@…",
+ "versions": {"qa_profile": "default.v4", "asr": "openai/whisper-large-v3@…", "sv": "microsoft/wavlm-base-plus-sv@…",
               "aligner_method": "ctc-snap/wav2vec2-large-960h-lv60-self@…", "number_reader": "whisper-english-normalizer+nought@2",
               "measurement": "sha256:c07d…"},
  "alignment": {"method": "ctc-forced-align+silence-snap", "device": "cpu",
