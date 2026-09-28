@@ -110,7 +110,9 @@ applied here, each listed in the revision history below.*
   - **`narration-admin failures`** (PR #45) lists every take that failed QA or that a retake replaced,
     across jobs, with its reasons; it only reads the store, and is never an MCP tool. `report.md` gains a
     Failures section by the same rule, and `gc` lists the failed takes it would remove (sections 7.1,
-    11.1, 15 and 17 item 10).*
+    11.1, 15 and 17 item 10).
+  - **`[qa] profile` is informational** (PR #46): every take is scored with the QA profile the build
+    pins, and `doctor` warns when the line differs (section 16).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -2258,6 +2260,8 @@ benchmark = "alignment-en.v1"  # the service's own; its measured error is publis
 
 [qa]
 profile = "default.v4"         # DC-19: PACE_FAST warns only (section 11.1)
+                               # informational: every take is scored with the QA profile the build pins;
+                               # `doctor` warns, and the daemon logs once at start, when this line differs
 
 [engines.qwen3_base]
 non_streaming_mode = false     # all clone evidence used this; change only after a Phase 0 A/B
