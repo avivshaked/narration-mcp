@@ -75,7 +75,11 @@ SEED_SCHEME: Final = "narration-seed/v1"
 
 # ---------------------------------------------------------------- versions of the service's rules
 TEXT_CHECKS_VERSION: Final = "text-1.1.0"
-QA_PROFILE: Final = "default.v3"
+QA_PROFILE: Final = "default.v4"
+"""The QA profile (``narration.qa.profile``), part of the analysis key (section 10.2). ``default.v4``
+(contracts 1.6.7; DC-19, the owner's decision of 2026-09-27): ``PACE_FAST`` warns only and never fails, so it
+never triggers a retake. ``default.v3`` failed it above curve x (1 + 2 tol). The measurement key does not
+include the QA profile, so a voice measured under ``default.v3`` stays measured; takes are scored again."""
 NUMBER_READER: Final = "whisper-english-normalizer+nought@2"
 """The number reader of section 11.3. ``@2`` (plan.md DC-7): number words never merge across punctuation
 (each side is read in phrases split at punctuation, so "two thousand, forty" is 2000 and 40, not 2040), and

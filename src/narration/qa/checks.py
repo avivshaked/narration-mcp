@@ -233,22 +233,26 @@ def pace_flags(
     tol: float | None,
     profile: QaProfile,
 ) -> tuple[Flag, ...]:
-    """``PACE_FAST`` warn above ``expected x (1 + tol)`` and fail above ``expected x (1 + 2 tol)``;
-    ``PACE_SLOW`` warn below ``expected x (1 - tol)`` (default.v3 has no slow fail)."""
+    """``PACE_FAST`` warn above ``expected x (1 + tol)``; ``PACE_SLOW`` warn below ``expected x (1 - tol)``.
+
+    ``default.v4`` has no pace fail (``QaProfile.pace_fail_tol_factor`` is None; DC-19): a fast take only warns,
+    which is never a retake trigger, and ``details.fast_fail_above`` is null. A profile with a factor ``f``
+    fails ``PACE_FAST`` above ``expected x (1 + f tol)`` (``default.v3``: f = 2). There is no slow fail."""
     if wpm is None or expected is None or tol is None:
         return ()
+    factor = profile.pace_fail_tol_factor
     fast_warn = expected * (1 + tol)
-    fast_fail = expected * (1 + profile.pace_fail_tol_factor * tol)
+    fast_fail = expected * (1 + factor * tol) if factor is not None else None
     slow_warn = expected * (1 - tol)
     details = {
         "spoken_wpm": round(wpm, 3),
         "expected_spoken_wpm": round(expected, 3),
         "tol": tol,
         "fast_warn_above": round(fast_warn, 3),
-        "fast_fail_above": round(fast_fail, 3),
+        "fast_fail_above": round(fast_fail, 3) if fast_fail is not None else None,
         "slow_warn_below": round(slow_warn, 3),
     }
-    if wpm > fast_fail:
+    if fast_fail is not None and wpm > fast_fail:
         return (
             make_flag(
                 codes.PACE_FAST,

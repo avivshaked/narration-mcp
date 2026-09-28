@@ -278,6 +278,11 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- `PACE_FAST` only warns; it never fails a take and never triggers a retake (the QA profile is now
+  `default.v4`, DC-19). The words-per-minute pace model failed short paragraphs that listened fine, and
+  wasted their retakes. `PACE_SLOW` is unchanged (it only warns). The flag's `details.fast_fail_above` is
+  null. A voice measured before stays measured, and cached renders and takes are reused: only their QA
+  runs again, on the next request that asks for them.
 - The MCP server now tells the calling agent what decides whether real use goes well. Its instructions
   and the `submit_job` and `check_text` descriptions say to send every invented or unusual name as a hint:
   the term alone is enough, and a name without one is scored as misheard words that can fail a take
