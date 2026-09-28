@@ -82,7 +82,7 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   They open PRs as drafts (`gh pr ready` before merging).
 - **Cloud round 2 (claude.ai/code, 2026-09-28; about $6 a medium task on the owner's cloud credit):** PR #51,
   WP46's plan (merged); PR #52, WP44's licence audit and security review (merged); PR #53, WP35
-  `audition_pronunciation` (contracts 1.6.12, design 5.18; merging once CI is green). Briefs:
+  `audition_pronunciation` (contracts 1.6.12, design 5.18; merged; its `gpu` test waits for a GPU window). Briefs:
   `.dev/scratch/cloud-briefs-2.md`. Cloud PRs open as drafts; cloud sessions cannot run `check_private`, so the
   lead runs it before each merge.
 - **New flake (KNOW, CI run 36470360457, Windows):** WP50's regression test
