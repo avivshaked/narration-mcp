@@ -44,6 +44,10 @@ log = logging.getLogger(__name__)
 START_TOLERANCE_S: Final = 2.0
 """How much later than the recorded ``started_at`` a process may have been created and still be the daemon
 (the daemon records ``started_at`` after its process started, so a real one is never later)."""
+SPAWN_TOLERANCE_S: Final = 10.0
+"""How much later than a launch's ``launched_at`` the launched process may have been created and still be the one
+launched (``launch_alive``): the launcher takes the time just before it creates the process. A process under that
+pid created later is another one that reused the pid."""
 EXIT_WAIT_S: Final = 10.0
 """How long the sweep waits for a previous daemon that is still exiting."""
 
@@ -86,6 +90,27 @@ def daemon_alive(status: DaemonStatus | None) -> bool:
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
         return False
     return created <= parse_iso(status.started_at) + START_TOLERANCE_S
+
+
+def launch_alive(pid: int, launched_at: float) -> bool:
+    """Whether the process a launch started (``start.Launch``: the pid ``spawn_detached`` got back, and the time
+    taken just before it) still runs: that pid exists, and its process was created at the launch, no more than
+    ``START_TOLERANCE_S`` before ``launched_at`` (clock granularity) and no more than ``SPAWN_TOLERANCE_S``
+    after it. A process under that pid created outside that span is another one that reused the pid.
+
+    Under a venv the pid is the launcher's, which waits for the daemon it started and ends with it (BELIEVE, from
+    design section 4.1: the daemon runs in the launcher's kill-on-close job). A process whose creation time
+    cannot be read (access denied) counts as alive: the start window still bounds the wait, and no start is
+    called failed on a guess."""
+    if pid <= 0:
+        return False
+    try:
+        created = psutil.Process(pid).create_time()
+    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+        return False
+    except psutil.AccessDenied:
+        return True
+    return launched_at - START_TOLERANCE_S <= created <= launched_at + SPAWN_TOLERANCE_S
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -8,8 +8,10 @@ start-up, it runs the daemon's own sweep (``narration.daemon.sweep``) at ``ensur
 
 A queued job that an operator's stop left in the queue starts no daemon (``operator_stop``); a queued job
 under any other ``stopped`` status does. While a launched daemon is still starting (``run/launch.json``,
-``narration.daemon.start``), no other is asked for. Those tests run the real ``DetachedLauncher`` and
-``start_detached`` over the stand-in platform, which records each launch and starts nothing.
+``narration.daemon.start``), no other is asked for; once its process has gone without writing a status, the
+start failed, and get_job says so rather than launching again at once. Those tests run the real
+``DetachedLauncher`` and ``start_detached`` over the stand-in platform, which records each launch and runs a
+real process that sleeps in place of the daemon (``LaunchingPlatform``).
 
 Every text is invented for these tests.
 """
@@ -18,12 +20,16 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
+import subprocess
+import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import anyio
+import psutil
 import pytest
 from jsonschema import Draft202012Validator
 
@@ -43,7 +49,7 @@ from narration.contracts.names import DaemonCommandKind
 from narration.contracts.schemas import TOOLS_BY_NAME
 from narration.daemon import start as daemon_start
 from narration.daemon.settings import DaemonSettings
-from narration.daemon.sweep import sweep
+from narration.daemon.sweep import launch_alive, sweep
 from narration.platform.testing import StandInPlatform
 from narration.store.store import parse_iso, utc_iso
 from tests.jobs.support import LAMPS
@@ -264,16 +270,43 @@ def test_cancelling_with_a_daemon_running_asks_for_none_s8(service: Service) -> 
 # ======================================================================== one launch per start (4.1)
 
 
-@pytest.fixture
-def platform(monkeypatch: pytest.MonkeyPatch) -> Iterator[StandInPlatform]:
-    """The stand-in platform as ``start_detached``'s: each launch is recorded, and nothing is started."""
-    stand_in = StandInPlatform()
-    monkeypatch.setattr("narration.platform.get_platform", lambda: stand_in)
-    yield stand_in
+class LaunchingPlatform(StandInPlatform):
+    """The stand-in platform as ``start_detached``'s: each launch is recorded, and runs a real process that sleeps
+    in place of the daemon, still starting. A test ends them (``end_launched``) for a daemon that exited before it
+    served; the fixture ends them all."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.launched: list[subprocess.Popen[bytes]] = []
+
+    def spawn_detached(self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str]) -> int:
+        super().spawn_detached(argv, cwd=cwd, env=env)  # records the command, or raises refuse_spawn
+        sleeper = [sys.executable, "-c", "import time; time.sleep(120)"]
+        process = subprocess.Popen(
+            sleeper, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        self.launched.append(process)
+        return process.pid
+
+    def end_launched(self) -> None:
+        for process in self.launched:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=30)
 
 
 @pytest.fixture
-def launching(service: Service, platform: StandInPlatform, tmp_path: Path) -> NarrationBackend:
+def platform(monkeypatch: pytest.MonkeyPatch) -> Iterator[LaunchingPlatform]:
+    launching = LaunchingPlatform()
+    monkeypatch.setattr("narration.platform.get_platform", lambda: launching)
+    try:
+        yield launching
+    finally:
+        launching.end_launched()
+
+
+@pytest.fixture
+def launching(service: Service, platform: LaunchingPlatform, tmp_path: Path) -> NarrationBackend:
     """The backend over the real ``DetachedLauncher`` (so ``ensure_daemon`` and ``start_detached``)."""
     config_file = tmp_path / "narration.toml"
     config_file.write_text("", encoding="utf-8")
@@ -307,7 +340,7 @@ def died_after_start(service: Service) -> None:
     time.sleep(0.02)
 
 
-def launched_running(service: Service, backend: NarrationBackend, platform: StandInPlatform) -> str:
+def launched_running(service: Service, backend: NarrationBackend, platform: LaunchingPlatform) -> str:
     """A job submitted through ``backend`` (which launched a daemon), taken by that daemon, which then died:
     ``running`` with no daemon, and no launch still starting. The platform's record of launches is cleared."""
     job_id = backend.submit_job_sync(service.request(LAMPS))["job_id"]
@@ -318,24 +351,27 @@ def launched_running(service: Service, backend: NarrationBackend, platform: Stan
 
 
 def launched_ago(service: Service, seconds: float) -> None:
-    """Record the last launch as made ``seconds`` ago."""
-    daemon_start.record_launch(service.world.store.root, pid=4242, launched_at=time.time() - seconds)
+    """Record the last launch, under the same pid, as made ``seconds`` ago."""
+    launch = daemon_start.read_launch(service.world.store.root)
+    pid = launch.pid if launch is not None else DEAD_PID
+    daemon_start.record_launch(service.world.store.root, pid=pid, launched_at=time.time() - seconds)
 
 
 def test_a_launch_is_recorded_for_the_next_launcher_s4_1(
-    service: Service, platform: StandInPlatform, launching: NarrationBackend
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
 ) -> None:
     job_id = launched_running(service, launching, platform)
     before = time.time()
     get_job(launching, {"job_id": job_id})
     assert len(platform.spawned) == 1
     launch = daemon_start.read_launch(service.world.store.root)
-    assert launch is not None and launch.pid == platform.spawn_pid
+    assert launch is not None and launch.pid == platform.launched[-1].pid
     assert before - 0.01 <= launch.launched_at <= time.time()
+    assert service.world.store.layout.launch_json_path() == daemon_start.launch_path(service.world.store.root)
 
 
 def test_repeated_polls_during_a_start_launch_one_daemon_s4_1(
-    service: Service, platform: StandInPlatform, launching: NarrationBackend
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
 ) -> None:
     job_id = launched_running(service, launching, platform)
     first = get_job(launching, {"job_id": job_id})
@@ -347,7 +383,7 @@ def test_repeated_polls_during_a_start_launch_one_daemon_s4_1(
 
 
 def test_cancel_then_get_job_launch_one_daemon_s4_1(
-    service: Service, platform: StandInPlatform, launching: NarrationBackend
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
 ) -> None:
     job_id = launched_running(service, launching, platform)
     assert launching.cancel_job_sync({"job_id": job_id}) == {"status": "cancelling", "completed": False}
@@ -358,8 +394,9 @@ def test_cancel_then_get_job_launch_one_daemon_s4_1(
 
 
 def test_a_stuck_start_costs_one_launch_per_window_s4_1(
-    service: Service, platform: StandInPlatform, launching: NarrationBackend
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(daemon_start, "launch_alive", lambda pid, launched_at: True)  # stuck: its process runs
     job_id = launched_running(service, launching, platform)
     get_job(launching, {"job_id": job_id})
     dead_status(service, time.time() - 10 * daemon_start.START_WINDOW_S)  # no status since the launches below
@@ -373,7 +410,7 @@ def test_a_stuck_start_costs_one_launch_per_window_s4_1(
 
 
 def test_a_daemon_that_started_then_died_is_replaced_at_once_s4_1(
-    service: Service, platform: StandInPlatform, launching: NarrationBackend
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
 ) -> None:
     job_id = launched_running(service, launching, platform)
     get_job(launching, {"job_id": job_id})
@@ -383,7 +420,7 @@ def test_a_daemon_that_started_then_died_is_replaced_at_once_s4_1(
 
 
 def test_a_refused_start_holds_back_no_later_launch_s4_1(
-    service: Service, platform: StandInPlatform, launching: NarrationBackend
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
 ) -> None:
     job_id = left_running(service)  # submitted through the fake launcher: no launch recorded
     platform.refuse_spawn = NarrationError(codes.DAEMON_UNAVAILABLE, "left in a job", retry_after_s=60.0)
@@ -395,23 +432,95 @@ def test_a_refused_start_holds_back_no_later_launch_s4_1(
     assert len(platform.spawned) == 1, "the next poll launches at once"
 
 
+def test_a_launched_daemon_that_exits_before_it_serves_is_a_failed_start_s4_1(
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
+) -> None:
+    job_id = launched_running(service, launching, platform)
+    get_job(launching, {"job_id": job_id})  # launches one
+    platform.end_launched()  # it exits before it writes a status (an import or configuration error, say)
+    error = refused(lambda: get_job(launching, {"job_id": job_id}))
+    assert (error.code, error.retryable) == (codes.DAEMON_UNAVAILABLE, True)
+    assert error.retry_after_s is not None and error.retry_after_s >= DAEMON_RETRY_S
+    assert job_id in error.message and "exited before it served" in error.message
+    assert error.details is not None
+    assert error.details["log"] == str(service.world.store.root / "logs" / "daemon.log"), "the store's own log"
+    assert error.details["launched_pid"] == platform.launched[-1].pid
+    assert error.hint is not None and "narration-admin daemon start" in error.hint and "details.log" in error.hint
+    assert len(platform.spawned) == 1, "no other launched at once: it would most likely fail the same way"
+    launched_ago(service, daemon_start.START_WINDOW_S + 1)
+    get_job(launching, {"job_id": job_id})
+    assert len(platform.spawned) == 2, "past the window, a call launches one again"
+
+
+def test_a_launched_daemon_that_failed_through_its_finally_is_a_failed_start_s4_1(
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
+) -> None:
+    job_id = launched_running(service, launching, platform)
+    get_job(launching, {"job_id": job_id})
+    time.sleep(0.01)
+    stopped_status(service)  # it took the singleton, failed, and its finally wrote stopped with no start time
+    platform.end_launched()
+    error = refused(lambda: get_job(launching, {"job_id": job_id}))
+    assert error.code == codes.DAEMON_UNAVAILABLE and error.details is not None and "log" in error.details
+    assert len(platform.spawned) == 1
+
+
+def test_a_stopped_status_while_the_launched_daemon_runs_is_still_a_start_s4_1(
+    service: Service, platform: LaunchingPlatform, launching: NarrationBackend
+) -> None:
+    job_id = launched_running(service, launching, platform)
+    get_job(launching, {"job_id": job_id})
+    time.sleep(0.01)
+    stopped_status(service)  # the exiting daemon's, written while the launched one waits for the singleton
+    out = get_job(launching, {"job_id": job_id})
+    assert "is still starting, so get_job asked for no other" in out["message"]
+    assert len(platform.spawned) == 1
+
+
+def test_a_launch_is_alive_only_under_its_own_process_s4_1() -> None:
+    created = psutil.Process().create_time()
+    assert launch_alive(os.getpid(), created)
+    assert launch_alive(os.getpid(), created + 1.0), "created a moment before the time was taken"
+    assert not launch_alive(os.getpid(), created + 60), "a process older than the launch is not the one launched"
+    assert not launch_alive(os.getpid(), created - 60), "one created long after the launch reused its pid"
+    assert not launch_alive(DEAD_PID, time.time())
+    assert not launch_alive(0, time.time())
+
+
 def test_the_start_window_covers_a_takeover_wait_s4_1(tmp_path: Path) -> None:
     takeover = DaemonSettings(store_root=tmp_path).takeover_wait_s
     window = daemon_start.START_WINDOW_S
     assert window >= takeover + 20, "a launched daemon may wait that long for the singleton"
 
 
-def test_launch_in_progress_reads_the_record_and_the_status_s4_1(service: Service) -> None:
+def test_check_launch_reads_the_record_the_status_and_the_process_s4_1(
+    service: Service, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store = service.world.store
-    assert daemon_start.launch_in_progress(store) is None, "no launch recorded"
+    alive = [True]
+    monkeypatch.setattr(daemon_start, "launch_alive", lambda pid, launched_at: alive[0])
+
+    def state(at: float) -> str | None:
+        check = daemon_start.check_launch(store, now=at)
+        return check.state if check is not None else None
+
+    assert daemon_start.check_launch(store) is None, "no launch recorded"
     now = time.time()
     daemon_start.record_launch(store.root, pid=11, launched_at=now)
-    assert daemon_start.launch_in_progress(store, now=now + 1) is not None
-    assert daemon_start.launch_in_progress(store, now=now - 10) is not None, "a clock stepped back a little"
-    assert daemon_start.launch_in_progress(store, now=now - daemon_start.START_WINDOW_S - 1) is None
-    assert daemon_start.launch_in_progress(store, now=now + daemon_start.START_WINDOW_S) is None
+    assert state(now + 1) == "starting" and daemon_start.launch_in_progress(store, now=now + 1) is not None
+    assert state(now - 10) == "starting", "a clock stepped back a little"
+    assert state(now - daemon_start.START_WINDOW_S - 1) is None
+    assert state(now + daemon_start.START_WINDOW_S) is None
+    alive[0] = False
+    assert state(now + 1) == "failed", "its process has gone, and it wrote no status"
+    assert daemon_start.launch_in_progress(store, now=now + 1) is None, "a failed start is not in progress"
     store.put_daemon_status(dataclasses.replace(daemon_status(), started_at=utc_iso(now + 0.5)))
-    assert daemon_start.launch_in_progress(store, now=now + 1) is None, "it has started"
+    assert state(now + 1) is None, "it has started: whether it still runs is running_daemon's to say"
+    stopped = dataclasses.replace(daemon_status(state="stopped"), pid=None, started_at=None)
+    store.put_daemon_status(dataclasses.replace(stopped, updated_at=utc_iso(now + 2)))
+    assert state(now + 3) == "failed", "a stopped status with no start time, and its process gone"
+    alive[0] = True
+    assert state(now + 3) == "starting", "the exiting daemon's stopped, while the launched one waits"
     daemon_start.launch_path(store.root).write_text("{not json", encoding="utf-8")
     assert daemon_start.read_launch(store.root) is None, "a torn record is no launch"
 
@@ -462,7 +571,7 @@ def test_a_job_queued_before_an_operators_stop_waits_for_the_next_start_s4_1(
     assert service.launcher.ensured == [], "the operator stopped the service; get_job starts none"
     assert out["status"] == "queued"
     message = out["message"]
-    assert "'narration-admin daemon stop' after this job was queued" in message
+    assert "A stop was posted after this job was queued (narration-admin daemon stop, or" in message
     assert "narration-admin daemon start" in message and "submit_job" in message, "how the job resumes"
     found = operator_stop(service.world.store, service.world.job(job_id))
     assert found is not None and found.command_id == stop.command_id
@@ -568,4 +677,16 @@ def test_no_stopped_status_means_no_operators_stop_s4_1(service: Service) -> Non
 def test_the_operators_stop_note_is_dropped_once_a_daemon_moved_the_job_on_s4_1() -> None:
     revival = Revival(action="stopped", status="queued")
     assert "stays in the queue" in revival.note(status_now="queued")
-    assert "one has started since" in revival.note(status_now="running")
+    assert "a daemon has started since" in revival.note(status_now="running")
+
+
+def test_a_stop_in_the_jobs_own_millisecond_counts_as_after_it_s4_1(service: Service) -> None:
+    store = service.world.store
+    job_id = queued(service)
+    stop = answered(service, store.post_command("stop"))
+    stopped_status(service, after=stop)
+    job = service.world.job(job_id)
+    same = dataclasses.replace(job, created_at=stop.requested_at)
+    assert operator_stop(store, same) is not None, "store times are cut to the millisecond, as posted_after_launch"
+    later = dataclasses.replace(job, created_at=utc_iso(parse_iso(stop.requested_at) + 0.002))
+    assert operator_stop(store, later) is None, "a job queued after the stop belongs to the next start"

@@ -159,7 +159,8 @@ TOOL_TEXTS: Final[dict[str, ToolText]] = {
         "again, with wait_s, until status is completed, failed or cancelled, then read get_results. If the "
         "request carries a progressToken, progress notifications are sent while it waits. Cancelling this "
         "request ends only the wait, never the job (use cancel_job). A failed job is still a successful call: "
-        "the job's error is in error. If the daemon died, get_job starts it again, so the job resumes.",
+        "the job's error is in error. If the daemon died, get_job asks for one again (with [daemon] autostart "
+        "on), and its message says what was done.",
         retention=True,
     ),
     "get_results": ToolText(

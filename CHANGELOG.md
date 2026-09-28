@@ -300,17 +300,21 @@ are tracked here but no version is tagged; nothing described below is installabl
   asked for a daemon and what happens next, or with `[daemon] autostart` off, who must start one. When no
   daemon can be started, `get_job` answers `DAEMON_UNAVAILABLE` (retryable) with the job and the hint to run
   `narration-admin daemon start`. A queued job is left alone for 30 s after it was written, while the daemon
-  its submission asked for starts up. A queued job that `narration-admin daemon stop` left in the queue starts
-  no daemon: `get_job` says it runs on the next start (`narration-admin daemon start`, or the next
-  `submit_job`). A daemon that stopped because it failed, or a stop asked before the job was queued, does not
-  hold the job back.
+  its submission asked for starts up. A queued job left in the queue by a stop posted after it was queued
+  (`narration-admin daemon stop`, or `narration-admin install`) starts no daemon: `get_job` says it runs on the
+  next start (`narration-admin daemon start`, or the next `submit_job`). A daemon that stopped because it
+  failed, or a stop asked before the job was queued, does not hold the job back.
 - A daemon launched by `get_job`, `cancel_job` or `submit_job` is recorded in the store (`run/launch.json`: when
-  it was launched, and its pid), once the platform has let it run; a refused start records nothing. While that daemon is starting (90 s at most, and until it writes its status),
-  `get_job` and `cancel_job` ask for no other, so repeated polls during a start launch one daemon, and a start
-  that hangs costs at most one launch every 90 s.
+  it was launched, and its pid), once the platform has let it run; a refused start records nothing. While that
+  daemon is starting (90 s at most, and until it writes its status), `get_job` and `cancel_job` ask for no
+  other, so repeated polls during a start launch one daemon, and a start that hangs costs at most one launch
+  every 90 s. A launched daemon that exits before it serves is a failed start: until the 90 s have passed,
+  `get_job` answers `DAEMON_UNAVAILABLE` (retryable) with the daemon's log in `details.log` and the hint to run
+  `narration-admin daemon start` in a terminal, instead of launching another at once.
 - `get_job` states the backoff rule in its description, as the tools that write do: it answers
   `DAEMON_UNAVAILABLE` (retryable, with `retry_after_s`) when no daemon serves an active job and none can be
-  started. Its description also says that if the daemon died, `get_job` starts it again. It stays read-only.
+  started. Its description also says that if the daemon died, `get_job` asks for one again (with
+  `[daemon] autostart` on), and that its message says what was done. It stays read-only.
 - `submit_job`'s plan (and its `dry_run`) now counts cached analyses: `narration-mcp` and `narration-admin
   render` look the analysis layer up with the installation's QA and aligner pins, as the daemon keys it. A
   resubmission that is all cached reports `segments_cached` and no analyses to do, instead of 0 and every

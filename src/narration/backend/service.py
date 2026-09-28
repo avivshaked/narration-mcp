@@ -56,12 +56,15 @@ from narration.contracts.models import (
 from narration.contracts.names import TERMINAL_JOB_STATUSES, EngineKind, JobKind, JobStatus, Priority
 from narration.contracts.serial import to_json
 from narration.daemon import start as daemon_start
+from narration.daemon.service import posted_after_launch
+from narration.daemon.settings import LOG_NAME
 from narration.daemon.sweep import StatusUnreadable, read_status
 from narration.jobs import admission
 from narration.jobs.plan import VoiceSpec, estimated_audio_s
 from narration.lint import NegationLinter
 from narration.post import delivery_tools
 from narration.qa import Scorer
+from narration.store.layout import LOGS
 from narration.store.store import parse_iso, utc_iso
 from narration.text import TextPipeline, segment_too_long
 
@@ -377,23 +380,27 @@ class NarrationBackend:
         simply run in its turn. A daemon that is ``stopping`` still runs, and is left alone: one exiting for
         being idle looks for work once more, and one asked to stop by the operator is let stop.
 
-        A ``queued`` job that an operator's stop left in the queue (``operator_stop``: ``narration-admin daemon
-        stop`` after the job was queued) starts no daemon: the stop was the operator's decision, and the job runs
-        on the next start (``narration-admin daemon start``, or the next ``submit_job``). Every other queued job
+        A ``queued`` job that an operator's stop left in the queue (``operator_stop``: a stop posted after the job
+        was queued, by ``narration-admin daemon stop`` or ``narration-admin install``) starts no daemon: the stop
+        was the operator's decision, and the job runs on the next start (``narration-admin daemon start``, or the
+        next ``submit_job``). Every other queued job
         whose daemon has gone gets one, whatever ``run/daemon.json`` says: ``stopped`` is also written by a daemon
         whose control loop or worker supervisor failed, and after a stop that was asked before the job was queued.
         A job left ``running`` or ``cancelling`` always gets one: its daemon gave it back or lost it.
 
         No daemon is asked for while one is starting: a daemon writes its status only once it holds the
         singleton, so until then no daemon "runs", and each poll would launch another. So a launch recorded
-        less than ``daemon.start.START_WINDOW_S`` ago, with no status written since
-        (``daemon.start.launch_in_progress``), is left to start: at most one launch per window, even when a
-        start is stuck. ``run/launch.json`` is the service's own operational state, never a caller's
-        (sections 0.2, 2). A ``queued`` job written less than ``DAEMON_START_GRACE_S`` ago is also left to the
-        daemon its submission asked for. A job ``running`` or ``cancelling`` was taken by a daemon that had
-        written its status, so none running means it has gone.
+        less than ``daemon.start.START_WINDOW_S`` ago, with no status written since, is left to start while its
+        process runs (``daemon.start.check_launch``): at most one launch per window, even when a start is stuck.
+        Once that process has gone without writing a status, the start failed: ``DAEMON_UNAVAILABLE`` names the
+        daemon's log instead of launching again at once, since a new daemon would most likely fail the same way
+        (past the window, the next call launches one again). ``run/launch.json`` is the service's own
+        operational state, never a caller's (sections 0.2, 2). A ``queued`` job written less than
+        ``DAEMON_START_GRACE_S`` ago is also left to the daemon its submission asked for. A job ``running`` or
+        ``cancelling`` was taken by a daemon that had written its status, so none running means it has gone.
 
-        Raises ``DAEMON_UNAVAILABLE`` (with the job, its status and what to do) when no daemon could be started.
+        Raises ``DAEMON_UNAVAILABLE`` (with the job, its status and what to do) when no daemon could be started,
+        or the one launched for it exited before it served.
         """
         if job.status in TERMINAL_JOB_STATUSES:
             return None
@@ -405,9 +412,11 @@ class NarrationBackend:
         if job.status == "queued" and operator_stop(self.store, job) is not None:
             return Revival(action="stopped", status=job.status)
         now = self.clock()
-        launch = daemon_start.launch_in_progress(self.store, now=now)
+        launch = daemon_start.check_launch(self.store, now=now)
+        if launch is not None and launch.state == "starting":
+            return Revival(action="starting", status=job.status, since_s=max(0.0, now - launch.launch.launched_at))
         if launch is not None:
-            return Revival(action="starting", status=job.status, since_s=max(0.0, now - launch.launched_at))
+            raise _failed_start(job, launch.launch, now=now, log_path=self.store.root / LOGS / LOG_NAME)
         try:
             self.launcher.ensure(self.store)
         except NarrationError as exc:
@@ -1107,12 +1116,14 @@ def operator_stop(store: Store, job: JobRecord) -> DaemonCommand | None:
 
     ``run/daemon.json`` says ``stopped`` after every exit: an operator's stop, an idle exit, and a daemon whose
     control loop or worker supervisor raised (its ``finally`` still writes ``stopped``). A queued job waits only
-    for an operator's stop that applies to it: a ``stop`` or ``stop_now`` answered ``stopped: true`` (only
-    ``narration-admin daemon stop`` posts them) that
+    for an operator's stop that applies to it: a ``stop`` or ``stop_now`` answered ``stopped: true``
+    (``narration-admin daemon stop`` posts them, and ``narration-admin install`` after a repair) that
 
     - was posted after the job was created: it was asked of the service the job was queued in. A job queued
       after it, even while the stop's in-flight segment finished, belongs to the next start, as the daemon's
-      rule has it: a daemon honours no stop posted before its launch (``narration.daemon.service``);
+      rule has it: a daemon honours no stop posted before its launch (``narration.daemon.service``). A stop
+      stamped in the job's own millisecond counts as after it, as it does against a launch
+      (``posted_after_launch``: store times are cut to the millisecond);
     - was answered at most ``STOP_TO_STOPPED_S`` before ``stopped`` was written: the daemon that wrote it is the
       one that stopped for it, or took over and honoured it, and not a later daemon that served and then failed.
       A ``stopped`` status keeps no start time (``started_at`` is null), so the stop's answer stands in for "since
@@ -1139,12 +1150,42 @@ def operator_stop(store: Store, job: JobRecord) -> DaemonCommand | None:
         if command.result.get("stopped") is not True:
             continue
         try:
-            posted, answered = parse_iso(command.requested_at), parse_iso(command.done_at)
+            after = posted_after_launch(command.requested_at, created)
+            answered = parse_iso(command.done_at)
         except ValueError:
             continue
-        if posted > created and abs(stopped_at - answered) <= STOP_TO_STOPPED_S:
+        if after and abs(stopped_at - answered) <= STOP_TO_STOPPED_S:
             return command
     return None
+
+
+def _failed_start(job: JobRecord, launch: daemon_start.Launch, *, now: float, log_path: Path) -> NarrationError:
+    """``DAEMON_UNAVAILABLE`` for an active job whose daemon, launched less than ``daemon.start.START_WINDOW_S``
+    ago, exited before it served (``daemon.start.check_launch`` says ``failed``). No other is launched at once:
+    it would most likely fail the same way. ``details.log`` is the daemon's log in the store (section 14), and
+    the hint says how to see the failure. Retryable, after the rest of the window: then a call launches one
+    again."""
+    age = max(0.0, now - launch.launched_at)
+    return NarrationError(
+        codes.DAEMON_UNAVAILABLE,
+        f"job {job.job_id} is {job.status}, but the daemon launched {round(age)} s ago to serve it exited before "
+        "it served, so no other was launched at once",
+        hint=(
+            "Run 'narration-admin daemon start' in a terminal, which reports whether the daemon comes up, or "
+            "'narration-admin daemon start --foreground' to see why it exits; its log is details.log. Once a "
+            f"daemon serves, call get_job again: {RESUMES[job.status]}."
+        ),
+        details={
+            "job_id": job.job_id,
+            "job_status": job.status,
+            "daemon_state": "stopped",
+            "launched_pid": launch.pid,
+            "launched_at": utc_iso(launch.launched_at),
+            "log": str(log_path),
+        },
+        retryable=True,
+        retry_after_s=float(max(DAEMON_RETRY_S, math.ceil(daemon_start.START_WINDOW_S - age))),
+    )
 
 
 def _no_daemon_for(job: JobRecord, exc: NarrationError) -> NarrationError:
@@ -1187,11 +1228,11 @@ class Revival:
         state = " (daemon state: stopped)" if status_now == self.status else ""
         if self.action == "stopped":
             if status_now != self.status:
-                return "The daemon had been stopped with 'narration-admin daemon stop'; one has started since."
+                return "A stop had been posted after this job was queued; a daemon has started since."
             return (
-                "The daemon was stopped with 'narration-admin daemon stop' after this job was queued, so get_job "
-                "started none; the job stays in the queue and runs on the next start: 'narration-admin daemon "
-                "start' in a terminal, or the next submit_job while [daemon] autostart is on."
+                "A stop was posted after this job was queued (narration-admin daemon stop, or narration-admin "
+                "install), so get_job started no daemon; the job stays in the queue and runs on the next start: "
+                "'narration-admin daemon start' in a terminal, or the next submit_job while [daemon] autostart is on."
             )
         if self.action == "off":
             waits = "finishes this cancel" if self.status == "cancelling" else "runs this job"
