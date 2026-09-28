@@ -71,10 +71,15 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   (its measurement is `/v1`). Run `measure_voice` again: it reuses the cached renders and reruns QA only
   (BELIEVE: not yet run on the real store). Then re-score the first job to check the 0.25 s pause threshold
   (ASSUME until then; WP47's F2). Later, the rest of the ladder in stages (remove `.dev/service-setup/STOP`).
-- **Follow-ups:** WP47's F2–F4 and the flaky `test_a_worker_that_cannot_start_fails_the_job_once_s14`
-  (`status/WP47.md`); `contracts/codes.py` CLIP_TOO_LONG retake `always` → `never` (the design says never);
-  the stopped daemon's launch time or stop reason in `run/daemon.json` (also fixes a failed-start message that
-  can say "exited before it served" for a daemon that served; design 5.16 §4.1); `install`'s stop message.
+- **Also merged 2026-09-28:** PR #48, WP43 (README, operator guide, generated tool reference), and PR #49,
+  WP50 (CLIP_TOO_LONG never retakes, contracts 1.6.10; a worker-start race fixed; `install`'s message; speaking
+  share per take). WP50's agent was launched as a "remote" (cloud) agent but ran locally in
+  `.claude/worktrees/` (KNOW): the cloud credit was not used. To use cloud credit, the owner starts a session at
+  claude.ai/code.
+- **Follow-ups:** WP47's F2 and F4 (both wait for the re-measure); the stopped daemon's launch time or stop
+  reason in `run/daemon.json` (approved; also fixes a failed-start message that can say "exited before it
+  served" for a daemon that served; design 5.16 §4.1); `codes.py` lists PACE_FAST/PACE_SLOW with a fail
+  severity while §14 says warn only (a profile can still set a fail factor; reconcile the text).
 - **Decisions carried into the resumed agents:**
   - **PR #41, L1: option (b′).** A queued job under a `stopped` status counts as an operator's stop only if both
     hold:
