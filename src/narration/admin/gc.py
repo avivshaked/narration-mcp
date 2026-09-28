@@ -9,16 +9,20 @@ daemon runs: the store collects in short transactions, and never touches a key t
 meanwhile.
 
 **Failed and replaced takes** (plan.md WP48) are listed apart, in the dry run, the real run and ``--json``
-(its ``failures`` key): how many the store holds, how old the oldest is, and which of them this run takes out
-of ``narration-admin failures``' view (``failures.retention_view``). So an audit can finish, or ``failures
---export`` copy them, before they are removed. What ``gc`` removes does not depend on it: that is retention's
-rule alone. The list is read before the collection, through the store's API, and changes nothing.
+(its ``failures`` key): how many the store holds, how old the oldest is, which of them this run takes out of
+``narration-admin failures``' view, and which only lose their flags and metrics (their analysis goes, the take
+stays): ``failures.retention_view``. So an audit can finish, or ``failures --export`` copy them, before they are
+removed. What ``gc`` removes does not depend on it: that is retention's rule alone. The list is read before the
+collection with the store's reads that never repair the index (``NarrationStore.peek_take`` and the like), so
+reading it writes nothing: a dry run changes no row and no file, even where a take's file is missing. If the
+list cannot be read, ``gc`` says so and goes on.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from typing import Any
 
 from narration.contracts.errors import NarrationError
@@ -55,7 +59,7 @@ def run_gc(admin: Admin, args: argparse.Namespace) -> int:
     store = admin.store()
     try:
         failures = collect(store)  # before the collection: a real run removes what they name
-    except (NarrationError, ValueError, OSError) as exc:  # the view never stands in retention's way
+    except (NarrationError, ValueError, OSError, sqlite3.Error) as exc:  # the view never stands in retention's way
         admin.warn(f"{PROGRAM}: the failed takes could not be listed ({type(exc).__name__}: {exc}); gc goes on.")
         failures = None
     report: dict[str, Any] = store.gc(dry_run=not args.apply)
@@ -109,13 +113,17 @@ def _audit_line(audit: dict[str, Any] | None, *, applied: bool) -> str:
     line = (
         f"Failed or replaced takes (`{PROGRAM} failures`): {held} {'were' if applied else 'are'} in the store{oldest}."
     )
+    lose = len(audit.get("lose_analysis", []))
     if applied:
-        return line + (f" This run removed {due} of them from the audit." if due else " This run removed none.")
+        line += f" This run removed {due} of them from the audit." if due else " This run removed none of them."
+        return line + (f" {lose} lost their flags and metrics (their analysis was removed)." if lose else "")
+    if lose:
+        line += f" {lose} would lose their flags and metrics (their analysis would be removed; the take stays)."
     if not due:
         return line + " This run would remove none of them."
     return (
-        line + f" This run would take {due} of them out of the audit (it removes the take, or every job or "
-        f"analysis that lists it). `{PROGRAM} failures --export <dir>` copies them, with their reasons, first."
+        line + f" This run would take {due} of them out of the audit (it removes the take, or every job that "
+        f"lists it). `{PROGRAM} failures --export <dir>` copies them, with their reasons, first."
     )
 
 

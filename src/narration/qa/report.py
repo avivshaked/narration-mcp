@@ -78,11 +78,17 @@ def _int(value: Any) -> int | None:
 def replacements(attempts: Iterable[tuple[int, Iterable[Mapping[str, Any]]]]) -> dict[int, int]:
     """Which attempt finally filled the take slot of each attempt a retake replaced, within one segment.
 
-    ``attempts`` gives each attempt's number with its flags as JSON (a ``get_results`` take's ``flags``, or a
-    ``JobAttempt``'s). The job writes ``RETAKEN`` on every retake, and its ``details.replaced`` lists every
-    earlier attempt of the slot (``narration.jobs.record``). So the retake that lists the most is the slot's
-    last attempt. The result maps each replaced attempt to that last attempt. An attempt no retake lists was
-    not replaced, and is not in it.
+    **The rule**, the same for the report and ``narration-admin failures``: an attempt counts as replaced only
+    when a later attempt of its slot has a take, and the take that finally filled the slot is the slot's last
+    attempt that has one. A retake whose render failed, or whose take is no longer in the store, replaces
+    nothing. So ``attempts`` must hold **only the attempts that have a take**, each with its number and its
+    flags as JSON: a ``get_results`` segment's ``takes[]`` (which lists exactly those), or the ``JobAttempt``s
+    whose take and render the store still has (``narration.admin.failures``).
+
+    The job writes ``RETAKEN`` on every retake, and its ``details.replaced`` lists every earlier attempt of the
+    slot (``narration.jobs.record``). So among the attempts given, the one that lists the most is the slot's
+    last with a take. The result maps each attempt such a retake lists to it; an attempt none lists was not
+    replaced, and is not in it.
     """
     best: dict[int, tuple[int, int]] = {}
     for number, flags in attempts:

@@ -13,12 +13,17 @@ are tracked here but no version is tagged; nothing described below is installabl
 - `narration-admin failures` lists every take that failed QA or that a retake replaced, across jobs, newest
   job first, for an audit: the job, segment, attempt and seed; the take's WAV in the store; each fail and warn
   flag with its message; the QA metrics; the take that finally filled the slot; and the segment's text.
-  `--since`, `--job`, `--voice` and `--code` filter it, and `--json` prints it as data. `--export <dir>`
-  copies each take's WAV with a JSON sidecar of its reasons, plus an `index.csv`; it never overwrites a
-  different file, and refuses a folder inside the store. It only reads the store. The job report
-  (`narration://jobs/{job_id}/report`, and `report.json`) gains a "Failures" section with the same takes, and
-  `narration-admin gc` lists them apart (how many, how old, and which the run would remove), so an audit
-  can finish before retention removes them.
+  `--since`, `--job`, `--voice` and `--code` (a QA or aligner flag code) filter it, and `--json` prints it
+  as data. `--export <dir>` copies each take's WAV with a JSON sidecar of its reasons, plus an `index.csv`
+  (UTF-8 with a byte-order mark; a cell a spreadsheet would run as a formula gets a `'` in front). The
+  bundle names its files by take id, never by a path in the store. It never overwrites a different file,
+  refuses a folder inside the store (also through a link or another name for it), and says what to do when
+  a file cannot be written. It never changes the store: a take whose WAV was deleted by hand is listed as
+  "file not in the store" and its index row is left as it is. The job report
+  (`narration://jobs/{job_id}/report`, and `report.json`) gains a "Failures" section with the same takes,
+  by the same rule for which retake replaced which, and `narration-admin gc` lists them apart (how many, how
+  old, which the run would remove, and which would only lose their flags and metrics), so an audit can
+  finish before retention removes them.
 - `design_voice` and `profile_voice` now run (`narration.design`). A design renders 1 to 4 candidates
   with Qwen VoiceDesign, each from its own seed, which is derived from the description, the design text
   and the candidate's number, so the same request designs the same voices. Each candidate's clip is

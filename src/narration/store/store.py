@@ -51,7 +51,7 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from pathlib import Path, PurePath
 from typing import Any, Final, Literal, TypeVar, get_args
 
@@ -695,6 +695,37 @@ class NarrationStore:
         self._publish_file(tmp, final, decide, commit)
         return self._must(self.get_analysis(record.analysis_key), "analysis", record.analysis_key)
 
+    # ================================================================ reads that never repair (operator views)
+    def peek_render(self, render_id: str) -> tuple[RenderRecord, bool] | None:
+        """The render the index names, with whether its ``raw.wav`` is there; None when there is no row.
+
+        Unlike ``get_render_by_id``, it never repairs the index: a row whose file is gone is returned as it is
+        (``False``), not dropped (``_drop``). For views that must not write, such as ``narration-admin
+        failures`` and ``gc``'s dry run (plan.md WP48)."""
+        row = self._conn().execute("SELECT record FROM renders WHERE render_id = ?", (render_id,)).fetchone()
+        if row is None:
+            return None
+        record = from_json(RenderRecord, json.loads(row["record"]))
+        return map_render(record, self._to_abs), self._present(record.raw.path)
+
+    def peek_take(self, take_id: str) -> tuple[TakeRecord, bool] | None:
+        """The take the index names, with whether its ``delivery.wav`` is there; None when there is no row.
+        Never repairs the index (``peek_render``)."""
+        row = self._conn().execute("SELECT record FROM takes WHERE take_id = ?", (take_id,)).fetchone()
+        if row is None:
+            return None
+        record = from_json(TakeRecord, json.loads(row["record"]))
+        return map_take(record, self._to_abs), self._present(record.delivery.path)
+
+    def peek_analysis(self, analysis_id: str) -> tuple[AnalysisRecord, bool] | None:
+        """The analysis the index names (its row holds the whole record), with whether its sidecar file is
+        there; None when there is no row. Never repairs the index (``peek_render``)."""
+        sql = "SELECT record, rel_path FROM analyses WHERE analysis_id = ?"
+        row = self._conn().execute(sql, (analysis_id,)).fetchone()
+        if row is None:
+            return None
+        return from_json(AnalysisRecord, json.loads(row["record"])), self._present(row["rel_path"])
+
     # ================================================================ measurements (section 3.2)
     def get_measurement(self, voice_hash: str, engine_profile_id: str) -> MeasurementRecord | None:
         sql = "SELECT record, rel_dir FROM measurements WHERE voice_hash = ? AND engine_profile_id = ?"
@@ -1273,13 +1304,37 @@ class NarrationStore:
         )
         return tuple(from_json(JobRecord, json.loads(r["record"])) for r in rows)
 
-    def list_jobs(self) -> tuple[JobRecord, ...]:
-        """Every job the store holds, in any status, newest first (the order they were queued in, reversed).
+    def iter_jobs(
+        self, *, kinds: Collection[str] | None = None, inserted_since: float | None = None
+    ) -> Iterator[JobRecord]:
+        """The jobs the store holds, in any status, newest first (the order they were queued in, reversed), one
+        at a time from the database's cursor.
+
+        ``kinds`` keeps only those kinds; ``inserted_since`` (Unix seconds, the store's clock) only the jobs the
+        store inserted at or after it. A job's ``created_at`` is the front-end's time, a moment earlier, so a
+        caller that filters on it passes some slack here and filters exactly itself.
 
         A read for the operator's views (``narration-admin failures``, plan.md WP48): it changes nothing, not
-        even a job's last use, so listing a job never keeps it from ``gc``."""
-        rows = self._conn().execute("SELECT record FROM jobs ORDER BY seq DESC").fetchall()
-        return tuple(from_json(JobRecord, json.loads(r["record"])) for r in rows)
+        even a job's last use, so listing a job never keeps it from ``gc``. Stop early and the cursor is closed.
+        """
+        where: list[str] = []
+        args: list[object] = []
+        if kinds is not None:
+            wanted = sorted(set(kinds))
+            if not wanted:
+                return
+            where.append(f"kind IN ({', '.join('?' for _ in wanted)})")
+            args.extend(wanted)
+        if inserted_since is not None:
+            where.append("inserted_at >= ?")
+            args.append(inserted_since)
+        sql = "SELECT record FROM jobs" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY seq DESC"
+        cursor = self._conn().execute(sql, args)
+        try:
+            for row in cursor:
+                yield from_json(JobRecord, json.loads(row["record"]))
+        finally:
+            cursor.close()
 
     def claim_job(self, job_id: str, holder: str) -> JobRecord | None:
         """Atomically move this job from ``queued`` to ``running`` for ``holder``; None if it is no longer
