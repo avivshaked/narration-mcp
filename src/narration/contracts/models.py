@@ -601,7 +601,8 @@ class SimilarityBaseline:
 class PaceTrend:
     """Pace against length, fitted over the rungs up to ``band_max_chars`` (section 3.2). Pace is spoken
     characters per second of speaking time (``Pace.method``): ``intercept_cps`` at no length, rising by
-    ``per_100_chars`` characters per second for every 100 spoken characters."""
+    ``per_100_chars`` characters per second for every 100 spoken characters. Information only since contracts
+    1.6.9 (DC-20): no rung and no take is judged by it."""
 
     intercept_cps: float
     per_100_chars: float
@@ -623,12 +624,15 @@ class Pace:
     time: the voiced span with its pauses taken out (``names.PACE_METHOD``, ``narration.qa.pace``). Changed in
     contracts 1.6.9 (WP47, D2): it was in spoken words per minute over the voiced span.
 
-    ``speaking_share`` is the median share of the voiced span that was speaking, over the trend band's takes.
-    It is only for duration estimates (sections 7.3 and 12: a take lasts its characters at the curve's pace,
-    plus its pauses), never for a verdict.
+    ``level_cps`` (DC-20) is the voice's pace: the median over the trend band's rungs of each rung's median
+    pace. The ladder judges every rung against it, and QA expects it when there is no ``curve`` (no rung
+    passed). ``trend`` is information only. ``speaking_share`` is the median share of the voiced span that was
+    speaking, over the trend band's takes. It is only for duration estimates (sections 7.3 and 12: a take lasts
+    its characters at the curve's pace, plus its pauses), never for a verdict.
     """
 
     method: str
+    level_cps: float
     trend: PaceTrend
     tol: float
     curve: tuple[PacePoint, ...]

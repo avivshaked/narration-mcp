@@ -110,21 +110,20 @@ def expected_cps(pace: Pace, spoken_chars: int) -> float | None:
     """The voice's pace curve at this spoken length, in spoken characters per second of speaking time.
 
     Inside the curve's range: straight lines between its points (points at one length are averaged). Outside
-    it: the nearest end point moved along the trend's slope (``per_100_chars``), so the value is continuous and
-    follows the fitted trend. With no curve (no rung passed): the trend itself. None when the result is not a
-    positive pace.
+    it: the nearest end point's value, held flat (DC-20: a voice's pace does not follow length, so no slope is
+    extended). With no curve (no rung passed): the voice's level, ``Pace.level_cps``. The trend is never read.
+    None when the result is not a positive pace.
     """
-    slope = pace.trend.per_100_chars / 100.0
     by_chars: dict[int, list[float]] = {}
     for point in pace.curve:
         by_chars.setdefault(point.chars, []).append(point.cps)
     points = sorted((c, sum(v) / len(v)) for c, v in by_chars.items())
     if not points:
-        value = pace.trend.intercept_cps + slope * spoken_chars
+        value = pace.level_cps
     elif spoken_chars <= points[0][0]:
-        value = points[0][1] + slope * (spoken_chars - points[0][0])
+        value = points[0][1]
     elif spoken_chars >= points[-1][0]:
-        value = points[-1][1] + slope * (spoken_chars - points[-1][0])
+        value = points[-1][1]
     else:
         value = points[0][1]
         for (c0, v0), (c1, v1) in pairwise(points):

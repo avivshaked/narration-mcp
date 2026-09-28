@@ -1,15 +1,16 @@
 """The length ladder's rules on numbers (design section 3.2, R8; ``narration.measure.ladder``).
 
-Pace is spoken characters per second of speaking time (WP47); the numbers are invented."""
+Pace is spoken characters per second of speaking time (WP47), and every rung is judged against the band's level
+(DC-20); the numbers are invented."""
 
 from __future__ import annotations
 
 import pytest
 
-from narration.contracts.models import PacePoint, PaceTrend
+from narration.contracts.models import PacePoint
 from narration.measure import ladder as lad
 
-TREND = PaceTrend(intercept_cps=14.0, per_100_chars=0.5, band_max_chars=300)
+LEVEL = 15.0
 
 
 def seed(
@@ -48,15 +49,29 @@ def rung(chars: int, *seeds: lad.SeedTake, target: int | None = None) -> lad.Run
 
 
 def judge(r: lad.Rung, *, tol: float = 0.10, sim_warn: float = 0.95) -> lad.RungJudgement:
-    return lad.judge(r, trend=TREND, tol=tol, sim_warn=sim_warn)
+    return lad.judge(r, level=LEVEL, tol=tol, sim_warn=sim_warn)
 
 
-# ======================================================================== the trend and tol
+# ======================================================================== the level, the trend and tol
 
 
 def test_median_ignores_missing_values_s3_2() -> None:
     assert lad.median([3.0, None, 1.0, 2.0]) == 2.0
     assert lad.median([None, None]) is None
+
+
+def test_the_level_is_the_median_of_the_band_rungs_medians_dc20() -> None:
+    rungs = [
+        rung(100, seed(15.0, attempt=0), seed(15.1, attempt=1), seed(14.9, attempt=2)),  # median 15.0
+        rung(200, seed(15.5, attempt=0), seed(20.0, attempt=1), seed(15.4, attempt=2)),  # median 15.5
+        rung(300, seed(16.0)),
+        rung(400, seed(99.9)),  # above the band: not counted
+    ]
+    assert lad.band_level(rungs, 300) == 15.5
+    assert lad.band_level([rung(80, seed(13.0)), rung(150, seed(14.0))], 300) == 13.5
+    assert lad.band_level([rung(80, seed(None)), rung(150, seed(14.0))], 300) == 14.0  # an unmeasured rung: skipped
+    with pytest.raises(ValueError, match="no rung"):
+        lad.band_level([rung(80, seed(None)), rung(400, seed(15.0))], 300)
 
 
 def test_trend_is_least_squares_over_band_rung_medians_s3_2() -> None:
@@ -113,21 +128,46 @@ def test_a_rung_passes_when_every_rule_holds_s3_2() -> None:
     result = judge(rung(200))
     assert result.passes and result.reasons == ()
     assert result.median_cps == 15.0
-    assert result.limit_cps == pytest.approx(15.0 * 1.10)  # the trend at 200 characters is 15 cps
+    assert result.limit_cps == pytest.approx(LEVEL * 1.10)
     assert result.median_duration_s == 10.0
 
 
-def test_pace_is_judged_against_the_trend_at_the_rungs_length_s3_2() -> None:
-    limit = lad.trend_at(TREND, 200) * 1.10
-    assert judge(rung(200, seed(limit))).passes  # at the limit: not above it
-    fails = judge(rung(200, seed(limit + 0.001)))
-    assert not fails.passes and "median pace" in fails.reasons[0]
-    # a longer rung's trend is higher, so the same pace passes there
-    assert judge(rung(500, seed(limit + 0.001))).passes
+@pytest.mark.parametrize("chars", [80, 200, 560, 1000])
+def test_pace_is_judged_against_the_level_at_every_length_dc20(chars: int) -> None:
+    limit = LEVEL * 1.10
+    assert judge(rung(chars, seed(limit))).passes  # at the limit: not above it
+    fails = judge(rung(chars, seed(limit + 0.001)))
+    assert not fails.passes and "median pace" in fails.reasons[0] and "level" in fails.reasons[0]
+    assert fails.limit_cps == pytest.approx(limit)
+
+
+def test_a_drift_across_the_band_does_not_tighten_a_long_rungs_limit_dc20() -> None:
+    """A band whose rung medians fall 4.6 % from the shortest to the longest (noise, in a rate that is flat with
+    length). Its fitted trend, extended to 560 characters, would put that rung's limit about 2 % above the band's
+    median; judged against the level, a 560 rung read at the band's median, or 5 % above it, passes."""
+    band = [
+        rung(80, seed(16.736)),
+        rung(150, seed(16.5)),
+        rung(250, seed(16.25)),
+        rung(300, seed(16.0)),
+    ]
+    level = lad.band_level(band, 300)
+    assert level == pytest.approx(16.375)
+    drift = 16.736 / 16.0
+    assert drift == pytest.approx(1.046)
+    extended = lad.trend_at(lad.fit_trend(band, 300), 560) * 1.10
+    assert extended < level * 1.05  # the rule this replaces would fail the rung below
+
+    def at_560(cps: float) -> lad.RungJudgement:
+        return lad.judge(rung(560, seed(cps), target=560), level=level, tol=0.10, sim_warn=0.95)
+
+    assert at_560(level).passes
+    assert at_560(level * 1.05).passes
+    assert not at_560(level * 1.10 + 0.001).passes
 
 
 def test_pace_is_the_median_over_seeds_s3_2() -> None:
-    limit = lad.trend_at(TREND, 200) * 1.10
+    limit = LEVEL * 1.10
     assert judge(rung(200, seed(15.0), seed(limit * 2, attempt=1), seed(15.0, attempt=2))).passes
 
 

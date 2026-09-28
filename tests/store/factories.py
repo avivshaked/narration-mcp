@@ -227,6 +227,7 @@ def measurement_record(
         similarity=SimilarityBaseline(anchor_p5=0.98, anchor_p50=0.987, consistency_p5=0.983),
         pace=Pace(
             method=names.PACE_METHOD,
+            level_cps=16.4,
             trend=PaceTrend(intercept_cps=16.2, per_100_chars=0.4, band_max_chars=300),
             tol=0.17,
             curve=(),

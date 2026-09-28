@@ -216,6 +216,7 @@ def report(voice: Voice, measurement: MeasurementRecord, check: CalibrationCheck
         ],
         "pace": {
             "method": measurement.pace.method,
+            "level_cps": measurement.pace.level_cps,
             "intercept_cps": measurement.pace.trend.intercept_cps,
             "per_100_chars": measurement.pace.trend.per_100_chars,
             "tol": measurement.pace.tol,

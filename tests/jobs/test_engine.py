@@ -505,7 +505,7 @@ def test_a_cue_with_no_alignable_words_is_flagged_but_never_retaken_dc12(world: 
 def test_a_take_faster_than_its_pace_curve_warns_and_is_never_retaken_dc19(world: World) -> None:
     """default.v4 and v5 (the owner's decision, 2026-09-27): PACE_FAST warns only. Under default.v3 a take this
     far above the voice's curve failed and was retaken on every attempt."""
-    world.measure(intercept_cps=2.0)  # the fake's takes read many times faster than this
+    world.measure(level_cps=2.0)  # the fake's takes read many times faster than this
     job = world.submit(LAMPS, max_retakes=2)
     world.run()
     item = world.job(job.job_id).items[0]

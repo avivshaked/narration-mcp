@@ -387,7 +387,7 @@ def test_a_segment_uses_only_the_hints_applied_in_it_s9_1() -> None:
 
 def test_the_audio_estimate_follows_the_voices_pace_s7_4(tmp_path: Path) -> None:
     (text,) = TextPipeline().plan_request([SegmentIn(segment_id="p01", text=LAMPS)], (), strict_text=False)
-    record = measurement("b" * 64, (1.0, 0.0), intercept_cps=15.0, speaking_share=0.8)
+    record = measurement("b" * 64, (1.0, 0.0), level_cps=15.0, speaking_share=0.8)
     # Its characters at the curve's pace (spoken characters per second of speaking time), plus the voice's
     # share of pauses (WP47).
     assert estimated_audio_s(text, record) == pytest.approx(len(LAMPS) / 15.0 / 0.8)

@@ -120,13 +120,16 @@ def pace(
     curve: Sequence[tuple[int, float]] = ((80, 16.0), (300, 17.1)),
     *,
     tol: float = 0.10,
+    level: float = 16.5,
     intercept: float = 15.6,
     per_100: float = 0.5,
     speaking_share: float = 0.9,
 ) -> Pace:
-    """A pace model in spoken characters per second of speaking time (invented numbers)."""
+    """A pace model in spoken characters per second of speaking time (invented numbers). The trend
+    (``intercept``, ``per_100``) is information only (DC-20): QA never reads it."""
     return Pace(
         method=PACE_METHOD,
+        level_cps=level,
         trend=PaceTrend(intercept_cps=intercept, per_100_chars=per_100, band_max_chars=300),
         tol=tol,
         curve=tuple(PacePoint(chars=c, cps=v) for c, v in curve),

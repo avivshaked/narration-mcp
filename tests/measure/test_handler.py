@@ -20,7 +20,7 @@ import pytest
 
 from narration.contracts import codes
 from narration.contracts.errors import NarrationError
-from narration.contracts.models import MeasurementRecord, PaceTrend
+from narration.contracts.models import MeasurementRecord
 from narration.contracts.schemas import record_schema
 from narration.contracts.serial import from_json
 from narration.measure import current_measurement, ladder, lookup_measurement, voice_hash_of
@@ -296,7 +296,7 @@ def test_an_engine_built_with_its_own_path_check_uses_that_one_s17_3(tmp_path: P
 
 
 def test_a_ladder_with_no_rung_in_the_trend_band_is_refused_s3_2(tmp_path: Path) -> None:
-    """With no rung at or under ``trend_band_max_chars`` there is no trend to judge a rung by: refused at once,
+    """With no rung at or under ``trend_band_max_chars`` there is no level to judge a rung by: refused at once,
     rather than a measurement whose every rung fails."""
     world = make_world(tmp_path, ladder=(350, 400))
     try:
@@ -314,10 +314,10 @@ def test_a_ladder_with_no_rung_in_the_trend_band_is_refused_s3_2(tmp_path: Path)
 def test_a_trend_band_with_no_measured_pace_fails_retryably_and_publishes_nothing_s3_2(
     world: MeasureWorld, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def no_pace(rungs: object, band_max_chars: int) -> PaceTrend:
+    def no_pace(rungs: object, band_max_chars: int) -> float:
         raise ValueError("no rung in the trend band has a measured pace")
 
-    monkeypatch.setattr(ladder, "fit_trend", no_pace)
+    monkeypatch.setattr(ladder, "band_level", no_pace)
     job = world.measure()
     world.run()
     done = world.job(job.job_id)

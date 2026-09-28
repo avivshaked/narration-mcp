@@ -160,15 +160,43 @@ def test_cosine_rejects_mismatched_or_zero_embeddings() -> None:
 # DC-18; ``narration.qa.pace``). Every number and sentence here is invented.
 
 
-def test_expected_pace_follows_the_curve_at_this_length_s11_1() -> None:
+def test_expected_pace_follows_the_curve_and_holds_its_ends_flat_s11_1_dc20() -> None:
     record = pace(((80, 16.0), (300, 17.1)), per_100=0.5)
     assert expected_cps(record, 80) == 16.0
     assert expected_cps(record, 190) == pytest.approx(16.55)
     assert expected_cps(record, 300) == 17.1
-    # Outside the curve: the end point moved along the trend's slope (0.5 characters per second per 100).
-    assert expected_cps(record, 40) == pytest.approx(16.0 - 0.2)
-    assert expected_cps(record, 400) == pytest.approx(17.6)
-    assert expected_cps(pace((), intercept=15.0, per_100=1.0), 200) == pytest.approx(17.0)
+    # Outside the curve: the end value, held flat. The trend's slope is never extended (DC-20).
+    assert expected_cps(record, 40) == 16.0
+    assert expected_cps(record, 400) == 17.1
+    # With no curve (no rung passed): the voice's level. The trend is not read.
+    assert expected_cps(pace((), level=15.0, intercept=10.0, per_100=1.0), 200) == 15.0
+
+
+# The review of WP47's first version (DC-20): a curve that falls a little from its first point to its last, and
+# a trend that falls with it. Extended beyond the curve, that slope would expect 14.5 at 600 characters.
+FALLING = pace(((80, 16.4), (300, 16.0)), level=16.2, intercept=16.8, per_100=-0.5)
+
+
+def test_a_take_at_the_bands_rate_beyond_the_curves_end_gets_no_pace_flag_dc20() -> None:
+    long = segment(*["The ferry left the quay at dawn and came back at noon."] * 11)
+    assert long.spoken_chars >= 600
+    take = signal(duration_s=40.0, voiced=(0.1, 0.1 + long.spoken_chars / 16.2), silences=())
+    check = pace_check(long, take, FALLING, CONFIG, P)
+    assert check.expected_cps == 16.0  # the curve's last value, held flat
+    assert check.articulation_cps == pytest.approx(16.2)
+    assert check.flags == ()
+    # the extended slope would have expected 14.5 there, and flagged this take fast
+    assert [f.code for f in pace_flags(16.2, 14.5, TOL, P)] == [codes.PACE_FAST]
+
+
+def test_a_take_shorter_than_the_curves_first_point_expects_that_points_value_dc20() -> None:
+    short = segment("Gulls rose over the quay.")
+    assert short.spoken_chars < 80
+    assert expected_cps(FALLING, short.spoken_chars) == 16.4
+    assert expected_cps(FALLING, 30) == 16.4
+    take = signal(voiced=(0.1, 0.1 + short.spoken_chars / 16.4), silences=())
+    check = pace_check(short, take, FALLING, CONFIG, P)
+    assert (check.expected_cps, check.flags) == (16.4, ())
 
 
 EXPECTED, TOL = 16.5, 0.10
