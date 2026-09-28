@@ -480,6 +480,10 @@ are tracked here but no version is tagged; nothing described below is installabl
   `always`): a designed candidate has no take slot to retake. `is_retake_trigger` now follows the table's
   retake column for a fail too, so a fail whose rule is `never` is not a trigger; every other fail still
   is, and no job's retakes change.
+- A worker that cannot start (a missing or broken venv) could fail its job with `INTERNAL` ("the worker was
+  closed") instead of `BACKEND_NOT_INSTALLED`, and be tried again. The daemon's check for dead workers could
+  see the starting worker's process gone before the start had read its exit code, and closed it, so the
+  start read as a crash. A worker still starting is now left to its start.
 - A daemon started from an MCP session could die with the session, without a stop, on Windows. When the
   client runs the server in a Job Object that forbids breakaway (the MCP Python SDK does) and the server is
   the venv's `python.exe`, a launcher that puts the interpreter in a nested job of its own, Windows accepted
