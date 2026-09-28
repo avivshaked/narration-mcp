@@ -177,6 +177,17 @@ def test_profile_audio_is_checked_like_a_clip_s17_3(steps: Service, case: str, c
     assert (error.code, error.field) == (code, field)
 
 
+def test_a_file_that_is_not_a_wav_never_has_its_sha256_given_back_s17_3(steps: Service) -> None:
+    # Security review S1: profile_voice reads any local path, so a wrong sha256 sent for a file that is not audio
+    # must not give the caller that file's sha256 (details.actual). It is refused as not a WAV, with no hash.
+    secret = steps.world.root / "elsewhere" / "notes.txt"
+    secret.parent.mkdir(parents=True, exist_ok=True)
+    secret.write_text("an invented line of text that is not audio\n", encoding="utf-8")
+    error = refused(steps.backend.profile_voice_sync, {"audio": {"path": str(secret), "sha256": "0" * 64}})
+    assert (error.code, error.field) == (codes.UNSUPPORTED_AUDIO, "audio.path")
+    assert sha256_of(secret) not in repr(error.details) + error.message + (error.hint or "")
+
+
 # ======================================================================== audition_pronunciation (section 7.6)
 
 

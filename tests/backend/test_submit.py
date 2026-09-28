@@ -199,6 +199,17 @@ def test_a_file_whose_sha256_is_not_the_one_sent_is_refused_s17_3(service: Servi
     assert error.details["actual"] == sha256_of(other)
 
 
+def test_a_file_that_is_not_a_wav_never_has_its_sha256_given_back_s17_3(service: Service) -> None:
+    # Security review S1: a caller who knows an allowed sha256 may name any local file; a file that is not a WAV
+    # is refused as such, and its own sha256 is not in the error.
+    other = service.world.root / "elsewhere" / "notes.txt"
+    other.parent.mkdir(parents=True, exist_ok=True)
+    other.write_text("an invented line of text that is not audio\n", encoding="utf-8")
+    error = refused(service, service.request(LAMPS, voice=service.voice(path=str(other))))
+    assert (error.code, error.field) == (codes.UNSUPPORTED_AUDIO, "voice.path")
+    assert sha256_of(other) not in repr(error.details) + error.message + (error.hint or "")
+
+
 def test_a_relative_path_is_refused_s17_3(service: Service) -> None:
     error = refused(service, service.request(LAMPS, voice=service.voice(path="voice/clip.wav")))
     assert (error.code, error.field) == (codes.PATH_NOT_ALLOWED, "voice.path")

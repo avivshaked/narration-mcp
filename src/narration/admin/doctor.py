@@ -45,7 +45,7 @@ from typing import Any, Final, Literal
 from narration.config import Config, qa_profile_mismatch
 from narration.contracts.errors import UnsupportedPlatform
 from narration.contracts.names import QA_PROFILE, WorkerRole
-from narration.platform import ProcessPlatform, is_supported
+from narration.platform import ProcessPlatform, find_program, is_supported
 from narration.workers.launch import WORKER_PROJECT_DIRS, venv_python, worker_project
 
 from .cli import EXIT_FAILED, EXIT_OK, PROGRAM, Admin, AdminError, Subparsers, names_the_module
@@ -162,7 +162,7 @@ def _text(value: object) -> str:
 def uv_sync_check(project: Path, *, uv: str | None = None) -> SyncCheck:
     """Ask ``uv sync --check --locked --offline`` whether ``project``'s venv matches its ``uv.lock``. It
     changes nothing and needs no network."""
-    uv = uv or os.environ.get("UV") or shutil.which("uv")
+    uv = uv or os.environ.get("UV") or find_program("uv")
     if not uv:
         return SyncCheck(None, "uv was not found, so whether the venv matches its uv.lock is unknown")
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}  # this is the server's venv, not the worker's
