@@ -10,6 +10,9 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Added
 
+- `docs/licences.md`: a licence audit of every package in the three lock files and every pinned model
+  (plan.md WP44), and `docs/security-review.md`: a review of the path, synthetic-voice, text, process and
+  transport checks, with each finding's severity and state.
 - User documentation for installing and running the service (plan.md WP43): the README now covers
   requirements, install, every `narration.example.toml` section, the `.mcp.json` entry, a first run and
   where the store and logs live; `docs/operator-guide.md` covers the daemon (including the Job Object
@@ -492,6 +495,14 @@ are tracked here but no version is tagged; nothing described below is installabl
   reported as one that "exited before it served": `get_job` asks for a new daemon at once. A `daemon.json`
   written by an older daemon still loads, and keeps the old rules. A job runner thread that fails is now
   logged in the daemon's log.
+- A wrong sha256 sent for a clip or for `profile_voice`'s audio no longer gives back the sha256 of a file that
+  is not a WAV: the WAV check now comes first, so `VOICE_FILE_MISMATCH`'s `details.actual` is only ever a WAV's
+  hash, and a job that finds its clip changed no longer reports the new file's hash (security review S1).
+- `narration-admin install` and `doctor` no longer run a `uv` found in the working folder on Windows; they
+  look only in the folders on `PATH` (security review S2).
+- `SECURITY.md` now matches the code: what a caller learns about a file it names, the operator commands that
+  write outside the store, the package downloads of the install step, the files the operator must keep
+  private, and the control tokens not yet refused.
 - Contracts 1.6.10: `CLIP_TOO_LONG`'s retake rule is `never`, as design section 14 gives it (it said
   `always`): a designed candidate has no take slot to retake. `is_retake_trigger` now follows the table's
   retake column for a fail too, so a fail whose rule is `never` is not a trigger; every other fail still
