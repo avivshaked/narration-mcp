@@ -468,6 +468,10 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Fixed
 
+- Contracts 1.6.10: `CLIP_TOO_LONG`'s retake rule is `never`, as design section 14 gives it (it said
+  `always`): a designed candidate has no take slot to retake. `is_retake_trigger` now follows the table's
+  retake column for a fail too, so a fail whose rule is `never` is not a trigger; every other fail still
+  is, and no job's retakes change.
 - A daemon started from an MCP session could die with the session, without a stop, on Windows. When the
   client runs the server in a Job Object that forbids breakaway (the MCP Python SDK does) and the server is
   the venv's `python.exe`, a launcher that puts the interpreter in a nested job of its own, Windows accepted

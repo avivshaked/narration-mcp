@@ -57,7 +57,8 @@ FLAG_TABLE = {
     "FIT_TIGHT": ({"warn"}, "never"),
     "OVER_SCENE": ({"warn"}, "never"),
     "CANARY_MISMATCH": ({"info"}, "never"),
-    "CLIP_TOO_LONG": ({"fail"}, "always"),  # contracts 1.6.8 (WP34): a designed candidate over the clip limit
+    # contracts 1.6.8 (WP34): a designed candidate over the clip limit; 1.6.10: never a retake (design 5.16)
+    "CLIP_TOO_LONG": ({"fail"}, "never"),
     "LOUDNESS_UNDER_TARGET": ({"info"}, "never"),
     "GAIN_HIGH": ({"info"}, "never"),
     "RETAKEN": ({"info"}, "never"),
@@ -138,3 +139,16 @@ def test_a_cue_no_retake_can_place_is_not_a_retake_trigger_dc12_s11_1() -> None:
     # The exception is CUE_UNALIGNED's alone: a fail, or another trigger, is still a trigger.
     assert codes.is_retake_trigger("ALIGNMENT_ERROR", "fail", no_words) is True
     assert codes.is_retake_trigger("HEAD_INSERTION", "warn", no_words) is True
+
+
+def test_a_fail_whose_retake_rule_is_never_is_not_a_trigger_s14() -> None:
+    """Contracts 1.6.10: ``is_retake_trigger`` follows section 14's "R" column. ``CLIP_TOO_LONG`` fails a designed
+    candidate and never triggers a retake; every other fail the table knows is still a trigger."""
+    assert codes.is_retake_trigger("CLIP_TOO_LONG", "fail") is False
+    for code, (severities, rule) in FLAG_TABLE.items():
+        if "fail" in severities and code != "CLIP_TOO_LONG":
+            assert rule != "never", code
+            assert codes.is_retake_trigger(code, "fail") is True, code
+    # A fail of a code the table does not know stays a trigger, as before.
+    assert codes.is_retake_trigger("SOME_FUTURE_FLAG", "fail") is True
+    assert codes.is_retake_trigger("SOME_FUTURE_FLAG", "warn") is False
