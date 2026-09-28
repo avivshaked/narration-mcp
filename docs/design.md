@@ -1,6 +1,6 @@
 # Narration MCP server: design
 
-*Status: revision 5.15 (2026-09-28); being implemented (see `plan.md`). Written 2026-09-25.*
+*Status: revision 5.16 (2026-09-28); being implemented (see `plan.md`). Written 2026-09-25.*
 
 *This is the repository copy of the design, and the source of truth. Revision 5.1 differed from the
 bake-off's original only in two example paths (section 7.3 and Appendix A) and in this note. The evidence
@@ -96,6 +96,40 @@ applied here, each listed in the revision history below.*
     returns `DAEMON_UNAVAILABLE`. On a host whose jobs forbid breakaway, the route is `[daemon] autostart
     = false` and a daemon started by hand with `daemon start --foreground` (sections 4.1, 7.1, 14 and
     16). Section 7.1 also lists `narration-admin render`, as built.*
+- *Revision 5.16 (2026-09-28) describes what was built since revision 5.15.
+  - **A job whose daemon has gone** (PR #41). `get_job`, and `cancel_job` for a job it leaves
+    `cancelling`, ask for a daemon when none serves an active job. A launch is recorded in
+    `run\launch.json`. For 90 s after it (BELIEVE), while `run\daemon.json` shows no start since, no
+    other is asked for as long as the launched process runs; once that process has gone, `get_job` answers
+    `DAEMON_UNAVAILABLE` with the daemon's log until the window ends, also after a daemon that started and
+    then failed. A stop answered `stopped: true`, by `daemon stop` or by `install` after a repair (the
+    lead's decision), holds for the jobs queued before it (sections 4, 4.1, 7.4, 7.6, 14 and 15).
+  - **A transcript that differs from the measured one** only in whitespace or punctuation is named in
+    `VOICE_NOT_MEASURED`, with the rewrites that give the measured one (PR #41; sections 3.2, 7.3 and
+    14).
+  - **`narration-admin failures`** (PR #45) lists every take that failed QA or that a retake replaced,
+    across jobs, with its reasons; it only reads the store, and is never an MCP tool. `report.md` gains a
+    Failures section by the same rule, and `gc` lists the failed takes it would remove (sections 7.1,
+    11.1, 15 and 17 item 10).
+  - **`[qa] profile` is informational** (PR #46): every take is scored with the QA profile the build
+    pins, and `doctor` warns when the line differs (section 16).
+  - **Corrections to stale text.** `run\daemon.json` stays behind with state `stopped` (sections 4.1 and
+    15). On a designed candidate, `TOKEN_CAP_HIT` and `WER_HIGH` fail and never trigger a retake (section
+    14). Appendix B's QA metrics show `clipping_fraction`. Sections 0 and 20 point to section 7.1's list
+    of operator commands.
+  - **`CLIP_TOO_LONG`** (WP34, PR #39) is in the flag table: a designed candidate longer than `[limits]
+    max_clip_seconds` fails, and never triggers a retake (section 14).
+  - **DC-18** (the owner's decision D2; built by WP47, PR #44): pace is spoken characters per second of
+    speaking time, the voiced span less every pause of 0.25 s or more inside it (ASSUME). The measured
+    pace model and QA's pace check use this one rule. The measurement key names the pace method, and the
+    measurement record and its key move to `/v2`, so a voice measured before is measured again from its
+    cached renders. The QA profile becomes `default.v5`; `PACE_FAST` and `PACE_SLOW` still only warn
+    (DC-19). Sections 0, 3.2, 6, 7.5, 7.6, 10.2, 11.1, 12, 14, 16 and Appendix B.
+  - **DC-20** (the lead's gap-fill, approved 2026-09-28; the owner may overrule): pace is judged against
+    the voice's flat level, and no trend slope is extended or extrapolated. Every ladder rung is judged
+    against the band level (the median of the band rungs' medians) × (1 + tol); QA's expected pace
+    follows the curve inside its range and holds its end values flat outside it (sections 3.2, 11.1 step
+    9 and 21).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -195,9 +229,10 @@ written-text normaliser are later phases (sections 9.2, 13.1 and 20).
     `sample_rate`, trim record, loudness record, path and sha256. The caller owns all padding.
 11. **Process model.** A thin stdio front-end per client, and a detached singleton daemon (SQLite + files,
     no sockets). One Qwen worker and one QA worker (Whisper and WavLM on the GPU, the aligner and
-    profiling on the CPU). CPU thread caps, documented process
-    identity, `narration-admin daemon start|stop|status`. **The service does not detect other
-    workloads**; the caller decides using `get_server_status`, and can free the GPU with `release_gpu`.
+    profiling on the CPU). CPU thread caps, documented process identity, `narration-admin daemon
+    start|stop|status` and the other operator commands of section 7.1. **The service does not detect
+    other workloads**; the caller decides using `get_server_status`, and can free the GPU with
+    `release_gpu`.
 12. **Takes and retakes.**
     - `takes` (1–3) asks for that many **distinct deliveries** per segment, rendered in one model load;
       or a segment names its `attempts` explicitly.
@@ -207,7 +242,8 @@ written-text normaliser are later phases (sections 9.2, 13.1 and 20).
     - Spans the caller marks **exact** fail the take if the transcript shows a different value or
       different words there.
     - Speaker similarity thresholds come from the **voice's measurement**.
-    - Pace is judged on spoken words against the voice's length curve.
+    - Pace is judged in spoken characters per second of speaking time against the voice's length curve
+      (DC-18), and only warns (DC-19).
     - There are also head and end insertion checks, a token-cap check, and signal checks.
     - Every flag is reported; nothing is truncated. **What to accept is the caller's decision.**
 14. **Local only.** stdio; writes confined to the store root; a caller's file is read only by the
@@ -434,6 +470,23 @@ to the caller in full, as data and as a JSON file. A generation request with an 
 refused with `VOICE_NOT_MEASURED` and a hint to measure it first: measuring is heavy GPU work, and when
 heavy work runs is the caller's decision, so it never starts inside another job.
 
+The voice hash covers the transcript character for character (after NFC), so a clip measured under one
+transcript and sent with another spelling of it is another voice, and is not measured. The measurement
+keeps no copy of the transcript sent, only its transcript check {heard, wer, ok}, and measurements are
+found only by `voice_hash`. So the service tries the spellings a slip in sending makes, each rewrite on
+its own: the edges trimmed, the whitespace collapsed, a trailing newline added, typographic quotes,
+primes, dashes and ellipses made plain, and straight quotes made typographic (every `'` becomes `’`,
+and each `"` becomes `“` and `”` in turn). It then pairs only the trim or the collapse with each
+punctuation rewrite: 2 + 1 + 2 + 4 = 9 lookups at most. When one of them is measured for the clip,
+`VOICE_NOT_MEASURED` says which rewrites give the measured transcript, and not to measure again (section
+7.3; revision 5.16, PR #41). Only those spellings are tried, so any other difference is not found, for
+example:
+- whitespace the measured transcript had and the one sent lacks, other than a trailing newline;
+- a trailing newline the measured one had, together with a punctuation difference;
+- a typographic dash or ellipsis the measured one had where the one sent has a plain one;
+- typographic quotes other than the ones the rewrite makes, or a mix of plain and typographic marks in
+  the measured one.
+
 Measuring first checks the transcript: Whisper transcribes the clip, and a transcript that does not
 match is refused (`REF_TEXT_MISMATCH`), because a wrong transcript in ICL mode causes the reference to
 bleed into takes. Then it renders two sets through Qwen Base, all from the service's own corpus
@@ -450,15 +503,28 @@ an invented name; no caller's text):
 spoken characters** (counted as in section 7.2), **at least 3 seeds per rung**, rendered from the
 shortest up. The corpus marks its number words as exact spans (section 11.3).
 
-- **Measured per take**: pace as *spoken* words per minute and spoken characters per second over the
-  voiced span; `wer_adj`; the exact-span check; similarity to the anchor.
-- **The pace trend**: a straight line of pace against length, fitted over the rungs ≤ 300 spoken
-  characters, where the probe showed no rushing. Pace naturally rises with length (section 1), so a rung
-  is judged against the **trend extended to its length**, not against a flat reference.
+- **Measured per take**: pace as spoken characters per second of **speaking time**: the voiced span with
+  every pause inside it (a silence of at least 0.25 s) taken out (`narration.pace/articulation-cps@1`;
+  revision 5.16, DC-18); spoken words per minute and spoken characters per second over the whole voiced
+  span, for information; `wer_adj`; the exact-span check; similarity to the anchor. Every take, the
+  ladder's included, is scored by the one rule QA uses (section 11.1 step 9), so the curve and a take's
+  pace are one quantity.
+- **The band level** (revision 5.16, DC-20): the median of the band rungs' median paces, over the rungs
+  ≤ 300 spoken characters, where the probe showed no rushing. Every rung is judged against this **flat
+  level**; no trend slope is extended to a rung's length. In characters per second of speaking time a
+  voice's rate is flat, so a slope fitted to four band rungs is noise (about ±0.3 characters per second
+  per 100 characters at a 3 % spread per rung), and extending it wrongly stopped the ladder or let
+  rushing pass (PR #44's review of the rate model, reproduced with WP47's own functions). The rise
+  of pace with length in section 1 was measured in words per minute.
 - **Tolerance**: `tol = max(0.10, the largest per-rung seed spread observed at ≤ 300 characters)`,
-  never below the measured seed-to-seed spread (up to 17 % within one voice in the probe).
+  never below the measured seed-to-seed spread (up to 17 % within one voice in the probe, measured in
+  words per minute until a voice is measured again under DC-18). The spread is relative, so it is
+  derived the same way in characters per second.
+- **The speaking share**: the median over the band's takes of speaking time over the voiced span (1 when
+  none has both). It turns the curve into durations for estimates (sections 7.3, 7.6 and 12), never
+  into a verdict.
 - **A rung passes** when:
-  - the **median over its seeds** of pace ≤ trend × (1 + tol);
+  - the **median over its seeds** of pace ≤ band level × (1 + tol);
   - the median `wer_adj` passes;
   - the median similarity passes the warn threshold;
   - no seed has an exact-span mismatch, a head insertion, or a token-cap hit.
@@ -466,6 +532,11 @@ shortest up. The corpus marks its number words as exact spans (section 11.3).
   shortest**. The first failing rung ends the run, and the rungs above it are not rendered.
   **`max_segment_seconds`** is the median duration at that rung.
 - The **pace curve** (median pace by length over the passing run) is published for QA.
+
+The measurement key names the pace method (section 10.2), so a change to it measures every voice again.
+A measurement stored before DC-18 (`narration.measurement/v1`, pace in words per minute) is never read:
+the voice answers `VOICE_NOT_MEASURED` until `measure_voice` measures it again, which replaces it and
+finds the renders already in the cache, since no render key changed.
 
 **What the limit means.** `max_segment_chars` is a fact about this voice on this engine: the longest
 paragraph it read reliably in the ladder. It is **advice, never a refusal**. A longer segment is
@@ -611,8 +682,9 @@ item, to add only if agents shortlist badly from the numbers.
 **Daemon (`narrationd`).**
 
 - A singleton, enforced by a named mutex keyed on the store path. It is started detached (section 4.1)
-  by the first submission or by `narration-admin daemon start`, or run in a terminal with `daemon start
-  --foreground`.
+  by a submission, by `narration-admin daemon start`, or by `get_job` or `cancel_job` for an active job
+  that no daemon serves (section 4.1, "A job whose daemon has gone"; revision 5.16), or run in a terminal
+  with `daemon start --foreground`.
 - It unloads models after 120 s idle and exits after 15 min idle.
 - Why a separate process: a stdio server dies with its client, and two sessions must never load two
   models.
@@ -734,16 +806,40 @@ provides:
 | Qwen worker | `python.exe` (worker venv) | `-P -m narration_worker --role qwen3 --store <store_root>` |
 | QA worker | `python.exe` (worker venv) | `-P -m narration_worker --role qa --store <store_root>` |
 
-  The marker to match is `-m <module> --store <store_root>`. `store_root\run\daemon.json` (pid, start
-  time, workers) exists while the daemon runs. A recorded daemon counts as running only if a process with
-  its pid was created no later than its start time (within 2 s), so a later process that reuses the pid is
-  never taken for it. The service never acts on a process by a bare pid: it stops the workers it started
-  through their own process handles and the daemon's Job Object.
+  The marker to match is `-m <module> --store <store_root>`. `store_root\run\daemon.json` (state, pid,
+  start time, workers) is written while the daemon runs, and stays behind when it exits, with state
+  `stopped` and no pid, start time, workers or job. A recorded daemon counts as running only if a process
+  with its pid was created no later than its start time (within 2 s), so a later process that reuses the
+  pid is never taken for it. The service never acts on a process by a bare pid: it stops the workers it
+  started through their own process handles and the daemon's Job Object.
 - **Stop.**
   - `narration-admin daemon stop`: stop claiming work, finish the in-flight segment, unload, exit.
     Queued jobs resume on the next start.
   - `daemon stop --now`: terminate the Job Object and re-queue the in-flight segment. All files are
     written to a temp name and renamed, so nothing partial is ever published.
+  - `narration-admin install` posts the same stop as `daemon stop` when it repaired a worker's venv or a
+    model and a daemon runs, since a running daemon keeps a worker it found broken broken for its
+    lifetime. Its stop follows every rule of `daemon stop` (the lead's decision, revision 5.16).
+  - **A stop holds for the jobs queued before it** (revision 5.16, PR #41). A stop answered `stopped:
+    true` leaves the jobs queued before it was posted in the queue: `get_job` starts no daemon for them,
+    and says that they run on the next start (`narration-admin daemon start`, or the next `submit_job`
+    while `[daemon] autostart` is on). A job submitted after the stop starts a daemon as any submission
+    does, even while the stop's in-flight segment finishes.
+    - A `stopped` status alone is not an operator's decision. A daemon whose control loop or worker
+      supervisor failed writes it too, as does one that exited for being idle, and their queued jobs get
+      a daemon. After a daemon that failed within 90 s of its launch, they get one only once that window
+      has passed: until then `get_job` reads the exit as a failed start (below).
+    - The front-end tells them apart from the store alone. A queued job waits only for a `stop` or
+      `stop --now` answered `stopped: true` that was posted after the job was created (a stop in the
+      job's own millisecond counts as after it) and answered within 30 s of the time the `stopped` status
+      was written. A daemon answers its stop just before it writes `stopped` (or, when it took over and
+      honoured a stop the one before it answered, once it has started), and a `stopped` status keeps no
+      start time, so the answer stands in for "since the last daemon started" (BELIEVE: the 30 s is not
+      measured).
+    - What remains: a daemon launched by a later submission that fails within 30 s of the stop's answer
+      makes the older jobs read as stopped. The later submission's own job answers `DAEMON_UNAVAILABLE`
+      (a failed start, with `details.log`) until 90 s after that launch; the first `get_job` after the
+      window asks for a daemon, and that daemon runs them all.
   - **A stop is for every daemon launched before it was asked.** A daemon honours a stop only if it was
     posted after that daemon was launched. It honours it whether the stop is still pending or an exiting
     daemon has already answered it `stopped: true`. The launcher passes the launch time (`--launched-at`),
@@ -758,6 +854,59 @@ provides:
     it checks for a daemon, and starts one if the daemon says `stopping`. A daemon waiting to take over
     gives up only when the holder is `idle` or `busy` again. So a job queued in that moment is never
     stranded.
+- **A job whose daemon has gone** (revision 5.16, PR #41). A job stays `queued`, `running` or
+  `cancelling` in the store after its daemon has gone (a crash, a restart of the machine, a daemon ended
+  with its client), and only a daemon moves it on. So `get_job` checks once per call, before its
+  long-poll (the check counts against `wait_s`), that a daemon serves an active job. `cancel_job` checks
+  the same for a job it leaves `cancelling`; a queued job it cancels at once. In this order:
+  1. A `queued` job written less than 30 s ago is left to the daemon its submission asked for, which may
+     still be starting (BELIEVE: not measured).
+  2. A daemon that runs (`idle`, `busy` or `stopping`) is left alone: one exiting for being idle looks for
+     work once more, and one asked to stop is let stop.
+  3. A `queued` job that an operator's stop left in the queue starts no daemon (above).
+  4. A launch in progress starts no other (below).
+  5. Otherwise a daemon is asked for, as a submission asks (with `[daemon] autostart = false` none is
+     started, and the note says who must start one). The new daemon's start-up sweep puts a job left
+     `running` back on the queue, keeping what it finished in the cache, and finishes a `cancelling` job
+     as `cancelled`; a `queued` job runs in its turn.
+
+  `get_job`'s `message` adds what was found and done. When no daemon can be started, `get_job` is
+  `DAEMON_UNAVAILABLE` naming the job, with the launcher's reason and `details` {job_id, job_status,
+  daemon_state}, and the hint to run `narration-admin daemon start` in a terminal (an OS v1 does not
+  support keeps its own hint, and is not retryable). `cancel_job` records the cancel either way and
+  answers `{cancelling, completed: false}`; `get_job` then says why the job stays `cancelling`.
+  - **The launch record.** Each detached launch the platform let run, by the front-end or by `daemon
+    start`, is recorded in `run\launch.json`: the pid it got back (the launcher's, under a venv) and the
+    launch time. A refused start records nothing, so it holds back no later launch.
+  - **The start window** is 90 s: the singleton's takeover wait of 60 s, plus 30 s to start an interpreter
+    and import the service (BELIEVE: not measured). The check reads only the current `run\daemon.json`.
+    While the last launch is younger than the window and that status shows no start at or after the
+    launch, no other daemon is asked for as long as the launched process runs. A `stopped` status keeps
+    no start time, so it never shows one.
+  - **A failed start.** Once the launched process has gone and the status shows no start since the
+    launch, the start counts as failed: the daemon died before it held the singleton, or failed through
+    its `finally`, or gave up waiting for one that was exiting. `get_job` then answers
+    `DAEMON_UNAVAILABLE`, retryable, with `retry_after_s` the rest of the window (at least 60 s),
+    `details` {job_id, job_status, daemon_state, log (the store's `logs\daemon.log`), launched_pid,
+    launched_at}, and the hint to run `narration-admin daemon start` in a terminal, or with
+    `--foreground` to see why it exits. It launches none again at once, since the next would most likely
+    fail the same way; past the window, the next call launches one. So a start that hangs or fails costs
+    at most one launch per window.
+    - The same holds for any daemon of the last launch that exits within the window, even one that
+      started and served. A daemon whose control loop or worker supervisor fails exits through its
+      `finally` and writes `stopped`, which keeps no start time. Until the window ends, `get_job` on any
+      active job that no daemon serves (unless step 1 or 3 above applies) answers `DAEMON_UNAVAILABLE`
+      with the log, saying that the daemon exited before it served; the first `get_job` after the
+      window asks for a daemon. The approved follow-up that records the daemon's launch time, or why it
+      stopped, in `run\daemon.json` would narrow this.
+  - The launched process counts only if it was created at the launch, from 2 s before the launch time to
+    10 s after it: one created outside that span reused the pid. One whose creation time cannot be read
+    counts as running, since the window still bounds the wait. A `stopped` status written after the launch
+    does not decide it: the daemon that was exiting may write one while the launched one waits for the
+    singleton.
+  - The record is advice, read and written without a lock: two front-ends that poll in the same instant
+    may both launch, and the singleton makes that harmless. It is the service's own operational state,
+    never a caller's (section 0 item 2, section 15).
 
 ---
 
@@ -807,7 +956,7 @@ records a caller's script, choices or approvals.
 | **Candidate** | `design_id`, index, clip {path, sha256}, exact transcript, verbatim description, seed, engine profile, lint, profile. Kept for the retention period; the caller copies the clip it chooses. |
 | **Provenance entry** ⊘ | clip sha256, `design_id`, date. One per clip the service designed; never pruned (section 17). |
 | **Voice** *(not stored)* | What a request sends: clip path + sha256 + transcript. `voice_hash` is computed from them on every request (section 10.2). |
-| **Measurement** ⊘ | (`voice_hash`, `engine_profile_id`); verified transcript; **anchor**; **similarity baseline** {anchor p5/p50, consistency p5}; **pace curve** and trend; **`max_segment_chars`**, **`max_segment_seconds`**; ladder table; calibration takes; corpus version. Returned in full to the caller as well. |
+| **Measurement** ⊘ | (`voice_hash`, `engine_profile_id`); transcript check {heard, wer, ok} (no copy of the transcript sent); **anchor**; **similarity baseline** {anchor p5/p50, consistency p5}; **pace model** {method, trend, tol, curve, speaking share} (DC-18); **`max_segment_chars`**, **`max_segment_seconds`**; ladder table; calibration takes; corpus version. Returned in full to the caller as well. |
 | **Render** ⊘ | `render_id` = `rn_` + 16 hex of `render_key`; seed, attempt; raw audio {path, sha256, samples, sample_rate}; `hit_token_cap`; gen timings. |
 | **Take** ⊘ *(the delivery layer)* | `take_id` = `tk_` + 16 hex of `delivery_key`; `render_id`; delivery {path, sha256, samples, sample_rate, duration_s}; **trim** {head_s, tail_s, pad_s}; **loudness** {measured_lufs, gain_db, true_peak_dbtp, ceiling_applied}; `post_stretched` (always false in v1). |
 | **Analysis** ⊘ | `analysis_id` = `an_` + 16 hex of `analysis_key`; `take_id`; QA verdict + flags + metrics + exact-span results; **cue alignment** {cues, words, method, model rev, cross-check, flags}. A take can have several analyses (e.g. with different hints' aliases or exact spans); a request uses the one matching its inputs. |
@@ -848,14 +997,36 @@ send the identical request again, which is deduplicated. The service suggests; t
 
 **Operator CLI (`narration-admin`)**, for the machine, not for any use of it: `install`, `engine
 pin|repin|bridge` (section 10.1), `gc` (dry-run default), `verify`, `bench alignment` (section 11.2),
-`daemon start [--foreground]|stop [--now]|status` (section 4.1), `doctor`, `render`, and `voices allow
-<clip.wav>|list` (revision 5.15, DC-17; section 17.4). `render` speaks one text in a voice from the
-terminal, as a thin client of the same backend: one `submit_job` request with the tool's own checks, then
-`get_job` and `get_results`, and `--out` copies the suggested take's delivery WAV. None of them approves
-anything; the service has no approvals. `voices allow` records the owner's own configuration of the
-machine (which clips designed elsewhere may be cloned) and approves no caller's work. It is **never an
-MCP tool**: the allowlist is the synthetic-voices gate, and a tool would let any caller allow a recording
-of a real person.
+`daemon start [--foreground]|stop [--now]|status` (section 4.1), `doctor`, `render`, `voices allow
+<clip.wav>|list` (revision 5.15, DC-17; section 17.4), and `failures` (revision 5.16, PR #45). `render`
+speaks one text in a voice from the terminal, as a thin client of the same backend: one `submit_job`
+request with the tool's own checks, then `get_job` and `get_results`, and `--out` copies the suggested
+take's delivery WAV. None of them approves anything; the service has no approvals. `voices allow`
+records the owner's own configuration of the machine (which clips designed elsewhere may be cloned) and
+approves no caller's work. It is **never an MCP tool**: the allowlist is the synthetic-voices gate, and a
+tool would let any caller allow a recording of a real person.
+
+`failures [--since <date>] [--job <job_id>] [--voice <sha256>] [--code <flag>] [--json] [--export <dir>]`
+is an audit of failed takes across jobs:
+- It lists every take of a `generate` or `analyse` job that failed QA, or that a retake replaced, newest
+  job first and then in the request's order. A `measure` job's calibration and ladder takes are the
+  measurement's own probes, and are not listed.
+- Each take comes with its job, segment, attempt and seed; its delivery WAV in the store (and whether the
+  file is still there); each fail and warn flag; the QA metrics and the thresholds they were judged by;
+  the take that finally filled its slot, with its verdict; and the segment's text as the request sent it.
+- "Replaced" follows one rule, the job report's too (section 11.1): an attempt is replaced only when a
+  later attempt of its slot has a take, and the take that filled the slot is the slot's last attempt that
+  has one. A retake whose render failed, or whose take is no longer in the store, replaces nothing.
+- The filters combine. `--code` takes a fail or warn code that QA or the aligner raises.
+- `--json` prints the list as `narration.failures/v1`. `--export <dir>` copies each listed take's WAV
+  beside a JSON sidecar of its reasons, and writes an `index.csv`. The bundle never names a store path,
+  and a folder inside the store is refused.
+- It only reads: no row, file or last-use time in the store changes, so listing a take never keeps it
+  from `gc`, and the list exists only in the command's output. The segment's text is printed and
+  exported, never logged.
+- It is never an MCP tool: it is an operator's view of this machine's cache, as `gc` and `verify` are.
+  `gc` lists the failed or replaced takes a run would take out of this audit, so an audit can finish, or
+  `failures --export` copy them, first (section 15).
 
 ### 7.2 Shared definitions
 
@@ -1005,10 +1176,26 @@ comments below mark where a fragment goes.
 - **New attempts are asked for, never remembered.** A resubmission renders nothing that is cached, and
   cached takes that failed are not retaken again: their retakes are cached too. To hear new deliveries,
   a segment names new `attempts` (e.g. `[3, 4]`).
-- **Refusals, as tool errors:** `VOICE_NOT_MEASURED` (hint: `measure_voice`), `VOICE_FILE_MISMATCH`,
+- **Refusals, as tool errors:** `VOICE_NOT_MEASURED` (below), `VOICE_FILE_MISMATCH`,
   `VOICE_NOT_SYNTHETIC`, `PATH_NOT_ALLOWED`, `ENGINE_CHANGED`, `TEXT_REFUSED` (markup, or `strict_text`
   with text warnings left), `INVALID_ARGUMENT` (an unknown field, `text_mode: "written"`, an exact span
   that cuts a word, duplicate segment ids), `CONTROL_UNSUPPORTED`.
+- **`VOICE_NOT_MEASURED`** (revision 5.16, PR #41) has `details` {voice_hash, clip_sha256,
+  engine_profile_id}. Which hint a caller gets depends on whether a nearby spelling of the transcript is
+  measured for this clip (section 3.2):
+  - if one is, `field` is `voice.transcript` and `details.transcript_mismatch` is {`measured_voice_hash`,
+    `rewrites`, `differs_in`, `first_difference`, `sent`, `measured`, `sent_chars`, `measured_chars`}.
+    `rewrites` names the rewrites of the transcript sent that give the measured one (`trim_edges`,
+    `collapse_whitespace`, `add_trailing_newline`, `plain_punctuation`, `typographic_quotes`), and
+    `differs_in` is `"whitespace"`, `"punctuation"` or `"whitespace and punctuation"`. The hint gives the
+    rewrites as steps, and says not to measure again, since a measurement under this transcript would
+    make the same clip a second voice with a cache of its own;
+  - otherwise `field` is `voice`, and the hint is to measure the clip first with `measure_voice`, or, if
+    it was measured before, to send the transcript it was measured with, exactly as then.
+
+  Neither transcript is quoted: `first_difference` is a character index into the transcript sent, and
+  `sent` and `measured` name the character each has there by code point and name (or the end of the
+  text).
 - **A segment longer than the voice's reliable length is not refused.** It is flagged
   `SEGMENT_TOO_LONG` (warn) in `warnings` and in the results, with the voice's limits and the segment's
   spoken length, how far over it is, and each cue's spoken length, so a caller that splits knows where
@@ -1070,6 +1257,12 @@ The exact span is "three thousand two hundred".
     segments_done, segments_total}, `eta_s`, `queue_position`, **`poll_after_s`** (revision 5.2,
     DC-2: the earliest poll worth making, longer while `waiting_for_gpu`), `message`, optional
     `segments[]` {segment_id, state, takes_ok, retakes_used}, `error`, `updated_at`.
+- **A job whose daemon has gone** (revision 5.16, PR #41). Before it waits, `get_job` checks that a
+  daemon serves an active job, and asks for one when none does (section 4.1); `message` then says what was
+  found and done. When none can be started, or the daemon of the last launch has exited within its 90 s
+  start window (before it served, or after: the check cannot tell them apart), the call is
+  `DAEMON_UNAVAILABLE` (retryable). `get_job` stays read-only (`readOnlyHint`), and its description
+  states the backoff rule (section 7.1).
 
 ```json
 {"jsonrpc": "2.0", "method": "notifications/progress",
@@ -1108,7 +1301,10 @@ still cached.
     - `alignment` {method, model, revision, cross_check, max_disagreement_s, **measured_error**
       {p50_s, p95_s, n, benchmark}, flags} (R1)
     - `qa` {verdict, flags[], wer_raw, wer_adj, **exact_ok**, **exact[]** {cue, start, end, expected,
-      heard, match}, terms[], spk_sim_anchor, pace, pace_expected}
+      heard, match}, terms[], spk_sim_anchor, pace, pace_expected}. `pace` and `pace_expected` are
+      {spoken_wpm, articulation_cps}: `articulation_cps` is what QA judges (section 11.1 step 9);
+      `spoken_wpm` is information, and in `pace_expected` it is the take's own words per minute at the
+      expected pace (revision 5.16, DC-18)
     - `fit` (computed only if `scene_seconds` was given)
 - **`consistency`**: speaker similarity across the suggested takes of this request, {min, median,
   outliers[] (take ids below the voice's consistency baseline)}. It is a report on the set, never part
@@ -1153,7 +1349,8 @@ still cached.
      "qa": {"verdict": "pass", "wer_raw": 0.0, "wer_adj": 0.0, "exact_ok": true,
             "exact": [{"cue": 1, "start": 17, "end": 43, "expected": "3200", "heard": "3200", "match": "same"}],
             "terms": [{"term": "Ossavine", "cue": 0, "heard": "Ossavine", "ok": true}],
-            "spk_sim_anchor": 0.981, "pace": {"spoken_wpm": 158}, "pace_expected": {"spoken_wpm": 150}, "flags": []}},
+            "spk_sim_anchor": 0.981, "pace": {"spoken_wpm": 158, "articulation_cps": 15.8},
+            "pace_expected": {"spoken_wpm": 150, "articulation_cps": 15.2}, "flags": []}},
     {"take_id": "tk_2f07b1d9c4e8a613", "attempt": 1, "seed": 902214557, "fresh": true,
      "delivery": {"path": "…", "sha256": "…", "samples": 446400, "sample_rate": 48000, "duration_s": 9.30},
      "trim": {"head_s": 0.31, "tail_s": 0.35, "pad_s": 0.08}, "cues": ["…"], "qa": {"verdict": "pass"}}]}],
@@ -1192,20 +1389,24 @@ The `measured_error` values are Phase 0 output and unknown today.
 - **`profile_voice`** `{audio: {path, sha256}}` → `{job_id}`. The results give the measurements and
   picture paths (section 3.6). The job runs on the CPU and finishes in seconds.
 - **`measure_voice`** `{voice}` → `{job_id}`, or at once the cached measurement if one exists for this
-  voice and engine profile. The results give the verified transcript, the ladder table (per rung and
-  seed: spoken wpm, `wer_adj`, similarity, verdict), `max_segment_chars`, `max_segment_seconds`, the pace
-  curve and trend, the similarity baseline, and the path of the measurement JSON for the caller to keep.
+  voice and engine profile. The results give the transcript check {heard, wer, ok} (the measurement
+  keeps no copy of the transcript sent), the ladder table (per rung and
+  seed: pace in spoken characters per second of speaking time, `wer_adj`, similarity, verdict; DC-18),
+  `max_segment_chars`, `max_segment_seconds`, the pace curve, trend and speaking share, the similarity
+  baseline, and the path of the measurement JSON for the caller to keep.
 - **`check_text`** `{voice?, hints?, segments ≤ 200}` (R6, R7, R8). It renders nothing. Per segment:
   - **`cues[]`** {index, received, spoken, engine, `hints_applied[]` {term, respell, offset},
     **`warnings[]`** (the text warnings of section 9.1; what `strict_text` refuses on), `exact[]`
     {start, end, words}}
   - `spoken_chars`; and, when a measured voice is given, `max_segment_chars`, `over_by_chars` and
-    `est_duration_s` (from the voice's pace curve).
+    `est_duration_s` (from the voice's pace curve and speaking share, section 12).
 - **`audition_pronunciation`** `{voice, term, variants: [{label, respell}] ≤ 4, carrier?}` → `{job_id}`.
   It produces takes plus what the ASR heard. The voice need not be measured. Whoever owns the text
   decides by ear; the service records no choice.
 - **`cancel_job`** `{job_id, reason}` → `{status, completed}`. Finished renders, takes and analyses are
-  kept in the cache.
+  kept in the cache. A queued job is cancelled at once. A running one is `cancelling` until the daemon
+  stops it between two pieces of work; if no daemon serves it, one is asked for, and the answer is
+  `{cancelling, completed: false}` even when none can be started (section 4.1; revision 5.16).
 
 ### 7.7 Resources (`narration://`)
 
@@ -1543,7 +1744,7 @@ service's pins, never from earlier requests.
 | Layer | Key | Produces |
 |---|---|---|
 | — | `voice_hash` = H({schema: "narration.voice/v2", model, clip_sha256, transcript (NFC), language, x_vector_only_mode}) | |
-| — | measurement key = H({voice_hash, engine_profile_hash, corpus version, ladder settings}) | the voice's measurement |
+| — | measurement key = H({schema: "narration.measurement-key/v2", voice_hash, engine_profile_hash, corpus version, ladder settings, **pace method**}) (DC-18) | the voice's measurement (`narration.measurement/v2`) |
 | **Render** | `render_key` = H({schema: "narration.render/v1", engine_profile_hash, voice_hash, engine_text, seed}) | `raw.wav` (`render_id`) |
 | **Delivery** | `delivery_key` = H({raw_sha256, delivery profile (trim rule, target LUFS, TP ceiling, sample rate, subtype, fades), **the resampler's and loudness meter's names and versions**, the post-processing rules' version (`narration.post/1`), stretch: null}) | `delivery.wav` (**`take_id`**) |
 | **Analysis** | `analysis_key` = H({delivery_sha256, spoken_text, cue spans, exact spans, the QA inputs of the hints used (`term`, `asr_aliases`, `align_as`), QA profile version, text-checks version, number reader version, ASR model rev, SV model rev, aligner method id, the voice's measurement key}) | QA verdict, flags, exact-span results, cue and word times (`analysis_id`) |
@@ -1613,8 +1814,22 @@ on other takes, because verdicts are cached (section 10.2).
    60 s, and the embedding is the mean of the L2-normalised window embeddings, normalised again (DC-15):
    WavLM's memory grows with the square of the length (8.4 GB at 119 s in one pass). Cosine to one pass:
    0.998 at 90 s, 0.998 at 119 s (WP22, spike h).
-9. **Pace**: **spoken** words per minute (and spoken characters per second) over the voiced span,
-   compared with the voice's pace curve at this segment's spoken length.
+9. **Pace** (revision 5.16, DC-18): spoken characters per second of **speaking time**, compared with the
+   voice's pace curve at this segment's spoken length. Speaking time is the voiced span less every pause
+   inside it: a silence of at least 0.25 s (ASSUME until it is measured on the service's own takes). The
+   signal stage finds the silences on its 20 ms frames, so the shortest pause taken out is 13 frames
+   (0.26 s), and a 12-frame silence (0.24 s), such as a stop consonant's closure, stays in. Spoken words
+   per minute and spoken characters per second over the whole voiced span are reported for information.
+   - **The expected pace** (DC-20): inside the curve's range, the straight line between its points;
+     outside it, the curve's end value held flat. No slope is extrapolated: extrapolating the trend
+     skewed QA at both ends of the length range.
+   - Words per minute follow word length, and a span that holds the pauses between sentences makes a
+     one-sentence segment look fast (KNOW, decision D2: on the first real voice and job, ladder takes
+     spoke 15.4–17.2 characters a second over the voiced span at every length, while their words per
+     minute ran 150–208; single sentences were flagged fast, and the owner heard them as normal).
+   - The method is `narration.pace/articulation-cps@1`; the voice's measurement uses the same one
+     (section 3.2). A take whose silences were not measured is paced over its whole voiced span, and its
+     flag's `details.basis` says `voiced_span`; the service's own signal stage always measures them.
 10. **Fit** (only with `scene_seconds`): reported, never remedied, in v1.
 
 **Consistency across the request (a report, not a verdict).** After every take is scored and each
@@ -1625,7 +1840,7 @@ verdict or a suggestion: it depends on which other takes are in the request, so 
 and cached nowhere. (Revision 4 compared each take with a running centroid inside its cached verdict,
 which made verdicts depend on render order and leak from one script to another.)
 
-**Default thresholds** (QA profile `default.v4`; revision 5.15, DC-19)
+**Default thresholds** (QA profile `default.v5`: revision 5.16, DC-18, with DC-19 kept)
 
 | Check | Warn | Fail | Rationale / evidence |
 |---|---|---|---|
@@ -1634,7 +1849,7 @@ which made verdicts depend on render order and leak from one script to another.)
 | terms | unverified | never | The probe heard stable, unstable and split variants of names (section 1). |
 | spk_sim vs anchor | < **voice `anchor_p5` − 0.01** | < **0.90** (absolute floor, ASSUME) | Per-voice thresholds from the voice's measurement: the probe's d4 scored 0.966–0.969 vs its clip and d2 0.978–0.984, so a fixed 0.975 would flag every d4 take. The floor only catches gross failure; unseeded VoiceDesign drift sat at 0.898–0.932. |
 | consistency across the request | — (report only: `SPK_OUTLIER`, info) | — | Probe `spk_consist` 0.981–0.992. |
-| pace vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | — (`PACE_FAST` and `PACE_SLOW` warn only; DC-19) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe). `default.v3` failed above curve × (1 + 2·tol). In the first real narration session 24 takes failed on pace alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast; so pace never fails and never triggers a retake. |
+| pace (characters per second of speaking time; DC-18) vs curve at this length | > curve × (1 + tol) or < curve × (1 − tol) | — (`PACE_FAST` and `PACE_SLOW` warn only; DC-19) | `tol` from the ladder (≥ 10 % and ≥ the measured seed spread, up to 17 % within one voice in the probe, measured in words per minute until a voice is measured again under DC-18). `default.v3` failed above curve × (1 + 2·tol). In the first real narration session 24 takes failed on pace alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast; so pace never fails and never triggers a retake. |
 | head / end insertion | ≥ 1 word | ≥ 3 words, or a match of the voice's transcript at the head | Reference bleed; hallucinated tail. |
 | longest internal silence | > 1.2 s | > 2.5 s | Dropout or hang. |
 | clipping (raw) | > 0.01 % of samples at full scale | — | Gain problem. |
@@ -1654,6 +1869,12 @@ and every take's is in `report.md`.
 **Report and listen-first.**
 
 - `report.md` lists every flag, including replaced attempts, plus each cue's received → engine text.
+  Its **Failures** section, between "Listen first" and "Segments" (revision 5.16, PR #45), gathers every
+  take that failed QA or that a retake replaced, with its fail and warn flags and the take that finally
+  filled its slot; an attempt is replaced only when a later attempt of its slot has a take, and a retake
+  whose render failed, or whose take is no longer in the store, replaces nothing. `report.json` has the
+  same list under `failures`. Neither names a file path. `narration-admin failures` lists the
+  same takes across jobs, by the same rule (section 7.1).
 - `listen_first` is what QA found, in this order:
   1. fails;
   2. exact-span and term flags;
@@ -1831,7 +2052,8 @@ With `scene_seconds`:
   - `slack_s`, always;
   - `FIT_TIGHT` (warn) when slack < 1.0 s;
   - `OVER_SCENE` (warn), with `overrun_s`, when over budget. How to shorten the text is the caller's.
-- Prediction before render comes from the voice's pace curve (`check_text`, `dry_run`).
+- Prediction before render comes from the voice's pace curve and speaking share: a segment's spoken
+  characters at the curve's pace, over the share (`check_text`, `dry_run`; DC-18).
 - Nothing is ever truncated or stretched.
 
 **Later phase (section 13.1):** fit remedies, i.e. retake-for-length (seeds vary length by 2–17 %) and
@@ -1925,14 +2147,14 @@ failures. Following 2026-07-28's intent, the model gets actionable feedback: `is
 | `UNSUPPORTED_AUDIO` | no | not a WAV the service reads, or longer than 30 s / larger than 20 MB for a voice clip |
 | `VOICE_FILE_MISMATCH` | no | the file's sha256 is not the one sent; the clip changed or the path is wrong |
 | `VOICE_NOT_SYNTHETIC` | no | the clip is neither one the service designed nor one the owner allowlisted (section 17) |
-| `VOICE_NOT_MEASURED` | no | no measurement for this voice under the current engine; hint: `measure_voice` |
+| `VOICE_NOT_MEASURED` | no | no measurement for this voice under the current engine; hint: run `measure_voice` first; or, when `details.transcript_mismatch` is present (`field` `voice.transcript`), send the transcript as the clip was measured with it (its `rewrites`), and do not measure again (section 7.3; revision 5.16) |
 | `REF_TEXT_MISMATCH` | no | measuring found that the transcript does not match the clip |
 | `ENGINE_CHANGED` | no | `expect_engine_profile` differs from the service's engine profile; hint: accept the new hash, or ask the owner to restore the old one |
 | `CONTROL_UNSUPPORTED` | no | `pace`, `context_before/after` (R10) |
 | `TEXT_REFUSED` | no | markup characters, or `strict_text` with text warnings left; every offender listed |
 | `ENGINE_DRIFT` | no | fingerprint mismatch, or the canary similarity is below threshold |
 | `BACKEND_NOT_INSTALLED` | no | weights or worker env missing |
-| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1); `retry_after_s` 60; hint: `narration-admin daemon start` |
+| `DAEMON_UNAVAILABLE` | yes | cannot start detached (breakaway refused or incomplete: the daemon runs only in no Job Object at all, section 4.1); `retry_after_s` 60; hint: `narration-admin daemon start`. `get_job` returns it too, for an active job that no daemon serves: when none can be started (`details` job_id, job_status, daemon_state), or when the daemon of the last launch exited within the 90 s start window, before it served or after (`details.log`, launched_pid, launched_at; `retry_after_s` the rest of the window, at least 60; revision 5.16, section 4.1) |
 | `GPU_UNAVAILABLE` | yes | the VRAM wait timed out |
 | `STORE_FULL` | yes | free disk below the minimum |
 | `JOB_NOT_CANCELLABLE` | no | the job is already terminal |
@@ -1950,18 +2172,18 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `WRITTEN_FORM_TOKEN` | warn (info for a lone `letter`) | | text check: a digit, symbol or unit-like token in spoken text (section 9.1) |
 | `TERM_SPLIT_ACROSS_CUES` | warn | | text check: a term would match only across a cue boundary, so no hint was applied |
 | `SEGMENT_TOO_LONG` | warn | | the segment is longer than the voice's reliable length; it is still rendered (section 3.2) |
-| `WER_HIGH` | warn / fail | fail | `wer_adj` above the threshold, with the word-count rule |
+| `WER_HIGH` | warn / fail | fail | `wer_adj` above the threshold, with the word-count rule. On a designed candidate (section 3.1) it is a fail that never triggers a retake: the clip does not say its design text as the recogniser heard it, so `measure_voice` would refuse it (`REF_TEXT_MISMATCH`) |
 | `EXACT_SPAN_MISMATCH` | fail | ✓ | a different value or different words inside a span the caller marked exact (R14, section 11.3) |
 | `TERM_UNVERIFIED` | warn | | ASR did not match a hinted term |
 | `SPK_SIM_LOW` | warn / fail | fail | similarity to the voice's anchor below the measured warn threshold / the floor |
 | `SPK_OUTLIER` | info | | a suggested take stands apart from the rest of the request (a report, never a verdict) |
-| `PACE_FAST` / `PACE_SLOW` | warn | | against the voice's pace curve at this length; neither fails nor triggers a retake (revision 5.15, DC-19) |
+| `PACE_FAST` / `PACE_SLOW` | warn | | against the voice's pace curve at this length, in spoken characters per second of speaking time (DC-18); neither fails nor triggers a retake (revision 5.15, DC-19) |
 | `HEAD_INSERTION` | warn / fail | ✓ | words before cue 0, or reference bleed |
 | `END_INSERTION` | warn / fail | fail | words after the last cue |
 | `SILENCE_LONG` | warn / fail | fail | longest internal silence |
 | `CLIPPING` | warn | | raw samples at full scale |
 | `SIGNAL_INVALID` | warn / fail | fail | non-finite samples in the raw take (fail), or a DC offset (warn); revision 5.3, DC-5 |
-| `TOKEN_CAP_HIT` | fail | ✓ | generation stopped at `max_new_tokens` |
+| `TOKEN_CAP_HIT` | fail | ✓ | generation stopped at `max_new_tokens`. On a designed candidate (section 3.1) it is a fail that never triggers a retake, since a design job has no take slots to retake |
 | `CUE_UNALIGNED` | warn | ✓ | cue not placed; times null; never interpolated |
 | `CUE_LOW_CONFIDENCE` | warn | | alignment posterior below threshold |
 | `CUE_ALIGNMENT_DISAGREE` | warn | | CTC vs Whisper boundary differ > threshold |
@@ -1969,6 +2191,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `ALIGNMENT_ERROR` | fail | ✓ | the aligner raised or could not run (frames < tokens + repeats) |
 | `FIT_TIGHT` / `OVER_SCENE` | warn | | only with `scene_seconds`; reported, not remedied |
 | `CANARY_MISMATCH` | info | | canary hash differed but similarity passed (`bit_exact` tier only) |
+| `CLIP_TOO_LONG` | fail | never | a designed candidate (section 3.1) is longer than `[limits] max_clip_seconds`, so `measure_voice` would refuse its clip (`UNSUPPORTED_AUDIO`); `details` {candidate, duration_s, max_clip_seconds}; its message says to design again with a shorter `design_text`. The candidate is still published and on the provenance list, and the design job's outcome is `needs_attention`. The flag carries `retake_trigger: false`, because a design job has no take slots to retake (revision 5.16, WP34) |
 | `LOUDNESS_UNDER_TARGET` / `GAIN_HIGH` | info | | the true-peak ceiling lowered the gain / gain above +12 dB |
 | `RETAKEN` | info | | an earlier attempt of this slot failed (listed) |
 | `RENDER_FAILED`, `WORKER_CRASHED`, `GPU_OOM`, `QA_UNAVAILABLE`, `CANCELLED` | error | | segment-level execution problems |
@@ -1984,7 +2207,8 @@ the service's own or a cache of work done; nothing in it is a caller's record.
 ```
 <store_root>\
   narration.sqlite                   jobs, queue, cache index, retention (WAL)
-  run\daemon.json                    pid, workers (while running)
+  run\daemon.json                    state, pid, start time, workers; stays with state `stopped` (4.1)
+  run\launch.json                    the last daemon launch: pid, time (advice to the next launcher; 4.1)
   engines\<engine_profile_id>.json   ⊘ (+ the canary's raw hash and embedding)
   alignment\<method_id>.json         ⊘ measured cue-boundary error on the benchmark (R1)
   provenance.jsonl                   ⊘ append-only: the fingerprint of every clip the service designed
@@ -1999,13 +2223,19 @@ the service's own or a cache of work done; nothing in it is a caller's record.
 ```
 
 - Paths are content-addressed.
+- `run\launch.json` (revision 5.16) records the last detached daemon launch the platform let run: the pid
+  it got back and the launch time. It is written only for a daemon that was let run, and is advice to the
+  next launcher (section 4.1): the service's own operational state, never a caller's.
 - **Retention.** Designs, renders, takes, analyses, profiles and jobs are kept for `retention_days`
   (default 30) after they were last used, then `gc` may remove them. A caller copies what it keeps
   (R12); after that, a request for the same work simply renders it again. Measurements are kept longer
   (`measurement_retention_days`, default 365), since they cost 20–50 minutes of GPU time each.
   `provenance.jsonl`, `engines\` and `alignment\` are never collected.
 - Immutable files are read-only and re-hashed by `verify`.
-- `gc` is an operator command and a dry run by default.
+- `gc` is an operator command and a dry run by default. It also lists, apart, the failed or replaced
+  takes in the store (`narration-admin failures`, section 7.1): which ones a run would take out of that
+  audit, and which would only lose their flags and metrics (revision 5.16, PR #45). What it removes is
+  unchanged.
 - The service's own material (the canary's description, text and seed, the calibration corpus, the
   ladder texts, the alignment benchmark's text and hand marks, the text-check and QA fixtures) ships with
   its source, versioned and hashed. None of it comes from a caller. Audio is not shipped: the canary is
@@ -2110,7 +2340,9 @@ unplaced_below = 0.50          # ASSUME; below this the cue is not placed (CUE_U
 benchmark = "alignment-en.v1"  # the service's own; its measured error is published (R1, section 11.2)
 
 [qa]
-profile = "default.v4"         # DC-19: PACE_FAST warns only (section 11.1)
+profile = "default.v5"         # DC-18: pace in characters per second of speaking time; DC-19: warn only
+                               # informational: every take is scored with the QA profile the build pins;
+                               # `doctor` warns, and the daemon logs once at start, when this line differs
 
 [engines.qwen3_base]
 non_streaming_mode = false     # all clone evidence used this; change only after a Phase 0 A/B
@@ -2205,6 +2437,8 @@ Client launch configuration, e.g. a `.mcp.json` for Claude Code:
 10. **No approvals to protect.** The service keeps no lock, no voice registry and no approval, so there
     is nothing an agent could approve for itself. The operator commands (install, engine pins, gc,
     bench, daemon stop) are machine chores that change no caller's result; `gc` is a dry run by default.
+    `failures` changes nothing: it reads the store, and prints or exports the text a job's request sent,
+    never logging it (section 7.1).
     `voices allow` changes which clips may be cloned: it records the owner's own configuration, and asks
     a person to confirm that the clip is synthetic (item 4). Whether an agent may run any of them is
     governed by that agent's own permissions.
@@ -2314,6 +2548,10 @@ owner reverses it.
 | **5: design and profile** | `design_voice` with the provenance list and the positive-only lint; `profile_voice` (measurements and pictures); the allowlist; operator CLI (install, engine pin/repin/bridge, gc, verify, bench). | Flows A–F end to end, including a "weeks later" batch with `expect_engine_profile` and the canary gate. |
 | **6: later** | Stitching and fit remedies, when a picture-first caller exists; a written-text normaliser (Q20); the Tasks extension; a stronger SV model (Q11); a listening model for voice descriptions (Q22); unspoken context if a backend supports it; the aligner on the GPU if CPU time matters. | Each item separately justified. |
 
+The operator commands in the rows above are the plan's. Section 7.1 lists every `narration-admin`
+command as built, including those the plan did not name (`doctor`, `voices allow|list` and `failures`
+among them).
+
 ---
 
 ## 21. Response to `story-narration.md`
@@ -2332,7 +2570,7 @@ the flow. Everything else stands as revision 4 answered it.
 | **R5** exact lengths | Accepted | `samples`, `sample_rate`, `duration_s`, `sha256`, `trim` {head_s, tail_s, pad_s}, now defined exactly, and a `loudness` record per take (§7.5, §13). |
 | **R6** text spoken as sent | Accepted; v1 is spoken-only | As revision 4. The hints now come with each request, from the flow's own list, as its Part 3 planned (§9.1). |
 | **R7** what was spoken, echoed | Accepted | Per cue: `received`, `spoken`, `engine`, `hints_applied`, in `check_text`, the `dry_run` plan and `get_results` (§7.5, §7.6). |
-| **R8** safe paragraph length | Accepted, as advice | `max_segment_chars` comes from the voice's measurement, judged against the voice's pace trend (§3.2). A longer segment is **rendered and warned about** (`SEGMENT_TOO_LONG`, with the limits, `spoken_chars`, `over_by_chars` and `cue_chars`), never refused (owner decision). |
+| **R8** safe paragraph length | Accepted, as advice | `max_segment_chars` comes from the voice's measurement, judged against the voice's band level (§3.2; DC-20). A longer segment is **rendered and warned about** (`SEGMENT_TOO_LONG`, with the limits, `spoken_chars`, `over_by_chars` and `cue_chars`), never refused (owner decision). |
 | **R9** several takes per job | Accepted | `takes` 1–3 in one model load, or explicit `attempts`; `max_retakes` per failing take; a suggestion by V2's tiers (§7.3, §8). |
 | **R10** unspoken context | Not supported | Refused with `CONTROL_UNSUPPORTED` (§3.3). |
 | **R11** changes after resubmission | Met differently: **the flow compares** | The service keeps no earlier result to compare with. Every take carries `fresh` (rendered by this job) and ids that are stable for the same clip, text, attempt and engine. A segment rendered anew is one whose take id differs from the flow's manifest; a changed `analysis_id` with the same take means the cue times may have moved. The old take and its length are in the flow's own manifest (§8). |
@@ -2459,7 +2697,7 @@ daemon computes the hashes. All times are in seconds.
     "exact": [{"start": 17, "end": 43, "words": [3, 7]}]}],
   "text_checks": {"version": "text-1.1.0", "rules_sha256": "…"},
   "hints_used": [{"term": "Ossavine", "respell": "Oss-a-veen"}]},
- "versions": {"qa_profile": "default.v4", "asr": "openai/whisper-large-v3@…", "sv": "microsoft/wavlm-base-plus-sv@…",
+ "versions": {"qa_profile": "default.v5", "asr": "openai/whisper-large-v3@…", "sv": "microsoft/wavlm-base-plus-sv@…",
               "aligner_method": "ctc-snap/wav2vec2-large-960h-lv60-self@…", "number_reader": "whisper-english-normalizer+nought@2",
               "measurement": "sha256:c07d…"},
  "alignment": {"method": "ctc-forced-align+silence-snap", "device": "cpu",
@@ -2472,8 +2710,10 @@ daemon computes the hashes. All times are in seconds.
         "exact": [{"cue": 1, "start": 17, "end": 43, "expected": "3200", "heard": "3200", "match": "same"}],
         "terms": [{"term": "Ossavine", "cue": 0, "heard": "Ossavine", "ok": true}],
         "metrics": {"wer_raw": 0.0, "wer_adj": 0.0, "word_errors": 0, "exact_ok": true, "spk_sim_anchor": 0.981,
-                    "spoken_wpm": 158, "expected_spoken_wpm": 150,
-                    "head_insertion_words": 0, "end_insertion_words": 0, "longest_silence_s": 0.61},
+                    "spoken_wpm": 158, "expected_spoken_wpm": 150, "spoken_cps": 14.8,
+                    "articulation_cps": 15.8, "expected_articulation_cps": 15.2, "pause_s": 0.56,
+                    "head_insertion_words": 0, "end_insertion_words": 0, "longest_silence_s": 0.61,
+                    "clipping_fraction": 0.0},
         "thresholds": {"spk_warn": 0.972, "spk_fail": 0.90, "pace_tol": 0.17},
         "flags": []},
  "licence": {"aligner": "apache-2.0", "asr": "per model card", "sv": "per model card"}}
@@ -2482,15 +2722,16 @@ daemon computes the hashes. All times are in seconds.
 `measurements\3f9a0c1e…\qwen3-base-1.7b.p1\measurement.json` (abridged)
 
 ```json
-{"schema": "narration.measurement/v1", "voice_hash": "sha256:3f9a0c1e…", "clip_sha256": "5b1e…",
+{"schema": "narration.measurement/v2", "voice_hash": "sha256:3f9a0c1e…", "clip_sha256": "5b1e…",
  "engine_profile": {"id": "qwen3-base-1.7b.p1", "hash": "sha256:9e21…"},
  "transcript_check": {"heard": "Good bread asks for patience: …", "wer": 0.0, "ok": true},
  "corpus": "narration-en.v1",
  "similarity": {"anchor_p5": 0.982, "anchor_p50": 0.987, "consistency_p5": 0.983},
- "pace": {"trend": {"intercept_wpm": 118, "per_100_chars": 12.5, "band_max_chars": 300}, "tol": 0.17,
-          "curve": [{"chars": 80, "wpm": 121}, "…"]},
+ "pace": {"method": "narration.pace/articulation-cps@1",
+          "trend": {"intercept_cps": 15.0, "per_100_chars": 0.2, "band_max_chars": 300}, "tol": 0.17,
+          "curve": [{"chars": 80, "cps": 15.1}, {"chars": 150, "cps": 15.3}, "…"], "speaking_share": 0.93},
  "max_segment_chars": 450, "max_segment_seconds": 31.5,
- "ladder": [{"chars": 80, "seeds": [{"seed": "…", "wpm": 119, "wer_adj": 0.0, "sim": 0.986, "verdict": "pass"}, "…"], "passes": true}, "…"],
+ "ladder": [{"chars": 80, "seeds": [{"seed": "…", "cps": 15.0, "spoken_cps": 13.9, "wpm": 168, "wer_adj": 0.0, "sim": 0.986, "verdict": "pass"}, "…"], "passes": true}, "…"],
  "measured_at": "2026-10-02T14:03:11Z"}
 ```
 
