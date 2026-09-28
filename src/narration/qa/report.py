@@ -48,6 +48,29 @@ def _num(value: Any, digits: int = 3) -> str:
     return "n/a" if not isinstance(value, (int, float)) or isinstance(value, bool) else f"{value:.{digits}f}"
 
 
+def _has(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _pace_part(pace: Mapping[str, Any], expected: Mapping[str, Any]) -> str:
+    """A take's pace on its report line. Since contracts 1.6.9 (WP47): characters per second of speaking time
+    against the voice's, with spoken words per minute for information. A take scored before 1.6.9 has no
+    characters per second: its pace was judged in spoken words per minute, and the line says so, as it did then.
+    A value that is not there is left out."""
+    cps, wpm = pace.get("articulation_cps"), pace.get("spoken_wpm")
+    if _has(cps):
+        part = f"pace {_num(cps, 1)} characters/s of speaking"
+        if _has(expected.get("articulation_cps")):
+            part += f" (expected {_num(expected.get('articulation_cps'), 1)})"
+        return part + (f", {_num(wpm, 0)} spoken wpm" if _has(wpm) else "")
+    if _has(wpm):
+        part = f"{_num(wpm, 0)} spoken wpm"
+        if _has(expected.get("spoken_wpm")):
+            part += f" (expected {_num(expected.get('spoken_wpm'), 0)})"
+        return part
+    return "no pace measured"
+
+
 def _take_flags(take: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """Every flag of a take, once: its QA flags (which include the alignment's), then its own flags."""
     out: list[Mapping[str, Any]] = []
@@ -280,9 +303,7 @@ def report_md(results: Mapping[str, Any]) -> str:
                     f"**{qa.get('verdict', '?')}**",
                     f"wer_adj {_num(qa.get('wer_adj'))} (raw {_num(qa.get('wer_raw'))})",
                     f"similarity {_num(qa.get('spk_sim_anchor'), 4)}",
-                    f"pace {_num(pace.get('articulation_cps'), 1)} characters/s of speaking "
-                    f"(expected {_num(expected.get('articulation_cps'), 1)}), "
-                    f"{_num(pace.get('spoken_wpm'), 0)} spoken wpm",
+                    _pace_part(pace, expected),
                     f"exact spans {'ok' if qa.get('exact_ok', True) else 'NOT ok'}",
                 ]
             else:

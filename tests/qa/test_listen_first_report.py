@@ -179,6 +179,29 @@ def test_report_md_is_deterministic_and_tolerates_partial_results_s7_5() -> None
     assert "not scored" in SCORER.report_md(partial)
 
 
+def test_report_md_gives_a_takes_pace_in_characters_per_second_of_speaking_s7_5() -> None:
+    new = results()
+    take = new["segments"][0]["takes"][0]
+    take["qa"]["pace"] = {"spoken_wpm": 171.4, "articulation_cps": 16.94}
+    take["qa"]["pace_expected"] = {"spoken_wpm": 150.2, "articulation_cps": 16.41}
+    assert "pace 16.9 characters/s of speaking (expected 16.4), 171 spoken wpm" in SCORER.report_md(new)
+
+
+def test_report_md_reads_a_take_scored_before_contracts_1_6_9_in_words_per_minute_s7_5() -> None:
+    """A job finished before WP47 has no characters per second in its results: its pace line stays in spoken
+    words per minute, as its pace was judged then, and never reads "n/a" (the owner's first jobs)."""
+    for articulation in ({}, {"articulation_cps": None}):  # absent, or null in get_results
+        old = results()
+        for seg in old["segments"]:
+            for take in seg["takes"]:
+                take["qa"]["pace"] = {"spoken_wpm": 171.4, **articulation}
+                take["qa"]["pace_expected"] = {"spoken_wpm": 150.2, **articulation}
+        md = SCORER.report_md(old)
+        assert md.count("171 spoken wpm (expected 150)") == 3
+        assert "characters/s" not in md
+        assert "n/a spoken wpm" not in md and "(expected n/a)" not in md
+
+
 def test_report_json_counts_every_flag_s11_1() -> None:
     report = SCORER.report_json(results())
     assert report["schema"] == REPORT_SCHEMA
