@@ -112,7 +112,9 @@ applied here, each listed in the revision history below.*
     Failures section by the same rule, and `gc` lists the failed takes it would remove (sections 7.1,
     11.1, 15 and 17 item 10).
   - **`[qa] profile` is informational** (PR #46): every take is scored with the QA profile the build
-    pins, and `doctor` warns when the line differs (section 16).*
+    pins, and `doctor` warns when the line differs (section 16).
+  - **`CLIP_TOO_LONG`** (WP34, PR #39) is in the flag table: a designed candidate longer than `[limits]
+    max_clip_seconds` fails, and never triggers a retake (section 14).*
 
 *Section numbers are stable, because `story-narration.md` cites them. Section 21 maps each requirement
 to what changed.*
@@ -2111,6 +2113,7 @@ it, e.g. `GPU_UNAVAILABLE` {free_mb, need_mb, waited_s}.
 | `ALIGNMENT_ERROR` | fail | ✓ | the aligner raised or could not run (frames < tokens + repeats) |
 | `FIT_TIGHT` / `OVER_SCENE` | warn | | only with `scene_seconds`; reported, not remedied |
 | `CANARY_MISMATCH` | info | | canary hash differed but similarity passed (`bit_exact` tier only) |
+| `CLIP_TOO_LONG` | fail | never | a designed candidate (section 3.1) is longer than `[limits] max_clip_seconds`, so `measure_voice` would refuse its clip (`UNSUPPORTED_AUDIO`); `details` {candidate, duration_s, max_clip_seconds}; hint: design again with a shorter `design_text`. The candidate is still published and on the provenance list, and the design job's outcome is `needs_attention`. It never triggers a retake: a candidate is never retaken (revision 5.16, WP34) |
 | `LOUDNESS_UNDER_TARGET` / `GAIN_HIGH` | info | | the true-peak ceiling lowered the gain / gain above +12 dB |
 | `RETAKEN` | info | | an earlier attempt of this slot failed (listed) |
 | `RENDER_FAILED`, `WORKER_CRASHED`, `GPU_OOM`, `QA_UNAVAILABLE`, `CANCELLED` | error | | segment-level execution problems |
