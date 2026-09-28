@@ -1218,7 +1218,7 @@ A result's `flags` (and, in a QA verdict, `qa.flags`) carry these (design sectio
 | `FIT_TIGHT` | warn | `never` | only with scene_seconds: slack under 1.0 s; reported, not remedied |
 | `OVER_SCENE` | warn | `never` | only with scene_seconds: over budget; reported, not remedied |
 | `CANARY_MISMATCH` | info | `never` | canary hash differed but similarity passed (bit_exact tier only) |
-| `CLIP_TOO_LONG` | fail | `always` | a designed candidate is longer than [limits] max_clip_seconds, so measure_voice would refuse it |
+| `CLIP_TOO_LONG` | fail | `never` | a designed candidate is longer than [limits] max_clip_seconds, so measure_voice would refuse it |
 | `LOUDNESS_UNDER_TARGET` | info | `never` | the true-peak ceiling lowered the gain |
 | `GAIN_HIGH` | info | `never` | gain above +12 dB |
 | `RETAKEN` | info | `never` | an earlier attempt of this slot failed (listed) |
