@@ -1,5 +1,5 @@
 # WP36-liveness A dead daemon, a mistyped transcript, and cached analyses in the plan
-State: active        Updated: 2026-09-28 (PR #41, round 4: the lead's last fix round)
+State: review        Updated: 2026-09-28 (PR #41, round 4 done; CI green at 2756ff6)
 
 Branch `wp/36-liveness`, PR #41. It fixes three readiness-audit findings in WP36's area (the front-end's
 backend): 1.3 (mcp-3, rt-4), and from section 2 cf-3/mcp-6 and cf-13/mcp-12/triage-5. Four review rounds
@@ -124,12 +124,20 @@ and GitHub's CI is the test runner (the lead's instruction).
   - `mcp/descriptions.py` and `mcp/server.py` (the explicit sets);
   - tests in `tests/daemon/` and `tests/engine/test_daemon_backend.py`.
 - The CHANGELOG has a line per change under Unreleased.
-- origin/main was merged twice (never rebased): at 1b05644 (PRs #40, #42 and #37), and at 01f3102 (WP34 and
-  design 5.15).
+- origin/main was merged three times (never rebased): at 1b05644 (PRs #40, #42 and #37), at 01f3102 (WP34 and
+  design 5.15), and at 21dba8b (WP49). None of the last two conflicted.
 
 ## Tests
-- Round 4: CI on GitHub (run ids below, once green). Locally only ruff check and ruff format --check on the
-  changed files, `tools/check_private.py --commits main..HEAD --base main` and `tools/check_tracked.py`.
+- Round 4 (2756ff6, merged with origin/main 21dba8b): push run 36421819386 and pull-request run 36421825243,
+  both green in every job:
+  - tests (windows-latest): 3975 passed, 11 skipped, 20 deselected, 3 warnings. The warnings are WP49's notes
+    that the runner's Job Objects forbid breakaway, from test_process.py and test_windows_processes.py; none is
+    from this branch;
+  - tests (ubuntu-latest): 3893 passed, 16 skipped, 20 deselected;
+  - types (basedpyright), lint (ruff), schemas, tracked, and worker qwen3tts on both OSes.
+
+  No skip is in a file this branch touches. Locally only ruff check and ruff format --check on the changed
+  files, `tools/check_private.py` and `tools/check_tracked.py` (both exit 0).
 - Round 3 (732f254): push run 36413614355, pull-request run 36413619558, green in every job. Windows: 3909
   passed, 11 skipped. Ubuntu: 3827 passed, 16 skipped. No skip was in a file this branch touches.
 - New in round 4:
