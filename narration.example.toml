@@ -97,7 +97,7 @@ unplaced_below = 0.50          # below this the cue is not placed: null times an
 benchmark = "alignment-en.v1"  # the service's own benchmark text; the measured error is published
 
 [qa]
-profile = "default.v4"
+profile = "default.v5"
 
 [engines.qwen3_base]
 non_streaming_mode = false     # change only after verifying an alternative setting for yourself

@@ -73,11 +73,12 @@ def test_max_new_tokens_refuses_a_meaningless_rule_dc4(per_char: float, floor: i
         names.max_new_tokens_for("text", per_char=per_char, floor=floor, ceiling=ceiling)
 
 
-def test_the_qa_profile_is_default_v4_dc19() -> None:
-    """Contracts 1.6.7 (DC-19, the owner's decision of 2026-09-27): PACE_FAST warns only. The profile's version
-    is in the analysis key, so takes scored under default.v3 are scored again."""
+def test_the_qa_profile_is_default_v5_dc18_dc19() -> None:
+    """Contracts 1.6.9 (DC-18, WP47): pace in spoken characters per second of speaking time; PACE_FAST still
+    warns only (DC-19, contracts 1.6.7). The profile's version is in the analysis key, so takes scored under
+    default.v4 are scored again."""
     from narration.qa.profile import DEFAULT_PROFILE
 
-    assert names.QA_PROFILE == "default.v4"
+    assert names.QA_PROFILE == "default.v5"
     assert DEFAULT_PROFILE.name == names.QA_PROFILE
     assert DEFAULT_PROFILE.pace_fail_tol_factor is None
