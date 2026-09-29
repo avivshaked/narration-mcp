@@ -21,6 +21,7 @@ from .contracts.errors import ConfigError
 from .contracts.names import BENCHMARK, CORPUS, MODEL_ALIGNER, QA_PROFILE, TEXT_CHECKS_VERSION
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")  # used with fullmatch: $ would accept a final newline
+_PLACEHOLDER = re.compile(r"<[a-z_]+>")  # the docs' placeholders, such as <service_root>, copied unedited
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -363,6 +364,11 @@ def _value(tp: Any, value: Any, where: str, base: Path) -> Any:
     if tp is Path:
         if not isinstance(value, str) or not value:
             raise ConfigError(f"{where} must be a non-empty path")
+        if _PLACEHOLDER.search(value):
+            raise ConfigError(
+                f"{where} = {value!r} still holds a placeholder such as <service_root>: replace it with a real "
+                "folder, or give a path relative to the configuration file's folder (for example 'store')"
+            )
         p = Path(value)
         return p if p.is_absolute() else (base / p)
     if origin is Literal:

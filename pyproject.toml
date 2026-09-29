@@ -1,6 +1,6 @@
 [project]
 name = "narration"
-version = "0.1.0.dev0"
+version = "0.1.0a1"
 description = "A local MCP server that designs voices with Qwen3-TTS, measures them, and narrates paragraphs of cues in QA'd, cue-aligned takes."
 readme = "README.md"
 license = "LicenseRef-PolyForm-Noncommercial-1.0.0"

@@ -3,12 +3,13 @@
 A local [MCP](https://modelcontextprotocol.io) server that gives an AI agent narration in **one fixed
 voice**, and the time of every line within that audio.
 
-> **Status: pre-alpha, working end to end on Windows with an NVIDIA GPU.** An agent can design or allow a
-> voice, measure it once, and narrate paragraphs of cues, getting back QA'd, cue-aligned takes. Every
-> published tool runs; the newest, `audition_pronunciation`, has so far been tested only against the
-> service's fake workers, not on a GPU. The package has not had a numbered release yet, and its schemas may
-> still change (`CHANGELOG.md` tracks every one). [plan.md](plan.md) §4 has the status of every part of the
-> build.
+> **Status: alpha (0.1.0a1), working end to end on Windows with an NVIDIA GPU, and looking for testers**
+> ([Help test it](#help-test-it)). An agent can design or allow a voice, measure it once, and narrate
+> paragraphs of cues, getting back QA'd, cue-aligned takes. Every published tool runs; the newest,
+> `audition_pronunciation`, has so far been tested only against the service's fake workers, not on a GPU.
+> Schemas may still change between alpha releases ([CHANGELOG.md](CHANGELOG.md) tracks every one), and the
+> accuracy of the cue times has not been measured yet. [plan.md](plan.md) §4 has the status of every part
+> of the build.
 
 ## What it does
 
@@ -45,6 +46,33 @@ cache when the work has already been done.
 - **Nothing hidden.** No silent trimming, stretching or truncation. Every flag is reported, and the
   caller decides what to accept.
 
+## Help test it
+
+So far this has run on one machine only, the author's. The most useful thing you can do is install it on
+yours, following [Install](#install) exactly, and report every place where it breaks or where the
+instructions left you guessing. A report that says "step 3 failed with this error" is as valuable as a
+finished narration.
+
+**You need** a Windows 10 or 11 PC with an NVIDIA GPU that has about 12 GB of VRAM free, about 25 GB of
+free disk, and Python 3.12 with uv (see [Requirements](#requirements)). **It takes** a download of about
+13 GB, a few minutes of setup, and then 20 to 50 minutes of GPU time to measure your first voice, which
+runs by itself.
+
+**How far to go:**
+1. Install, and run `narration-admin doctor` until every check passes.
+2. From Claude Code (or another MCP client), design a voice, measure it, and narrate a paragraph of your
+   own ([First run](#first-run)).
+3. Listen. Tell us whether the takes QA passed sound right, and whether the ones it failed deserved it.
+
+**Where to report:** open a [tester report](https://github.com/avivshaked/narration-mcp/issues/new?template=tester_report.yml)
+on GitHub, one per problem or one for your whole run, whichever is easier. Include the version, the step,
+the exact command and what it printed, and `doctor`'s output. Before you paste anything, replace your own
+paths and user name with something generic. Never attach a recording of a real person's voice. A
+security problem goes through [SECURITY.md](SECURITY.md) instead, never a public issue.
+
+Testing is free for personal, non-commercial use on your own machine (see [Licence](#licence)); testing
+for a company counts as commercial use.
+
 ## Requirements
 
 - **Windows 11** (or 10). It is the only platform v1 runs on; `narration-admin doctor` says so plainly on
@@ -57,8 +85,9 @@ cache when the work has already been done.
   render or a measurement needs free.
 - **Python 3.12** and [uv](https://docs.astral.sh/uv/) (0.10 or later). uv is also how the worker
   environments are created; nothing else needs installing by hand.
-- **About 15 GB of disk** for the pinned models, plus room for the store (the cache of rendered work; see
-  [Where things live](#where-things-live) below).
+- **About 25 GB of disk:** about 13 GB for the pinned models, and 5 to 10 GB for the worker environments
+  (PyTorch with CUDA; the lower figure when uv's cache is on the same drive), plus room for the store (the
+  cache of rendered work; see [Where things live](#where-things-live) below).
 
 ## Not yet supported
 
@@ -83,19 +112,22 @@ every result. None of them is distributed with this repository.
 `<service_root>` is the folder of your clone; `<venv_python>` is the environment's own interpreter,
 `<service_root>\.venv\Scripts\python.exe`.
 
-1. **Clone, and create the server's environment.**
+1. **Clone the latest release, and create the server's environment.**
 
    ```sh
-   git clone https://github.com/avivshaked/narration-mcp.git
+   git clone --branch v0.1.0a1 https://github.com/avivshaked/narration-mcp.git
    cd narration-mcp
    uv sync --locked
    ```
 
-   `uv sync --locked` builds `.venv` from the committed `uv.lock` exactly, so it fails loudly rather than
-   silently resolving different versions if your uv or index ever disagreed with the lock.
-2. **Configure.** Copy `narration.example.toml` to `narration.toml` in `<service_root>` (or wherever
-   `NARRATION_CONFIG` will point) and set `store_root` and `models_root` under `[server]`; see
-   [Configuration](#configuration) below for what else is in it. `narration.toml` and
+   `--branch v0.1.0a1` checks out the release, not `main`, which changes often; the
+   [releases page](https://github.com/avivshaked/narration-mcp/releases) names the latest. `uv sync
+   --locked` builds `.venv` from the committed `uv.lock` exactly, so it fails loudly rather than silently
+   resolving different versions if your uv or index ever disagreed with the lock.
+2. **Configure.** Copy `narration.example.toml` to `narration.toml` in `<service_root>`. It works as it
+   is: the store and the models go into the folders `store` and `models` next to it. To put them
+   elsewhere, such as a larger drive, set `store_root` and `models_root` under `[server]` to absolute
+   paths; see [Configuration](#configuration) below for what else is in it. `narration.toml` and
    `narration.local.toml` are gitignored, so your paths never end up in version control.
 3. **Install the models and the two worker environments.** This downloads the pinned model revisions
    (verifying every file's hash against what Hugging Face publishes for it) into `[server] models_root`,

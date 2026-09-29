@@ -65,7 +65,7 @@ files), except where a note says otherwise.
 | jsonschema-specifications | 2025.9.1 | MIT | license_expression |  |
 | mcp | 2.2.0 | MIT | license field; classifier |  |
 | mcp-types | 2.2.0 | MIT | license field; classifier |  |
-| narration | 0.1.0.dev0 | this project (PolyForm-Noncommercial-1.0.0) |  | workspace member (editable) |
+| narration | 0.1.0a1 | this project (PolyForm-Noncommercial-1.0.0) |  | workspace member (editable) |
 | narration-worker | 0.1.0 | this project (PolyForm-Noncommercial-1.0.0) |  | workspace member (editable) |
 | nodejs-wheel-binaries | 24.19.0 | MIT (wrapper) | classifier; LICENSE in wheel | dev only (basedpyright's runtime); ships a Node.js binary, whose own licence is MIT with bundled third-party notices |
 | numpy | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | license_expression | wheels also bundle OpenBLAS (BSD-3-Clause) and the GCC runtime (GPL-3.0-or-later WITH GCC-exception-3.1), listed in LICENSE.txt |

@@ -1,20 +1,18 @@
 # narration-mcp: example configuration
 #
-# Copy this file to `narration.toml` in the service's folder (`<service_root>`) and fill in the paths for
-# your machine. `narration.toml` and `narration.local.toml` are both gitignored, so your own paths never
-# end up in version control. Nothing in this file is a personal value: every path below is a placeholder,
-# and `allow_sha256` ships empty.
-#
-# `<service_root>` is wherever you set this project up — it is not assumed to be any particular folder.
-# The store and the models may live anywhere else you choose; there is no requirement that they sit
-# under `<service_root>` at all.
+# Copy this file to `narration.toml` in the service's folder (`<service_root>`, wherever you cloned this
+# project). It works as it is: a relative path below is resolved against the folder that holds the
+# configuration file, so the store and the models go into `store` and `models` next to it. To put them
+# anywhere else (another drive, say), write an absolute path instead. `narration.toml` and
+# `narration.local.toml` are both gitignored, so your own paths never end up in version control. Nothing
+# in this file is a personal value, and `allow_sha256` ships empty.
 #
 # This mirrors docs/design.md section 16. If the two ever disagree, the design document is the source of
 # truth and this file should be corrected to match it.
 
 [server]
-store_root  = '<service_root>\store'
-models_root = '<service_root>\models'     # pinned model snapshots, downloaded by `narration-admin install`
+store_root  = 'store'
+models_root = 'models'     # pinned model snapshots, downloaded by `narration-admin install`
 
 [voices]
 # Synthetic voices only (see SECURITY.md). A clip is accepted for cloning if the service designed it
@@ -110,6 +108,6 @@ max_new_tokens_per_char = 2.5
 max_new_tokens_floor = 128
 
 [workers.qwen3]
-project = '<service_root>\workers\qwen3tts'
+project = 'workers/qwen3tts'
 [workers.qa]
-project = '<service_root>\workers\qa'
+project = 'workers/qa'
