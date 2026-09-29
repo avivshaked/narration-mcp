@@ -4,6 +4,9 @@ worktrees/
 .pytest-tmp/
 narration.toml
 narration.local.toml
+# the example configuration's default store and models folders, next to narration.toml
+/store/
+/models/
 AGENTS.local.md
 .claude/settings.local.json
 .claude/worktrees/

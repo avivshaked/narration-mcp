@@ -12,7 +12,7 @@ from narration.contracts.errors import ConfigError
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_the_shipped_example_config_loads_with_its_placeholders(tmp_path: Path) -> None:
+def test_the_shipped_example_config_loads_as_it_is_s16(tmp_path: Path) -> None:
     example = ROOT / "narration.example.toml"
     if not example.is_file():
         pytest.skip("narration.example.toml is not on this branch")
@@ -45,6 +45,12 @@ def test_store_and_models_roots_are_required(tmp_path: Path) -> None:
 def test_relative_paths_resolve_against_the_config_folder(tmp_path: Path) -> None:
     config = parse_config({"server": {"store_root": "store", "models_root": "models"}}, base=tmp_path)
     assert config.server.store_root == tmp_path / "store"
+
+
+@pytest.mark.parametrize("value", ["<service_root>\\store", "<models_root>/snapshots"])
+def test_a_path_that_still_holds_a_placeholder_is_refused_with_a_hint_s16(tmp_path: Path, value: str) -> None:
+    with pytest.raises(ConfigError, match=r"server\.store_root .*placeholder.*relative to the configuration"):
+        parse_config({"server": {"store_root": value, "models_root": "models"}}, base=tmp_path)
 
 
 @pytest.mark.parametrize(
