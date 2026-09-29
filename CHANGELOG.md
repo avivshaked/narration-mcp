@@ -3,12 +3,20 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
-to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until the first `0.1.0` release, changes
-are tracked here but no version is tagged; nothing described below is installable yet.
+to [Semantic Versioning](https://semver.org/spec/v2.0.0.html); version numbers are written the Python way
+([PEP 440](https://peps.python.org/pep-0440/)), so `0.1.0a1` is the first alpha of `0.1.0`. Until `1.0`,
+schemas and configuration keys may change between releases, and every such change is listed here.
 
 ## [Unreleased]
 
+## [0.1.0a1] - 2026-09-29
+
+The first tagged release: an alpha for testers. Everything below, since the project began, is in it.
+
 ### Added
+
+- A "Help test it" section in the README, and a "Tester report" issue form: what a tester needs, how far to
+  go, and what to report.
 
 - `audition_pronunciation` now runs (`narration.audition`; design revision 5.18, section 7.6). It renders a
   term with up to four respelling variants, in your carrier sentence or alone, in a voice that need not be
@@ -330,6 +338,12 @@ are tracked here but no version is tagged; nothing described below is installabl
 
 ### Changed
 
+- `narration.example.toml` works as it is: its paths are relative (`store`, `models`, `workers/qwen3tts`,
+  `workers/qa`), resolved against the configuration file's folder, where they used to be `<service_root>\…`
+  placeholders that had to be edited by hand. A configuration path that still holds such a placeholder is
+  now refused with a hint, instead of making a folder named `<service_root>`. `store/` and `models/` at the
+  checkout's root are gitignored. The README's install clones the release tag, not `main`, and its disk
+  estimate now counts the worker environments (about 25 GB in all).
 - `narration-admin install`, when it asks a running daemon to stop after a repair, now says what the stop
   means: jobs queued before it wait for the next start (`narration-admin daemon start`, or the next
   `submit_job` while `[daemon] autostart` is on), and that daemon runs the whole queue. It said "The next

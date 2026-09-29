@@ -1,0 +1,64 @@
+name: Tester report
+description: You installed or tried narration-mcp; tell us how far you got and what went wrong.
+labels: ["tester report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing. A report that stops at "the install failed at step 3" is just as useful as a
+        full run, so please send it even if you got nowhere. One issue per problem, or one for your whole
+        run, whichever is easier.
+
+        Before you paste anything, replace your own paths, user name and machine name with something
+        generic (e.g. "a folder on my D: drive"). Never attach a recording of a real person's voice. A
+        security problem goes through GitHub's private vulnerability reporting instead (see
+        [SECURITY.md](../../SECURITY.md)).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release you cloned (e.g. v0.1.0a1), or the commit SHA (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+  - type: dropdown
+    id: how-far
+    attributes:
+      label: How far did you get?
+      options:
+        - Install (uv sync, narration-admin install) failed
+        - Installed, but doctor or engine pin failed
+        - Designing or measuring a voice failed
+        - Narration ran, but something was wrong
+        - Everything worked
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The step, the exact command or tool call, and what it printed or answered. What did you
+        expect instead? Anything in the README that left you guessing counts too.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor's output
+      description: The output of `python -m narration.admin --config <your narration.toml> doctor`, if you
+        got that far. Redact paths first.
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Your machine
+      description: Windows version, GPU model and its VRAM, free disk, Python and uv versions, and the MCP
+        client you used (e.g. Claude Code in VS Code). Mention anything unusual, such as an antivirus that
+        sandboxes programs or a network that intercepts TLS.
+    validations:
+      required: true
+  - type: textarea
+    id: listening
+    attributes:
+      label: How did it sound?
+      description: If you narrated something, did the takes that passed QA sound right, and did the ones
+        that failed deserve it? Describe it in words; please do not attach audio of anything private.
