@@ -134,6 +134,16 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
     onset trim (consonant onset spikes last 10–40 ms), relaxed pyin with ~5 ms hop, voicing breaks inside a word
     as a signal, and a per-word CTC pronunciation score (wav2vec2, already in the QA worker) as a second detector.
     Open for the owner: CREPE/PENN (MIT code) were trained partly on CC BY-NC data; usable as an octave-error check?
+    (Owner, 2026-09-30: skip them.)
+    **Spike (l) ran 2026-09-30: negative** (branch `spike/l-pitch-speed`, worktree `worktrees/spike-l-pitch-speed`,
+    not merged; README and `results.json` there; owner's labels, word report and pictures in
+    `.dev/spikes/l-pitch-speed/`). Pre-registered primary: 0 of 4 faulty takes both separated and located.
+    One glitch (h1-05) shows as a fragmented, jumping pitch and is its take's top slot, with more voicing breaks
+    than any clean d2 word; the others leave no clear pitch trace; false alarms come from phrase-final falls
+    (creak). The per-word CTC score finds none. Deviation recorded: pyin's voiced probability on real speech is
+    ~0.02 median, so the pre-registered >= 0.5 rule kept no frames; replaced by pyin's voiced decision.
+    Possible next steps (owner's call): a blind listening check of the top-flagged moments mixed with random
+    ones; more faulty takes (WP40); a spectral detector.
   - **To do once the 8-segment narration is in (owner, 2026-09-29): document how to split text into segments.**
     Where: the `submit_job` and `check_text` descriptions and the narration workflow prompt
     (`src/narration/mcp/descriptions.py`, then regenerate `docs/tools.md`), and a paragraph in the README's
