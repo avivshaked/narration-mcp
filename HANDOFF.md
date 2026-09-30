@@ -1,6 +1,6 @@
 # HANDOFF
 
-*Updated 2026-09-28. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
+*Updated 2026-09-30. Read this first. Then read [plan.md](plan.md), [AGENTS.md](AGENTS.md) and the
 gitignored `AGENTS.local.md`, which holds this machine's paths and facts.*
 
 ## Resumed 2026-09-28, with the machine kept free (the owner's rule)
@@ -93,6 +93,50 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   223–288 Hz, so not deep. Try 2's prompt (contralto, almost baritone, late fifties) is in
   `.dev/scratch/female-voice-try1.md`, not generated yet (the owner's call). Local script:
   `.dev/lead/design_batch.py`.
+- **2026-09-29: v0.1.0a1 tagged** (PR #54: the example config works unedited, a fresh-clone dry run found it did
+  not; Help test it; a tester report form). The GitHub pre-release is the owner's to create (`gh release create`
+  is on the owner's deny list); notes in `.dev/pr/release-notes-0.1.0a1.md`. Also the owner's: turn on private vulnerability reporting (Settings →
+  Code security), which `SECURITY.md` names. A LinkedIn post narrated by the
+  service is done (see below). a-warm-s101
+  was re-measured (`/v2`, about 3 min from the cache: KNOW). Found while narrating it:
+  - QA's normaliser counts "voice-over" against Whisper's "voiceover" (2 errors) and "twelve gigabytes"
+    against "12GB" (1 error) as word errors: WER_HIGH warnings on correct speech;
+  - `get_results` does not show what the recogniser heard (`qa.transcript` is in the stored analysis only), so
+    an agent cannot see why a take was flagged;
+  - `submit_job` called on the backend directly ignored a top-level `takes` (it belongs in `options`); check
+    that the MCP layer refuses unknown top-level keys.
+  - **QA misses heard by the owner (KNOW, 2026-09-29, job `job_01M3QBP2DNKKWMHS5T0KHWPYGR`):** s1-hook take 1
+    and s7-local take 2 passed QA clean (WER 0), yet each has a word the owner heard as wrong: the blind spot
+    of gate H1 (a garbled word Whisper still reads as the right one). Planted-fault material for WP40.
+    One real misread QA did catch: s8 take 1 said "that is run" for "that has run" (WER_HIGH).
+  - **An idea to explore (the owner's, 2026-09-29): catch these by the speed of pitch change.** In the owner's
+    ear, the intonation in such a glitch moves much faster than a human's (BELIEVE until measured). Per aligned
+    word: the fastest pitch movement (pyin F0, semitones per second), against the voice's own range learnt at
+    measure time; an outlier would be a warning. Test set, CPU only: the two takes above, plus gate H1's two
+    faulty takes (05 and 08, seed 1), against their clean siblings. **Kept (the owner asked):**
+    `.dev/fixtures/qa-glitch-validation/` (gitignored; 28 WAVs with `manifest.json`: 4 faulty, 8 owner-picked
+    clean, 1 rejected, 1 QA-caught misread, 14 unlabelled H1 seeds; sha256, source, take ids, the owner's words).
+  - **To do once the 8-segment narration is in (owner, 2026-09-29): document how to split text into segments.**
+    Where: the `submit_job` and `check_text` descriptions and the narration workflow prompt
+    (`src/narration/mcp/descriptions.py`, then regenerate `docs/tools.md`), and a paragraph in the README's
+    First run. What: one idea per segment, about half to all of the voice's `max_segment_chars`, one sentence
+    per cue, no one-short-sentence segments (intonation restarts; pace and speaker checks least reliable on short
+    takes), never past the reliable length. Evidence first: compare the same text as 11 short segments (job
+    `job_01M3QA2YFP81A57SPN1FRFB2EJ`) and 8 longer ones (`job_01M3QBP2DNKKWMHS5T0KHWPYGR`): flags, and the owner's
+    ear. Open for the owner: an info-only `check_text` note for a very short segment (a design change).
+  - **The LinkedIn post: finished 2026-09-30; the owner posts it.** Text: `.dev/scratch/linkedin-post-v2.txt`
+    (plain text for pasting; copy it from the file, as pasting from the chat view loses the line breaks and
+    apostrophes). Its first comment has two placeholders for the owner (the story video and an earlier post).
+    Video: `.dev/scratch/linkedin-video/narration-mcp-linkedin.mp4` (1080×1350, 30 fps, 1:52; upload this one)
+    and a 3 Mbps copy for checking recompression. Thumbnail candidates: `thumb-a.png`, `thumb-b.png` there.
+    How it was made: takes in `.dev/scratch/linkedin-picks.json`; assets by `.dev/lead/linkedin_assemble.py`;
+    landscape data by `linkedin_zplane_data.py`; frames by `.dev/lead/linkedin_aquarium.py` with `--style lines
+    --bg voice --dark-tank --tank-dark 0.7`, rendered in four chunks, each under its own GPU lock.
+    - **KNOW (2026-09-30):** 3370 full-size frames took 12 min, at about 0.2 s each. The GPU sat at about 30% and
+      the CPU at about 25%, so the render is bound by one process's CPU work; the split between the Python
+      handler, the geometry and PNG saving was not measured. Next time: two or three Blender instances on one
+      folder (`use_placeholder`, no overwrite), and time a few frames with the log kept first.
+    - **Clean-up waiting for the owner's OK:** `frames-final/` (4.4 GB) and the older preview folders there.
 - **Follow-ups:** WP47's F2 and F4 (both wait for the re-measure); `codes.py` lists PACE_FAST/PACE_SLOW with a fail
   severity while §14 says warn only (a profile can still set a fail factor; reconcile the text).
 - **Decisions carried into the resumed agents:**
@@ -218,7 +262,7 @@ Code session.
 - Later:
   - one run of the daemon under Claude Code itself, once `wp/30-escape` merges (the smoke run's `mcp`
     Python client killed the daemon on exit);
-  - the GitHub description, which still says voices are "locked" (WP44);
+  - ~~the GitHub description~~ updated 2026-09-29 with the owner's OK (OWNER-ACTIONS §3a's wording);
   - gates H2 to H4.
 
 ## Next steps (the lead)
