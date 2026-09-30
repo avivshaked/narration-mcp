@@ -94,8 +94,8 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   `.dev/scratch/female-voice-try1.md`, not generated yet (the owner's call). Local script:
   `.dev/lead/design_batch.py`.
 - **2026-09-29: v0.1.0a1 tagged** (PR #54: the example config works unedited, a fresh-clone dry run found it did
-  not; Help test it; a tester report form). The GitHub pre-release is the owner's to create (`gh release create`
-  is on the owner's deny list); notes in `.dev/pr/release-notes-0.1.0a1.md`. Also the owner's: turn on private vulnerability reporting (Settings →
+  not; Help test it; a tester report form). The GitHub pre-release was created by the owner on 2026-09-30
+  (`gh release create` is on the owner's deny list); notes in `.dev/pr/release-notes-0.1.0a1.md`. Also the owner's: turn on private vulnerability reporting (Settings →
   Code security), which `SECURITY.md` names. A LinkedIn post narrated by the
   service is done (see below). a-warm-s101
   was re-measured (`/v2`, about 3 min from the cache: KNOW). Found while narrating it:
