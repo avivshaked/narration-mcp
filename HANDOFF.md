@@ -116,6 +116,24 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
     faulty takes (05 and 08, seed 1), against their clean siblings. **Kept (the owner asked):**
     `.dev/fixtures/qa-glitch-validation/` (gitignored; 28 WAVs with `manifest.json`: 4 faulty, 8 owner-picked
     clean, 1 rejected, 1 QA-caught misread, 14 unlabelled H1 seeds; sha256, source, take ids, the owner's words).
+    **Design agreed with the owner (2026-09-30), not built yet:** per word, every pair of confident pitch frames
+    (d semitones over t seconds); an envelope E(t) per voice = a high percentile (~99.5th) of d at each t over its
+    clean takes, monotone in t, leave-one-out when scoring a clean take; word score = sum of max(0, d/E(t) − 1);
+    also a fixed human-limit curve (Xu & Sun 2002, to verify). Filters against s/f/p/b false positives: range =
+    the voice's median ± ~1 octave, confident frames only, pairs only within one unbroken voiced run, trim ~20 ms
+    at run edges; count out-of-range frames as their own signal. Caveat found: the QA worker's pyin has
+    `max_transition_rate` 35.92 oct/s (~4.3 st per 10 ms hop) and a 64 ms frame, which may smooth glitches away;
+    run the service's settings and a relaxed set. Plan: synthetic planted-step check first; spike in
+    `spikes/l-pitch-speed/` (QA venv, CPU); success fixed in advance (each faulty take ranks 1st–2nd in its voice,
+    its top word is the one the owner heard). Open for the owner: use the approved H1 renders and LinkedIn picks as
+    extra clean reference? Which word was wrong in each faulty take? Literature search done 2026-09-30
+    (`.dev/scratch/lit-pitch-glitch.md`): not solved; nearest work localises errors with learnt models
+    (frame-level MOS, MIT code, weights' licence unknown); per-utterance F0 features are weak detectors. Xu & Sun
+    numbers confirmed (average speaker; fastest-speaker figures in the report). Proposed changes to the design:
+    score distinct violating events not every pair, pairs ≤ ~300 ms apart, separate rise/fall envelopes, longer
+    onset trim (consonant onset spikes last 10–40 ms), relaxed pyin with ~5 ms hop, voicing breaks inside a word
+    as a signal, and a per-word CTC pronunciation score (wav2vec2, already in the QA worker) as a second detector.
+    Open for the owner: CREPE/PENN (MIT code) were trained partly on CC BY-NC data; usable as an octave-error check?
   - **To do once the 8-segment narration is in (owner, 2026-09-29): document how to split text into segments.**
     Where: the `submit_job` and `check_text` descriptions and the narration workflow prompt
     (`src/narration/mcp/descriptions.py`, then regenerate `docs/tools.md`), and a paragraph in the README's
