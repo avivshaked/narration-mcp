@@ -95,8 +95,8 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
   `.dev/lead/design_batch.py`.
 - **2026-09-29: v0.1.0a1 tagged** (PR #54: the example config works unedited, a fresh-clone dry run found it did
   not; Help test it; a tester report form). The GitHub pre-release was created by the owner on 2026-09-30
-  (`gh release create` is on the owner's deny list); notes in `.dev/pr/release-notes-0.1.0a1.md`. Also the owner's: turn on private vulnerability reporting (Settings →
-  Code security), which `SECURITY.md` names. A LinkedIn post narrated by the
+  (`gh release create` is on the owner's deny list); notes in `.dev/pr/release-notes-0.1.0a1.md`. Private vulnerability reporting, the route `SECURITY.md` names,
+  was turned on by the owner on 2026-09-30 (the API reports `enabled: true`). A LinkedIn post narrated by the
   service is done (see below). a-warm-s101
   was re-measured (`/v2`, about 3 min from the cache: KNOW). Found while narrating it:
   - QA's normaliser counts "voice-over" against Whisper's "voiceover" (2 errors) and "twelve gigabytes"
@@ -258,7 +258,6 @@ Code session.
   the hangs.
 - **DC-14 and DC-15** (plan.md §1.5): lead gap-fills the owner may overrule.
 - **4a in the owner's list:** cross-job grouping (§4 item 3); the lead recommends leaving it out of v1.
-- Whether GitHub's private vulnerability reporting is the route `SECURITY.md` should name.
 - Later:
   - one run of the daemon under Claude Code itself, once `wp/30-escape` merges (the smoke run's `mcp`
     Python client killed the daemon on exit);
