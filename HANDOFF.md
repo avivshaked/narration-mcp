@@ -144,6 +144,12 @@ GPU work (the re-measure, the ladder, WP38–WP42) waits for a window the owner 
     ~0.02 median, so the pre-registered >= 0.5 rule kept no frames; replaced by pyin's voiced decision.
     Possible next steps (owner's call): a blind listening check of the top-flagged moments mixed with random
     ones; more faulty takes (WP40); a spectral detector.
+    **Later the same day (KNOW, not blind):** a blind spectrogram look got 1 of 3 pairs right (chance); harmonic
+    demodulation then showed, in 3 of the 4 glitches, a large fast pitch oscillation inside a vowel (about
+    ±80-150 cents, 30-60 ms period) that pyin smooths away; the fourth (`tk_abff912e7455238a`) shows nothing yet.
+    **The follow-up moved to its own project** (owner, 2026-09-30): the sibling folder `tts-glitch-detector`
+    (local git, no remote; its plan: a bank of planted glitches in LibriTTS-R, ridge-trace / spectrogram / fused
+    models, judged only on real glitches). It reads this project's `.dev` test set read-only.
   - **To do once the 8-segment narration is in (owner, 2026-09-29): document how to split text into segments.**
     Where: the `submit_job` and `check_text` descriptions and the narration workflow prompt
     (`src/narration/mcp/descriptions.py`, then regenerate `docs/tools.md`), and a paragraph in the README's
