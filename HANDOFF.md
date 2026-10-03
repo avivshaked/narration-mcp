@@ -17,7 +17,7 @@ rewriting it to the present at the end of every session; it holds no history.*
   `[qa] profile` says `default.v5`). A measured spare, d2 re-designed with seed 2006, is kept local only.
   The owner's guide is `.dev/scratch/first-narration.md`, and the narrating agent's brief is
   `.dev/narration-brief.md`.
-- **The owner's `.mcp.json`** starts the server through the venv's interpreter
+- **The owner's `.mcp.json`** should start the server through the venv's interpreter
   (`<repo>\.venv\Scripts\python.exe -m narration.mcp --config <repo>\narration.toml`), not `uv run … narration-mcp`,
   whose launcher `.exe` is what Avast sandboxed (`AGENTS.local.md`). A merge that changes tool texts reaches the
   owner's session after a `/mcp` reconnect.

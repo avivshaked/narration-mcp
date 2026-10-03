@@ -213,4 +213,4 @@ named the owner beside the rule. The question numbers (Q1–Q22) are those of th
 | 2026-09-26 | **A written-text normaliser is a later phase** (Q20). v1 speaks text as sent and refuses `text_mode: "written"`. | Sections 9.2 and 19 (Q20) |
 | 2026-09-26 | **Loudness** (Q3, DC-8): the default target is −23 LUFS with a −1 dBTP ceiling, not −16; `target_lufs` stays configurable. | Sections 13 and 16 (the Design changes table has the evidence) |
 | 2026-09-26 | **A per-call `max_new_tokens`** (DC-4; ADR 0003). | Sections 10.1 and 16 (the Design changes table has the rule) |
-| 2026-09-27 | **Measuring before generating** (Q21) is its own step, and a request with an unmeasured clip is refused with a hint. This was settled as recommended by the lead; the owner may reverse it. | Section 19 (Q21) |
+| 2026-09-26 (by revision 5.1) | **Measuring before generating** (Q21) is its own step, and a request with an unmeasured clip is refused with a hint. It was settled as the design recommended; the owner may reverse it. | Section 19 (Q21) |
