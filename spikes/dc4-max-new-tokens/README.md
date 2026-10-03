@@ -1,6 +1,6 @@
 # DC-4 evidence: does `max_new_tokens` change a render that does not reach it?
 
-plan.md sections 1.3 item 1 and 1.5 (DC-4). The owner chose a cap per call derived from the text:
+plan.md section 1.3 item 1 and DC-4 (`docs/design-log.md`). The owner chose a cap per call derived from the text:
 [ADR 0003](../../docs/decisions/0003-max-new-tokens.md) (accepted: option C).
 
 - `run.py`: the spike, run in the Qwen worker's venv under the GPU lock (about 5 minutes).

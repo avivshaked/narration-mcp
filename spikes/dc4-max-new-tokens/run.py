@@ -1,4 +1,4 @@
-"""Evidence for DC-4 (plan.md section 1.5): does ``max_new_tokens`` change a render that does not reach it?
+"""Evidence for DC-4 (docs/design-log.md): does ``max_new_tokens`` change a render that does not reach it?
 
 plan.md section 1.3 item 1: the effective cap is 8192 (the snapshots' ``generation_config.json``), and every
 piece of clone evidence ran with it. If the cap only ever truncates, a lower cap, or one derived from the
@@ -113,7 +113,7 @@ def main() -> int:
         print(segment, [(r["max_new_tokens"], r["hit_token_cap"], r.get("identical_to_8192")) for r in runs])
     engine.unload()
     results = {
-        "evidence_for": "DC-4 (plan.md 1.5): max_new_tokens",
+        "evidence_for": "DC-4 (docs/design-log.md): max_new_tokens",
         "ran_at": common.now(),
         "software": common.software_facts(torch),
         "model": {"repo": common.MODEL_BASE, "revision": revision},

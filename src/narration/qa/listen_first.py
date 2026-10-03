@@ -8,7 +8,7 @@
 4. insertion, similarity and pace warnings, and consistency outliers;
 5. cues with a text warning, and segments over the voice's reliable length.
 
-What is listed (this work package's reading of the design, recorded in status/WP14.md):
+What is listed (this module's reading of the design):
 
 * For each segment, the flags of its **suggested take** (its ``qa.flags``, ``alignment.flags`` and the take's
   own ``flags``), because that is the take a caller hears first; every take's flags stay in its ``qa`` and in

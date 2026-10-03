@@ -16,7 +16,7 @@ Rules (sections 5 and 7.2):
 * **Inputs are strict** (``additionalProperties: false``), so an unknown field such as ``instruct`` is an
   argument error. **Outputs are open**, so adding a field later is not a breaking change.
 
-DC-2 (plan.md section 1.5) is included: ``retry_after_s`` on Error, ``poll_after_s`` on ``submit_job``
+DC-2 (docs/design-log.md) is included: ``retry_after_s`` on Error, ``poll_after_s`` on ``submit_job``
 and ``get_job``, and ``admission`` on ``get_server_status``.
 
 The dialect is JSON Schema 2020-12. The front-end validates arguments inside its handlers (section 14).

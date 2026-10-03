@@ -1,5 +1,5 @@
 {
-  "evidence_for": "DC-4 (plan.md 1.5): max_new_tokens",
+  "evidence_for": "DC-4 (docs/design-log.md): max_new_tokens",
   "ran_at": "2026-09-26T18:27:36+00:00",
   "software": {
     "python": "3.12.10",

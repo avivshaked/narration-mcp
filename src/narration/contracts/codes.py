@@ -1,7 +1,7 @@
 """Every error and flag code, with its retryability, severities and retake rule (design section 14).
 
-The two tables of section 14 are copied here verbatim in meaning, plus design change DC-2 (plan.md
-section 1.5): the retryable codes ``QUEUE_FULL`` and ``RATE_LIMITED``, and ``retry_after_s`` on every
+The two tables of section 14 are copied here verbatim in meaning, plus design change DC-2
+(docs/design-log.md): the retryable codes ``QUEUE_FULL`` and ``RATE_LIMITED``, and ``retry_after_s`` on every
 retryable error.
 
 Use the constants (``codes.VOICE_NOT_MEASURED``) or look a code up in ``ERRORS`` / ``FLAGS``; never type a
