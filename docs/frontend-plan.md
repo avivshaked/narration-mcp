@@ -322,7 +322,7 @@ following is required, and each is a place a bug would expose the caller's text 
 
 §17.1 says of a socket, "if ever needed: 127.0.0.1, an `Origin` check, a bearer token, off by default". This
 option follows that, but it is still a **design change**: §0 item 11 and §17.1 say no process listens on a
-socket. It needs a DC in plan.md §1.5 and the owner's approval.
+socket. It needs a DC in `docs/design-log.md` and the owner's approval.
 
 ### 6.2 Freshness
 

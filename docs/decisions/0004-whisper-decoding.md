@@ -1,6 +1,6 @@
 # ADR 0004: Whisper decodes as the evidence did: five beams, not conditioned on the previous window
 
-- Status: **accepted: option C** (the lead, 2026-09-27, as a gap-fill the owner may overrule; plan.md §1.5
+- Status: **accepted: option C** (the lead, 2026-09-27, as a gap-fill the owner may overrule; `docs/design-log.md`
   DC-14), on the evidence of [`decoding.json`](../../spikes/acceptance-wp22/decoding.json). The lead edits
   design §11.1 step 2 when WP22 merges. Proposed by WP22 on 2026-09-26. The pin is one constant,
   `narration_worker_qa.asr.DECODING`.

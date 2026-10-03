@@ -9,6 +9,11 @@ schemas and configuration keys may change between releases, and every such chang
 
 ## [Unreleased]
 
+### Changed
+
+- The design's revision history and its table of design changes now live in `docs/design-log.md`; `docs/design.md`
+  states the design as it is.
+
 ## [0.1.0a1] - 2026-09-29
 
 The first tagged release: an alpha for testers. Everything below, since the project began, is in it.

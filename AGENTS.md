@@ -6,7 +6,7 @@ Base. Every take comes back QA'd and cue-aligned.
 
 - **Spec (source of truth):** [docs/design.md](docs/design.md), revision 5.18. It is cited as "§n".
   Read the sections your work package cites **in full** before you write code. Changes proposed since
-  are in plan.md §1.5. Build to a proposed change only once it is marked approved there.
+  are in `docs/design-log.md`. Build to a proposed change only once it is marked approved there.
 - **This machine's facts** (paths, cached models, the GPU) are in `AGENTS.local.md`. It is gitignored,
   and the lead copies it into your worktree. If it is missing, ask the lead; don't guess paths.
 - **Plan and status:** [plan.md](plan.md) has the work packages (WPs), dependencies and status.
