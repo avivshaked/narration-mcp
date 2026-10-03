@@ -231,7 +231,7 @@ only once it is `approved` there. Rows are named DC-n (DC-1 and so on) throughou
   CONTRIBUTING.md  SECURITY.md  CODE_OF_CONDUCT.md  CHANGELOG.md
   narration.example.toml                  shipped config: no personal values (§1.4)
   .github\                                workflows (WP03), issue + PR templates (WP02)
-  docsdesign.md, design-log.md           the design (source of truth); its revision history, DC-n table, owner decisions
+  docs\design.md, design-log.md           the design (source of truth); its revision history, DC-n table, owner decisions
   pyproject.toml  uv.lock                 server project "narration" (lead-owned, P7)
   src\narration\                          server package (see §3 for who owns what)
   workers\common\                         narration_worker: protocol, framing, determinism, fingerprint
