@@ -1,19 +1,20 @@
 # Narration MCP: implementation plan
 
-*Plan revision 3, 2026-09-27. Status: **Waves 0 and 1 merged; Wave 2 under way; first narration (M1, §6) is the priority.***
+*Status: Waves 0 and 1 and most of Wave 2 are built and merged. The alignment benchmark (WP38) and the
+length ladders (WP39) are still to do. First narration through the MCP (M1, §6) is reached. Wave 3 has its
+acceptance work (WP40–WP42) ahead, and release readiness (WP44) is under way. Details are in §4.*
 
-**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.15**. It is the
-bake-off's design copied into this repository, and differs only in two example paths and a header note.
-This plan cites it as "§n". Changes to it are proposed and approved in §1.5, and approved changes enter
-it as revision 5.2. Where this plan and the design disagree, the design wins, and the plan gets fixed.
+**Source of truth.** The design is [docs/design.md](docs/design.md), **revision 5.18**. This plan cites it
+as "§n". Changes to it are proposed and approved in [docs/design-log.md](docs/design-log.md). Where
+this plan and the design disagree, the design wins, and the plan gets fixed.
 
-**No local paths in tracked files** (owner, 2026-09-26). This machine's paths and facts live in the
-gitignored `AGENTS.local.md`. Tracked files say `<repo>` for the main checkout.
+**No local paths in tracked files** (owner decision, 2026-09-26). This machine's paths and facts live in
+the gitignored `AGENTS.local.md`. Tracked files say `<repo>` for the main checkout.
 
-**Status is kept in this file**, in the work-package table (§4), and only by the lead, on `main`. Agents
-report in `status/<WP>.md` on their own branch, and the lead rolls those up when merging (§2.4).
-[HANDOFF.md](HANDOFF.md) says where things stand right now. [AGENTS.md](AGENTS.md) holds the rules every
-agent follows.
+**Status is kept in this file**, in the work-package table (§4), and only by the lead, on `main`. A
+work-package agent reports in `status/<WP>.md` on its own branch while the package is open, and the lead
+rolls the result up into §4 when merging (§2.4). [HANDOFF.md](HANDOFF.md) says where things stand right
+now. [AGENTS.md](AGENTS.md) holds the rules every agent follows.
 
 Status values: `todo` · `ready` (dependencies met) · `active` · `review` (branch done, awaiting merge) ·
 `done` (merged to `main`) · `blocked:<gate or WP>` · `dropped`.
@@ -90,19 +91,20 @@ the project.
 
 ### 1.3 Where the installed code and the design disagree
 
-The survey read the installed `qwen-tts` 0.1.1 source and found two things the design states
-differently, and the licence decision surfaced a third. None blocks the start. Items 1 and 2 are
-settled by WP20 and WP14 with evidence and an ADR. Item 3 was decided by the owner (Q7).
+The installed `qwen-tts` 0.1.1 source differs from the design in two places, and the licence decision
+adds a third. Items 1 and 2 are settled by WP20 and WP14 with evidence and an ADR. Item 3 is the owner's
+decision (Q7).
 
 1. **The effective `max_new_tokens` is 8192, not 2048.** `from_pretrained` loads the snapshot's
    `generation_config.json` (the design says `generate_config.json`), which sets `max_new_tokens: 8192`
    (and do_sample true, temperature 0.9, top_k 50, top_p 1.0, repetition penalty 1.05, the same for
    `subtalker_*`). 2048 is only the hard-coded fallback. All clone evidence therefore ran with a cap of
-   8192 tokens, which is about 680 s of audio at 12 Hz. So `TOKEN_CAP_HIT` will practically never fire,
-   while a runaway render could take about 40 minutes of GPU before stopping. **Recommendation:** pin
-   the effective values explicitly, as §10.1 requires, with 8192 so the evidence stays valid, and raise
-   with the owner whether a cap derived from text length is wanted. That would be a design change, and it
-   enters the engine profile. The planted token-cap fault in WP40 needs a test-only low cap either way.
+   8192 tokens, which is about 680 s of audio at 12 Hz. A fixed cap of 8192 would
+   leave `TOKEN_CAP_HIT` practically never firing, and a runaway render could take about 40 minutes of
+   GPU before stopping. **Decision (DC-4):** `load` pins the effective values explicitly, as §10.1
+   requires, with 8192 as the ceiling so the evidence stays valid, and every call passes its own cap
+   derived from the text length. The rule enters the engine profile. The planted token-cap fault in WP40
+   needs a test-only low cap.
 2. **The spelling map.** §11.3 says Whisper's normaliser "treats spelling variants alike". That holds
    only when it is built with the `normalizer.json` British → American map, as `evaluate.py` does.
    `normaliser_check.py` built it with `{}`, so the map was never tested. **Decision (P2):** vendor the
@@ -113,7 +115,7 @@ settled by WP20 and WP14 with evidence and an ADR. Item 3 was decided by the own
    §4 QA worker). Importing a GPL library into PolyForm-licensed code makes a combined work that the GPL
    requires to be GPL-compatible, which PolyForm Noncommercial is not. That is the FSF's reading of
    Python imports; it is contested, but a project that sells commercial licences cannot rely on the
-   other reading. **Decided (Q7): replace it**, as design change DC-1 (§1.5).
+   other reading. **Decided (Q7): replace it**, as design change DC-1 (`docs/design-log.md`).
 
 Also noted, for WP20 and WP14: `generate_voice_clone` decodes the reference codes and the new codes
 together, then cuts the reference part off **proportionally** (`cut = ref_len / total_len × samples`).
@@ -135,7 +137,7 @@ project. The design was written for one owner on one Windows machine. The follow
     (`LICENSE`). The body is verbatim from the evolution simulator's file; only the preamble is adapted.
   - Prose: **CC BY-NC 4.0** (`LICENSE-DOCS`).
   - `COMMERCIAL.md` says what counts as commercial and how to ask. It is adapted from the evolution
-    simulator's, and **the owner reviews it before the first push**.
+    simulator's.
   - This makes the project **source-available and non-commercial, not open source** in the OSI sense.
     Everything below still applies.
   - Consequences:
@@ -185,8 +187,8 @@ project. The design was written for one owner on one Windows machine. The follow
 | Q4 | Merge flow | Pull requests with CI, merged by the lead (§2.4) |
 | Q5 | What is public | **No local paths.** Read as yes to the rest: the design is in `docs/design.md`; the plan files, the service's own text material, fixtures and spike results (text) are committed. Audio, weights and databases never |
 | Q6 | Models on this machine | Copy the cached snapshots into `<repo>\.dev\models\`, and download the missing two there |
-| Q7 | parselmouth (GPL) | Replace it: DC-1 (§1.5) |
-| Q8 | GPU etiquette | Bounded runs when free VRAM allows; long runs with the owner's OK. **And** the MCP surface must tell a consumer how to back off: DC-2 (§1.5) |
+| Q7 | parselmouth (GPL) | Replace it: DC-1 (`docs/design-log.md`) |
+| Q8 | GPU etiquette | Bounded runs when free VRAM allows; long runs with the owner's OK. **And** the MCP surface must tell a consumer how to back off: DC-2 (`docs/design-log.md`) |
 | Q9 | Human gates | The owner will listen and mark. Marking may use DaVinci Resolve through its MCP, set up by an agent, with a caveat on frame precision (WP38). Decided later |
 
 **The cheap preparation for other platforms (Q2).** It costs little now and saves a rewrite later:
@@ -199,7 +201,7 @@ project. The design was written for one owner on one Windows machine. The follow
 
 Not now: the POSIX singleton, detachment and kill-on-close; GPU tests on Linux; macOS (no CUDA).
 
-**Other adaptations for a public project.** Items 1 and 2 are design changes, in §1.5.
+**Other adaptations for a public project.** Items 1 and 2 are design changes, in `docs/design-log.md`.
 1. **The canary is designed at install time, not shipped as audio**: DC-3.
 2. **Backoff information for consumers**: DC-2.
 3. **The alignment benchmark's audio and hand marks.** The measured error that gets published comes from
@@ -211,32 +213,9 @@ Not now: the POSIX singleton, detachment and kill-on-close; GPU tests on Linux; 
 
 ### 1.5 Design changes
 
-A change to `docs/design.md` is proposed here first. Once the owner approves it, the lead applies it to
-the design as revision 5.2 (with a revision-history line) before, or together with, the WP that builds
-it. Status: `proposed` · `approved` · `applied` (in the design) · `rejected`.
-
-| # | Change | Design sections | Status | Built in |
-|---|---|---|---|---|
-| DC-1 | **No GPL in the voice profile.** f0 comes from `librosa.pyin` (ISC). HNR uses Boersma's (1993) autocorrelation method, the one Praat implements. **CPPS** (smoothed cepstral peak prominence, Hillenbrand 1994) replaces jitter and shimmer: those are defined on sustained vowels and are noisy on running narration, while CPPS holds up on connected speech. Each measure is documented as what it is, not as Praat's. Validation uses synthetic signals with known values (pulse trains at a known f0, noise at a known SNR). No GPL code anywhere in the repo, tests included. Note: librosa depends on `soxr` (LGPL-2.1+), which is acceptable as a separately installed, replaceable package; it goes in the licence audit. | §3.6, §4 (QA worker), §18 | **applied** (rev 5.2) | WP22, WP34 |
-| DC-2 | **A backoff contract** (Q8). Retries are already safe (content-hash ids, `idempotency_key`, identical request = same job); this tells a consumer *when* to come back. (1) The Error fragment gains an optional **`retry_after_s`**, set on every retryable error: the server's minimum wait, like HTTP `Retry-After`. `details` carries the facts behind it, e.g. `GPU_UNAVAILABLE {free_mb, need_mb, waited_s}`. (2) `LIMIT_EXCEEDED` stays for request-size limits (not retryable), and two retryable codes are added: **`QUEUE_FULL`** (`retry_after_s` from the queue's drain estimate) and **`RATE_LIMITED`** (`retry_after_s` until the submit window frees). (3) `submit_job` and `get_job` return **`poll_after_s`**, the earliest poll worth making, longer while `waiting_for_gpu`, beside the existing `eta_s`, `queue_position` and `phase`. (4) `get_server_status` gains **`admission`**: {accepting, queue {length, max, est_drain_s}, rate {remaining, resets_in_s}, gpu {in_use, holder, free_mb, need_mb by group, waiting_since}}, so a consumer can decide before submitting. (5) Tool descriptions state the rule: wait at least `retry_after_s`, add your own jitter, then resend the identical request, which is deduplicated. The service suggests; the consumer decides. | §7.2 (Error), §7.3, §7.4, §7.6, §14 | **applied** (rev 5.2) | WP01, WP31, WP36 |
-| DC-3 | **The canary is designed on the installing machine**, not shipped as audio. §10.1 ships a canary clip, but the design promises nothing across a GPU, driver or CUDA change, so a shipped raw hash would not match on anyone else's machine, and shipping audio breaks P6. `narration-admin engine pin` designs the canary from a fixed description, text and seed (shipped as text) and stores its hash and embedding per engine profile. It still checks what §10.1 says: this engine, on this machine, over time. | §10.1, §15, §6 (EngineProfile) | **applied** (rev 5.2) | WP32, WP37 |
-| DC-4 | **The effective `max_new_tokens`** (§1.3 item 1). `load` pins 8192, the value all the evidence used, as the ceiling, and every `synthesize` and `design` call passes its own cap, `min(8192, max(128, ceil(2.5 × len(text))))`, computed by the daemon from the text the call speaks; the factor and floor are `[engines.*]` keys hashed into the engine profile. WP20 measured that the cap only truncates, so no render that ends under its cap changes, and speech ran 0.70–0.82 frames per character (ADR 0003). A runaway then costs about a minute of GPU instead of about 22, and `TOKEN_CAP_HIT` can fire. The owner chose this over keeping 8192 or a fixed 2048 (2026-09-26). | §6, §10.1, §11.1, §16, App. A | **applied** (rev 5.5) | WP16 (fake), WP20, WP31, WP32 |
-| DC-5 | **A flag code for the NaN/DC signal check.** §11.1 step 1 requires the check, but §14 has no code for it. `SIGNAL_INVALID`: fail for non-finite samples (retake at fail, as a fresh seed may cure it), warn for a DC offset. A lead gap-fill from WP14's review; it changes no stated behaviour. The owner approved it. | §11.1, §14 | **applied** (rev 5.3) | WP14 |
-| DC-6 | **`idempotency_key` reused for a different request is refused.** The design says the key deduplicates retries, and a retry is the same request, but it leaves the other case open. Returning the old job would tell the caller that a different request had been queued. So an active job of the same kind with the same key and a different `request_sha256` is `INVALID_ARGUMENT` on `idempotency_key`. A lead gap-fill from WP12's review. The owner approved it. | §7.3, §6 (Job) | **applied** (rev 5.3) | WP12, WP36 |
-| DC-7 | **The number reader, version 2** (`whisper-english-normalizer+nought@2`). The WP14 review found two ways the vendored reader fails a perfect take. (1) Whisper's normaliser strips commas before it reads number words, so "two thousand, forty" becomes 2040 in the transcript while the span "forty" reads 40. (2) It handles only the straight apostrophe, so a possessive written with ’ and the same word written with ' differ. Version 2 reads each side in phrases split at punctuation, and folds ’ ‘ ʼ to '. The version is in the analysis key, so no cached verdict of version 1 is reused. Proposed by the lead; the owner approved it. | §11.3, App. B | **applied** (rev 5.3) | WP14 |
-| DC-8 | **The default loudness target is −23 LUFS**, not −16 (first −20 in rev 5.3, then −23 in rev 5.4). WP13 measured the bake-off's 48 real clone paragraphs: with the −1.0 dBTP ceiling and no limiter, every take stayed under −16 (−21.3 / −18.8 / −16.7 LUFS, min / median / max; peak-to-loudness ratio 15.7–20.3 dB), so takes of one script differed by up to 4.6 LU. At −20, 40 of the 48 reach the target exactly, the waveform is never altered, and a caller adds gain in its mix. `target_lufs` stays configurable. The owner chose this over keeping −16 or adding a limiter (2026-09-26); after the WP13 review measured that −22 is reached by all 48 and −20 by only 40, the owner moved it to −23, EBU R128's pair with −1 dBTP. | §13, §16, Q3 | **applied** (rev 5.3, 5.4) | WP13 |
-| DC-9 | **Less silence than `pad_s` is kept as found.** 23 of 48 real takes had less than 0.08 s of silence at the tail (one had none), and 5 at the head. The delivery keeps what exists and adds no digital silence, so the length is raw − max(head − pad, 0) − max(tail − pad, 0), and `head_s`/`tail_s` report the silence found. §13's formula assumed at least `pad_s`. Proposed by the lead (WP13); the owner approved it. With it, two clarifications: the delivery key names the post-processing rules' version (`narration.post/1`), and a take with no measurable loudness reports null. | §13, §10.2, App. B | **applied** (rev 5.3) | WP13 |
-| DC-10 | **A trim rule that a DC offset or a near-silent take cannot defeat.** The WP13 review showed two synthetic failures of §13's rule: a DC offset of 0.001 made every frame speech (nothing trimmed, and a 3 s internal gap read as 0 s, hiding `SILENCE_LONG`), and a take under 5 % speech (a near-silent hung tail) was never trimmed. The trim now measures frame RMS with the take's mean removed (for measurement only) and floors the speech threshold at −70 dBFS (`trim_floor_dbfs`). QA's DC-offset warning drops from 0.02 to 0.001. Real output had |DC| ≤ 0.00002, so normal takes are unchanged. The owner approved it (2026-09-26). | §11.1, §13, §16 | **applied** (rev 5.4) | WP13, WP14 |
-| DC-11 | **A wildcard for a token the aligner cannot spell.** §11.2 step 1 says the words around a left-out token (a number in digits) "still align". WP15 measured otherwise on real takes: in all six bake-off takes a paragraph that ends in two numbers written in digits puts the next cue 1.3–3.4 s early, and three of the six raise no flag. Spike (b) put a wildcard token in the gap on that paragraph, and the worst word error fell from 89 frames to 9. Proposed: such a token becomes the aligner's wildcard instead of being left out. Approved by the lead as a gap-fill (the owner may overrule), on condition that WP15 measures it fixes that boundary on all six takes and moves no other; the design text is applied when WP15 merges with that evidence. | §11.2 | **applied** (rev 5.9); met: its two conditions held on the evidence (`status/WP15.md`) | WP15 |
-| DC-12 | **A cue no retake can place is not a retake trigger.** A cue whose text has no word the aligner can place gets `CUE_UNALIGNED`, a retake trigger, and fails the same way on every retake. It now carries `details.reason` = `no_alignable_words` and does not trigger a retake; it stays in listen-first. A lead gap-fill from WP15 (the owner may overrule); `codes.is_retake_trigger` takes the flag's details. | §11.1, §11.2 | **applied** (rev 5.5) | WP15, WP31 |
-| DC-13 | **The service's own default design text.** The §16 default `design_text`, which is also the canary's design text (DC-3), was the bake-off's reference text. The bake-off's texts are private (AGENTS.md §1 rule 1), and this is a public project, so the service now ships a text written for it: "Good bread asks for patience: the dough is mixed, folded and left to rise through the morning. When the loaves come out golden and crisp, a gentle warmth fills the whole kitchen." It has two sentences and 32 words, and no digits or names. A clip designed earlier keeps the transcript `design_voice` returned for it. The owner decided (2026-09-26). | §3.1, §7.3 (example), §16, App. A, App. B | **applied** (rev 5.8) | WP18 |
-| DC-14 | **Whisper decodes with five beams, not conditioned on the previous window.** §11.1 step 2 says greedy decoding conditioned on the previous text. WP22 measured that it loops on 2 of the 6 bake-off takes (WER 0.40); five beams without conditioning reproduce the bake-off's WER exactly on all six (ADR 0004, `spikes/acceptance-wp22/decoding.json`). A lead gap-fill (the owner may overrule), since the design's own acceptance is to match the bake-off. | §11.1 | **applied** (rev 5.13; approved by the lead, 2026-09-27) | WP22 |
-| DC-15 | **A long clip is embedded in windows.** WavLM's memory grows with the square of the length (0.6 GB at 30 s, 8.4 GB at 119 s; WP22, spike h), and a segment longer than the voice's limit is rendered and warned about, never refused. Audio longer than **60 s** is embedded as equal windows of at most 60 s; the embedding is the mean of the L2-normalised window embeddings, normalised again. Audio of 60 s or less is embedded in one pass, as before. First approved at 30 s; WP22 then measured that 30 s windows move three of the bake-off's voicelock rows (clips of 30.6–37.0 s) out of tolerance, while 60 s windows reproduce all 52 rows, and their peak (2.2 GB above the models) stays under transcription's. A lead gap-fill (the owner may overrule). | §11.1, §4 (QA worker) | **applied** (rev 5.13; approved by the lead, 2026-09-27, and amended to 60 s the same day) | WP22 |
-| DC-16 | **`vram_need_mb` is recorded in the engine profile but not hashed.** §6 lists it among the profile's fields, so it entered the profile hash, which names every render, take and measurement. It changes no audio: it only tells the scheduler how much free memory to wait for. Hashing it would make a refined memory estimate invalidate every cached take and every voice measurement (20–50 GPU minutes each). It joins the canary and `snapshot_dir` among the fields that are kept but not hashed. Decided before anything is pinned. A lead gap-fill (the owner may overrule). | §6 (EngineProfile), §10.1 | **applied** (rev 5.14; the owner approved, 2026-09-27) | WP32 |
-| DC-17 | **`narration-admin voices allow <clip.wav>` and `voices list`.** The owner asked (2026-09-27) for a command that adds a clip designed elsewhere to `[voices] allow_sha256`, instead of hashing it and editing `narration.toml` by hand. It records the owner's own configuration of the machine and approves no caller's work, so §7.1's "none of them approves anything" still holds. **Operator-only, never an MCP tool:** the allowlist is the synthetic-voices gate (§17.4), and a tool would let any caller allowlist a recording of a real person. | §7.1 (operator CLI), §16, §17.4, §17 item 10 | **applied** (rev 5.15; the owner approved, 2026-09-27) | WP45 |
-| DC-18 | **Pace is judged in spoken characters per second of speaking time**, with pauses of 0.25 s or more left out (decision D2). The words-per-minute curve followed the corpus's word lengths, and a span that includes the pauses between sentences makes a one-sentence segment look fast. The measured pace model (trend, curve, `tol`) and QA's pace check both use the one rate function; the measurement key gains a pace-method version, so a voice measured before is measured again from its cached renders. Wording proposed in `status/WP47.md`. | §3.2, §11.1, §16 | **approved** (owner, 2026-09-27); applied (design 5.16, PR #47; code PR #44) | WP47 |
-| DC-19 | **`PACE_FAST` warns only; it never fails and never triggers a retake** (QA profile `default.v4`). In the first real narration session, 24 takes failed `PACE_FAST` alone, with WER 0 and high speaker similarity, and the owner listened and found none too fast. §11.1's pace row loses its fail column (`PACE_SLOW` already had none), §14's `PACE_FAST` row becomes warn only, and §16's `[qa] profile` example becomes `default.v4`. | §11.1, §14, §16, App. B | **applied** (rev 5.15; the owner approved, 2026-09-27) | PR #42 (WP47 hotfix) |
-| DC-20 | **Pace is judged against the voice's flat level; no trend slope is extended or extrapolated.** In characters per second of speaking time (DC-18) a voice's rate is flat, so a slope fitted to four band rungs is noise (±0.3 per 100 characters at 3% per-rung spread). Extending it wrongly stopped the ladder or let rushing pass, and extrapolating it skewed QA at both ends of the length range (PR #44's rate-model review, reproduced with the branch's own functions). Every rung is judged against the band level (the median of the band rungs' medians) × (1 + tol); QA's expected rate follows the measured curve inside its range and holds its end values flat outside it. A lead gap-fill (the owner may overrule). | §3.2, §11.1 step 9 | **approved** (lead, 2026-09-28); applied (design 5.16, PR #47; code PR #44) | WP47 |
+Changes to the design are proposed, approved and applied in [docs/design-log.md](docs/design-log.md),
+which also holds the design's revision history and the owner's recorded decisions. Build to a change
+only once it is `approved` there. Rows are named DC-n (DC-1 and so on) throughout this plan and the design.
 
 ---
 
@@ -252,7 +231,7 @@ it. Status: `proposed` · `approved` · `applied` (in the design) · `rejected`.
   CONTRIBUTING.md  SECURITY.md  CODE_OF_CONDUCT.md  CHANGELOG.md
   narration.example.toml                  shipped config: no personal values (§1.4)
   .github\                                workflows (WP03), issue + PR templates (WP02)
-  docs\design.md                          the design (source of truth; §1.5 for changes)
+  docsdesign.md, design-log.md           the design (source of truth); its revision history, DC-n table, owner decisions
   pyproject.toml  uv.lock                 server project "narration" (lead-owned, P7)
   src\narration\                          server package (see §3 for who owns what)
   workers\common\                         narration_worker: protocol, framing, determinism, fingerprint
@@ -341,8 +320,7 @@ lane says whether it needs the GPU lock at all.
   downloaded there (Q6).
 
 *Owns:* the root, `tools\`. *Accept:* `uv sync` works; `pytest` runs (empty); the check passes on the
-tree and fails on a planted local path and a planted `.wav`; the first push, once the owner has
-reviewed `COMMERCIAL.md`.
+tree and fails on a planted local path and a planted `.wav`.
 
 **WP01 Contracts v1.** One module per contract, frozen at the end of Wave 0. They include DC-2 (backoff,
 approved), and WP01 applies DC-1 to DC-3 to `docs/design.md` as revision 5.2.
@@ -367,12 +345,12 @@ contract changes only through a contract-change request** in a status file, and 
 `wp/01-contracts-<n>` branch.
 
 **WP02 Public project scaffolding.** The rest of §1.4's "project hygiene" list. `LICENSE`,
-`LICENSE-DOCS`, `COMMERCIAL.md`, `THIRD_PARTY_NOTICES`, a first `README.md` and `docs/design.md` already
-exist (written 2026-09-26, before the first push, at the owner's request). Still to write:
+`LICENSE-DOCS`, `COMMERCIAL.md`, `THIRD_PARTY_NOTICES`, `README.md` and `docs/design.md` are in the
+repository. The package also provides:
 - `CONTRIBUTING.md`: the contribution grant as in the evolution simulator, setup with uv, the test tiers
   and markers, how to run GPU tests, Conventional Commits, the dependency-licence rule;
 - `CODE_OF_CONDUCT.md` (Contributor Covenant);
-- `SECURITY.md`: the §17 threat model, and a reporting route the owner chooses;
+- `SECURITY.md`: the §17 threat model, and a reporting route (GitHub's private vulnerability reporting);
 - `CHANGELOG.md`;
 - issue and PR templates, including a "Commercial licence" issue template;
 - `narration.example.toml`, with no personal values.
@@ -640,12 +618,12 @@ ready, a spike harness built on the bakeoff's `eval/` code is the fallback.
 | WP41 | **Phase 4.** A Claude Code session designs, measures and narrates the demo script with `takes: 2`; the client quits mid-job and the job completes; a resubmission after one edit renders one segment and returns the rest with the same take ids; two sessions share one queue; a recording that is not allowlisted is refused. | WP40, **H4** |
 | WP42 | **Phase 5.** Flows A–F end to end (§8), including a "weeks later" batch with `expect_engine_profile` and the canary gate. | WP41 |
 | WP43 | Docs: README (install, configuration, the `.mcp.json`), an operator guide, the tool reference generated from the schemas. | WP36, WP37 |
-| WP44 | **Release readiness** (no release is made without the owner): a clean-machine install test from a fresh clone following only the README; `narration-admin doctor` on a machine with no GPU says so clearly; a licence audit of every dependency and model; `SECURITY.md` reviewed against the final code; a security review of the path, confinement and synthetic-voice checks; the version set and the CHANGELOG written; the GitHub description brought up to date with revision 5 (the current one still mentions "locked" voices). | WP41–WP43 |
+| WP44 | **Release readiness** (no release is made without the owner): a clean-machine install test from a fresh clone following only the README; `narration-admin doctor` on a machine with no GPU says so clearly; a licence audit of every dependency and model; `SECURITY.md` reviewed against the final code; a security review of the path, confinement and synthetic-voice checks; the version set and the CHANGELOG written; the GitHub description kept in line with the design's current revision. | WP41–WP43 |
 | WP45 | **`narration-admin voices allow <clip.wav>` and `voices list`** (DC-17; the owner asked, 2026-09-27). `allow` reads the clip through the platform's path check (§17.3), refuses a file that is not a readable WAV, prints its path, length and sha256, and asks the operator to confirm that the clip is synthetic, not a recording of a real person (`--yes` for scripts). It then adds the hash to `[voices] allow_sha256` in the configuration file the CLI found (`narration.config.find_config`), with a comment naming the file. Every other line and comment is kept, and the file is written to a temporary name and renamed. A hash already listed changes nothing. It ends by saying what to restart so the new hash is read. `list` prints the allowlist. Never an MCP tool. A comment-keeping TOML edit is a careful text edit, or `tomlkit` (MIT) with the lead's OK. *Accept:* the configuration file still loads, with the hash in it; a clip on the list is accepted by `measure_voice` after a restart; an unconfirmed run changes nothing. It can be built any time after M1. | WP37 |
-| WP46 | **A frontend for the service: plan first, later** (the owner asked, 2026-09-27: "plan a frontend for this service when you're done with the other work"). A view of what the service is doing: jobs and their progress, each segment's takes with verdicts, flags and a player, the measured voices, the allowlist, the engine pins, and the daemon's and GPU's state. **Step 1 is a plan for the owner's approval**, written after the other packages. It weighs a read-only local dashboard served on 127.0.0.1 against a static HTML report written by `narration-admin`. **Constraints:**<br>- read-only: it shows what the store holds and approves nothing (§0.2, §7.1);<br>- local only: nothing leaves the machine, and no port is reachable from other machines;<br>- every dependency licence-checked;<br>- it never competes with a running job for the GPU.<br>Nothing is built until the owner approves the plan. | the other packages |
-| WP47 | **Pace in spoken characters per second** (decision D2; the owner decided, 2026-09-27). The voice's measured pace model (trend, curve, `tol`) and QA's `PACE_FAST`/`PACE_SLOW` move from spoken words per minute to spoken characters per second of speaking time, with the pauses between words and sentences left out. `PACE_FAST` warns only and never fails or triggers a retake (the owner's decision, 2026-09-27; shipped first as a hotfix on `wp/47-pace-warn`, QA profile `default.v4`). Every other use of the pace model follows: estimates, fit reports, admin output, tool texts. The measurement key and the QA profile version change, so a voice measured before is measured again, reusing every cached render; no render key, seed or engine pin changes. *Why (KNOW, the first real voice and the owner's first job):* the voice's ladder takes speak at 15.4–17.2 characters a second at every length, while their words per minute (150–208) follow the corpus's word lengths. So short segments with ordinary words failed `PACE_FAST` on every attempt, with WER 0 and full speaker similarity, and wasted their retakes. *Accept:* a voice with a flat character rate and word-length-driven wpm passes short segments; a take 25% faster in characters per second warns (it never fails: DC-19); an old wpm measurement is never read as characters per second; the render keys and seeds are unchanged; the design text (DC-18) is proposed for §3.2, §11.1 and §16. | WP33, WP22 |
-| WP48 | **An audit of failed takes** (the owner asked, 2026-09-27: "when something fails and we do a retake, I want the failures collected, with the reason, so I can audit the failures"). **What exists (KNOW, code):** every attempt is kept in the store with its analysis, replaced and failed ones included. `get_results` lists them in `takes[]`, but only per job, and `narration-admin gc --apply` removes them after `[retention] retention_days`. **What to add:**<br>- `narration-admin failures [--since] [--job] [--voice] [--code] [--json]`: one list across jobs of every failed or replaced take. For each: the job, segment and attempt; the seed; each flag's code, severity and message; the key metrics (WER, similarity, pace); the WAV's path; and the take that replaced it;<br>- `--export <dir>`: copies each failed WAV with a JSON sidecar of its reasons, plus a CSV index;<br>- a "failures" section in the job report resource;<br>- the same view in WP46's frontend;<br>- retention: `gc` lists failed takes separately, so an audit can finish before they are removed.<br>**Constraints:** a read-only view over what the store already caches, with no new record of a caller's work (§0.2); local only; operator-facing, never an MCP tool that writes. *Accept:* a job with planted QA failures (the fake worker) is listed with every replaced attempt, its flags and a playable path; the export writes each WAV with its sidecar; the store is unchanged. | WP37, WP36 |
-| WP49 | **Small follow-ups (2026-09-28).** `narration-admin doctor` warns when `[qa] profile` differs from the code's QA profile (the key is inert; never a refusal); the daemon logs one line when a job ends (no caller text); `delivery_key` pinned by value in the keys test; PR #37's low follow-ups (the admin refusal wording, `[daemon] autostart = false` named as a route, the survival tests' branch visible in CI logs, the spawn docstring). | WP37, WP31, WP30 |
+| WP46 | **A frontend for the service: plan first, later** (the owner asked on 2026-09-27 for a plan for a frontend to the service, to be written when the other work is done). A view of what the service is doing: jobs and their progress, each segment's takes with verdicts, flags and a player, the measured voices, the allowlist, the engine pins, and the daemon's and GPU's state. **Step 1 is a plan for the owner's approval**, written after the other packages. It weighs a read-only local dashboard served on 127.0.0.1 against a static HTML report written by `narration-admin`. **Constraints:**<br>- read-only: it shows what the store holds and approves nothing (§0.2, §7.1);<br>- local only: nothing leaves the machine, and no port is reachable from other machines;<br>- every dependency licence-checked;<br>- it never competes with a running job for the GPU.<br>Nothing is built until the owner approves the plan. | the other packages |
+| WP47 | **Pace in spoken characters per second** (decision D2; the owner decided, 2026-09-27). The voice's measured pace model (trend, curve, `tol`) and QA's `PACE_FAST`/`PACE_SLOW` move from spoken words per minute to spoken characters per second of speaking time, with the pauses between words and sentences left out. `PACE_FAST` warns only and never fails or triggers a retake (DC-19; the owner's decision, 2026-09-27). Every other use of the pace model follows: estimates, fit reports, admin output, tool texts. The measurement key and the QA profile version change, so a voice measured before is measured again, reusing every cached render; no render key, seed or engine pin changes. *Why (KNOW, the first real voice and the owner's first job):* the voice's ladder takes speak at 15.4–17.2 characters a second at every length, while their words per minute (150–208) follow the corpus's word lengths. So short segments with ordinary words failed `PACE_FAST` on every attempt, with WER 0 and full speaker similarity, and wasted their retakes. *Accept:* a voice with a flat character rate and word-length-driven wpm passes short segments; a take 25% faster in characters per second warns (it never fails: DC-19); an old wpm measurement is never read as characters per second; the render keys and seeds are unchanged; the design text is DC-18 in §3.2, §11.1 and §16. | WP33, WP22 |
+| WP48 | **An audit of failed takes** (the owner asked on 2026-09-27 for the failures that lead to a retake to be collected with their reasons, so that the owner can audit them). **What exists (KNOW, code):** every attempt is kept in the store with its analysis, replaced and failed ones included. `get_results` lists them in `takes[]`, but only per job, and `narration-admin gc --apply` removes them after `[retention] retention_days`. **What to add:**<br>- `narration-admin failures [--since] [--job] [--voice] [--code] [--json]`: one list across jobs of every failed or replaced take. For each: the job, segment and attempt; the seed; each flag's code, severity and message; the key metrics (WER, similarity, pace); the WAV's path; and the take that replaced it;<br>- `--export <dir>`: copies each failed WAV with a JSON sidecar of its reasons, plus a CSV index;<br>- a "failures" section in the job report resource;<br>- the same view in WP46's frontend;<br>- retention: `gc` lists failed takes separately, so an audit can finish before they are removed.<br>**Constraints:** a read-only view over what the store already caches, with no new record of a caller's work (§0.2); local only; operator-facing, never an MCP tool that writes. *Accept:* a job with planted QA failures (the fake worker) is listed with every replaced attempt, its flags and a playable path; the export writes each WAV with its sidecar; the store is unchanged. | WP37, WP36 |
+| WP49 | **Small follow-ups.** `narration-admin doctor` warns when `[qa] profile` differs from the code's QA profile (the key is inert; never a refusal); the daemon logs one line when a job ends (no caller text); `delivery_key` pinned by value in the keys test; PR #37's low follow-ups (the admin refusal wording, `[daemon] autostart = false` named as a route, the survival tests' branch visible in CI logs, the spawn docstring). | WP37, WP31, WP30 |
 
 Phase 6 (stitching, fit remedies, the written-text normaliser, the Tasks extension, a stronger SV model,
 a listening model) is out of scope for this plan.
@@ -658,43 +636,43 @@ Updated by the lead on `main` only.
 
 | WP | Title | Wave | Depends | GPU | Status | Branch / worktree | Notes |
 |---|---|---|---|---|---|---|---|
-| WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | 2026-09-26; dev models in `.dev\models` |
-| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | 2026-09-26; contracts 1.1–1.6.2 (PRs #7–#9, #11, #12, #14, #17; 1.6.2 with WP15) since |
-| WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | 2026-09-26; owner to confirm the vulnerability-reporting route |
-| WP03 | CI | 0 | WP00 | – | `done` | PR #1 | 2026-09-26; green on Windows + Linux; red shown locally |
-| WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | 2026-09-26; checks run on the engine text (lead ruling) |
-| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PRs #13, #23 | 2026-09-26; follow-ups merged after review and re-verification: gc, publishes, readers, path confinement; three informational notes in HANDOFF.md |
-| WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | 2026-09-26; reviewed three times; −23 LUFS on all 48 real paragraphs |
-| WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | 2026-09-26; reviewed three times; known limits in `status/WP14.md` |
-| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | 2026-09-26; reviewed, fixed, re-verified; DC-11 and DC-12; design 5.9; contracts 1.6.2; low follow-ups for WP22 and WP38 |
-| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19, #24 | 2026-09-27; second follow-ups merged (PR #24): one Qwen settings parser, one WAV writer, contracts 1.6.3, design 5.10; Low follow-ups in HANDOFF.md |
-| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 | 2026-09-26; reviewed twice |
-| WP18 | Service material | 1 | WP01 | – | `done` | PRs #3, #21, #35 | 2026-09-27: gate H1 approved; the four spoken sets frozen as version 1, the corpus with its design text (PR #35); the fixture sets stay draft |
-| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | 2026-09-26; notes for WP30 in its entry |
-| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | 2026-09-26; reviewed, then re-verified after its history rewrite; ADR 0002 (`bit_exact`) in design 5.7 |
-| WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | 2026-09-27; acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; design 5.13; follow-ups in `status/WP22.md` |
-| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PRs #25, #37 | 2026-09-27; the Job Object rule (PR #37, merged 2026-09-28: the daemon runs only in no Job Object); three reviews; contracts 1.6.4, design 5.11; a flaky Windows test fixed on `wp/30-flake` |
-| WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | 2026-09-27; reviewed and re-verified; contracts 1.6.5, design 5.12 (`needs_attention`); one job at a time (cross-job grouping is the owner's 4a) |
-| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `done` | PRs #34, #36 | 2026-09-27; review, re-verification workflow and a check of its fixes (all hold); DC-16 in; its five Low follow-ups merged (PR #36) |
-| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | 2026-09-27; Fable review (merge with follow-ups; its High and Low fixed); the d4 acceptance (`tests/measure/run_acceptance.py`) runs on `main` once WP32 registers the `measure` kind |
-| WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `done` | PR #39 | 2026-09-28; review, fix round and a two-lens verification (16 of 18 fixed; a cache for repeated designs and a WER warn level left as follow-ups); contracts 1.6.8; engine identity unchanged |
-| WP35 | `audition_pronunciation` | 2 | WP31 | yes | `done` (GPU test pending) | PR #53 (merged 2026-09-28) | built in a claude.ai/code session on the fake workers; contracts 1.6.12, design 5.18; the one `gpu` test (`tests/audition/test_audition_gpu.py`) waits for a GPU window |
-| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `done` | PR #32, #40, #41 | 2026-09-27; `get_job` and `cancel_job` revive a dead daemon and report a failed start (PR #41, merged 2026-09-28; its design-text proposals are in `status/WP36-liveness.md`); the caller's guidance in the tool texts merged (PR #40); Fable review and re-verification (merge with follow-ups; all fixed); `narration-admin render` included; follow-ups: `AnalysisPins` in `backend_for`, §7.3's all-cached submit |
-| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `done` | PR #30 | 2026-09-27; daemon, doctor, gc, verify, install (review fixes incl. a path-traversal hole); `engine` from WP32, `render` after WP36, `bench` after WP38 |
+| WP00 | Bootstrap | 0 | – | – | `done` | `wp/00-bootstrap` | dev models in `.dev\models` |
+| WP01 | Contracts v1 | 0 | WP00 | – | `done` | PR #4 | contracts at 1.6.12 |
+| WP02 | Public project scaffolding | 0 | WP00 | – | `done` | PR #2 | private vulnerability reporting, the route `SECURITY.md` names, is enabled |
+| WP03 | CI | 0 | WP00 | – | `done` | PR #1 | green on Windows + Linux; a `worker-qwen3tts` job also runs; CI follow-ups in HANDOFF.md |
+| WP10 | Text pipeline + lint | 1 | WP01 | – | `done` | PR #6 | checks run on the engine text (lead ruling) |
+| WP12 | Keys, seeds, store | 1 | WP01 | – | `done` | PRs #13, #23 | gc, publishes, readers, path confinement; low follow-ups in HANDOFF.md |
+| WP13 | Delivery post-processing | 1 | WP01 | – | `done` | PR #15 | −23 LUFS on all 48 real paragraphs |
+| WP14 | QA logic (pure) | 1 | WP01 | – | `done` | PR #18 | known limits in HANDOFF.md |
+| WP15 | Cue alignment (+ spike b) | 1 | WP01 | CPU model | `done` | PR #22 | DC-11 and DC-12; low follow-ups for WP22 and WP38 in HANDOFF.md |
+| WP16 | Worker protocol + fake worker | 1 | WP01 | – | `done` | PRs #10, #19, #24 | one Qwen settings parser, one WAV writer; low follow-ups in HANDOFF.md |
+| WP17 | MCP front-end skeleton (+ spike j) | 1 | WP01 | – | `done` | PR #16 |  |
+| WP18 | Service material | 1 | WP01 | – | `done` | PRs #3, #21, #35 | gate H1 approved; the four spoken sets are frozen as version 1, the corpus with its design text; the fixture sets are `draft` |
+| WP19 | Platform seam (Windows only) | 1 | WP01 | – | `done` | PR #5 | notes for WP30 are in its entry |
+| WP20 | GPU lane: Qwen worker + spikes d, e, f, h, i | 1 | WP16 | **yes** | `done` | PR #20 | ADR 0002 (`bit_exact`) |
+| WP22 | QA worker | 2 | WP16, WP15 | yes | `done` | PR #29 | acceptance matches the bake-off (WER exact; similarities within 0.0001); DC-14, DC-15 (60 s); QA group about 11.5 GB; follow-ups in HANDOFF.md |
+| WP30 | Daemon process mgmt (+ spike g) | 2 | WP12, WP16, WP19 | – | `done` | PRs #25, #37 | the daemon runs only in no Job Object; follow-ups in HANDOFF.md |
+| WP31 | Job engine | 2 | WP12–14, WP16 | – | `done` | PR #28 | needs_attention outcome (§7.4, §8); one job at a time (cross-job grouping is the owner's 4a) |
+| WP32 | Engine profiles + canary | 2 | WP20, WP22, WP12 | yes | `done` | PRs #34, #36 | DC-16; follow-ups in HANDOFF.md |
+| WP33 | `measure_voice` | 2 | WP31, WP22, WP14, WP18 | yes (long) | `done` | PR #31 | the d4 acceptance (`tests/measure/run_acceptance.py`) is a GPU run |
+| WP34 | Design + profile | 2 | WP31, WP20, WP22, WP10 | yes | `done` | PR #39 | contracts 1.6.8; a cache for repeated designs and a WER warn level are open (HANDOFF.md) |
+| WP35 | `audition_pronunciation` | 2 | WP31 | yes | `done` (GPU test pending) | PR #53 | built on the fake workers; contracts 1.6.12; the one `gpu` test (`tests/audition/test_audition_gpu.py`) waits for a GPU window |
+| WP36 | Front-end ↔ daemon | 2 | WP17, WP31, WP12, WP10, WP19 | – | `done` | PRs #32, #40, #41 | `get_job` and `cancel_job` revive a dead daemon and report a failed start; the caller's guidance is in the tool texts; `narration-admin render` is included; open: §7.3's all-cached submit (HANDOFF.md) |
+| WP37 | Operator CLI | 2 | WP12, WP30, WP32 | – | `done` | PR #30 | daemon, doctor, gc, verify, install, engine and render; `bench` comes with WP38 |
 | WP38 | Alignment benchmark (spike a) | 2 | WP15, WP18, WP20 | yes | `todo` | – | H2, H3 |
 | WP39 | Ladder d2/d4 (spike c) | 2 | WP33 | yes (long) | `todo` | – | needs H1 |
 | WP40 | Acceptance: Phases 1 + 3 | 3 | Wave 2 | yes | `todo` | – | |
 | WP41 | Acceptance: Phase 4 | 3 | WP40 | yes | `todo` | – | H4 |
 | WP42 | Acceptance: Phase 5 | 3 | WP41 | yes | `todo` | – | |
-| WP43 | Docs | 3 | WP36, WP37 | – | `done` | PR #48 (merged 2026-09-28) | README, `docs/operator-guide.md`, `docs/tools.md` generated by `tools/gen_tool_reference.py` (a default-suite test fails when it is stale) |
-| WP44 | Release readiness | 3 | WP41–WP43 | – | `active` | PR #52 (the licence audit and security review, merged 2026-09-28) | `docs/licences.md`, `docs/security-review.md`; S1, S2 and S12 fixed; S3–S6, S9 open; the owner decides LGPL (soundfile, soxr, pywin32's adodbapi) and MPL-2.0 (certifi, tqdm, orjson); model cards to be read (BELIEVE). Left: the clean-machine install, doctor with no GPU, the version, the GitHub description. A release itself needs the owner |
-| WP45 | `narration-admin voices allow` | 3 | WP37 | – | `done` | PR #38 | 2026-09-27; a careful text edit (tomlkit rejected: it broke one-line arrays and CRLF files); adversarial review; merged 2026-09-27 |
-| WP46 | Frontend (plan first) | later | the other packages | – | `plan` | PR #51 (the plan, merged 2026-09-28) | `docs/frontend-plan.md`: recommends a static HTML report (`narration-admin report --watch`), 5–6 agent-days in WP46-A..D; nine questions for the owner (§10), question 1 first; nothing is built before the owner approves |
-| WP47 | Pace in characters per second (D2) | 3 | WP33, WP22 | – (re-measure after merge) | `done` | PR #42 (hotfix), PR #44 (merged 2026-09-28) | 2026-09-27; the owner's decision D2, after short segments failed `PACE_FAST` falsely in the first real job. The hotfix (`PACE_FAST` warns only, `wp/47-pace-warn`) merges first; the rate model follows, then the voice is measured again (cached renders, QA only) |
-| WP48 | Failure audit | 3 | WP37, WP36 | – | `done` | PR #45 (merged 2026-09-28) | the owner asked 2026-09-27: collect failed and retaken takes with their reasons, for auditing; `narration-admin failures` (read-only; `--json` is the data WP46's view can read); review, fix round, and a check by the lead that it never writes the store |
-| WP49 | Small follow-ups | 3 | WP37, WP31, WP30 | – | `done` | PR #46 (merged 2026-09-28) | 2026-09-28: doctor warns on a QA-profile mismatch, a log line per finished job, PR #37's follow-ups |
-| WP50 | Small follow-ups (2) | 3 | WP47, WP34 | – | `done` | PR #49 (merged 2026-09-28) | CLIP_TOO_LONG never retakes (`is_retake_trigger` follows the table; contracts 1.6.10); a worker-start race in the supervisor fixed (the flaky s14 test); `install`'s stop message; each take's speaking share (WP47 F3). F4 waits for the re-measure |
-| WP51 | Daemon stop reason | 3 | WP36, WP30 | – | `done` | PR #50 (merged 2026-09-28) | `run/daemon.json` keeps the start time when stopped and records `stop_reason` (operator, idle, interrupted, error); `operator_stop` and `check_launch` decide by them (the 30 s rule only for older files); contracts 1.6.11, design 5.17. Built by a claude.ai/code cloud session (the first) |
+| WP43 | Docs | 3 | WP36, WP37 | – | `done` | PR #48 | README, `docs/operator-guide.md`, `docs/tools.md` generated by `tools/gen_tool_reference.py` (a default-suite test fails when it is stale) |
+| WP44 | Release readiness | 3 | WP41–WP43 | – | `active` | PR #52 (the licence audit and security review) | `docs/licences.md`, `docs/security-review.md`; S1, S2 and S12 fixed; S3–S6, S9 open; the owner decides LGPL (soundfile, soxr, pywin32's adodbapi) and MPL-2.0 (certifi, tqdm, orjson); model cards to be read (BELIEVE). Left: the clean-machine install, doctor with no GPU, the version. A release itself needs the owner |
+| WP45 | `narration-admin voices allow` | 3 | WP37 | – | `done` | PR #38 | a careful text edit (tomlkit rejected: it broke one-line arrays and CRLF files) |
+| WP46 | Frontend (plan first) | later | the other packages | – | `plan` | PR #51 (the plan) | `docs/frontend-plan.md`: recommends a static HTML report (`narration-admin report --watch`), 5–6 agent-days in WP46-A..D; nine questions for the owner (§10), question 1 first; nothing is built before the owner approves |
+| WP47 | Pace in characters per second (D2) | 3 | WP33, WP22 | – (re-measure after merge) | `done` | PRs #42, #44 | the owner's decision D2; DC-18, DC-19, DC-20; QA profile `default.v5`; open: the re-score of the first job (F2) and a minimum length for pace (F4) (HANDOFF.md) |
+| WP48 | Failure audit | 3 | WP37, WP36 | – | `done` | PR #45 | `narration-admin failures` (read-only; `--json` is the data WP46's view can read) |
+| WP49 | Small follow-ups | 3 | WP37, WP31, WP30 | – | `done` | PR #46 | doctor warns on a QA-profile mismatch, a log line per finished job, PR #37's low follow-ups |
+| WP50 | Small follow-ups (2) | 3 | WP47, WP34 | – | `done` | PR #49 | CLIP_TOO_LONG never retakes (`is_retake_trigger` follows the table); a worker-start race in the supervisor fixed; `install`'s stop message; each take's speaking share |
+| WP51 | Daemon stop reason | 3 | WP36, WP30 | – | `done` | PR #50 | `run/daemon.json` keeps the start time when stopped and records `stop_reason` (operator, idle, interrupted, error); `operator_stop` and `check_launch` decide by them (the 30 s rule only for older files); contracts 1.6.11. Built by a claude.ai/code cloud session |
 
 **Phase 0 spikes → where they live:** (a) WP38 · (b) WP15 · (c) WP39 · (d) (e) (f) (h) (i) WP20, with the
 QA half of (h) in WP22 · (g) WP30 · (j) WP17.
@@ -705,7 +683,7 @@ QA half of (h) in WP22 · (g) WP30 · (j) WP17.
 
 | Gate | What the owner (or a delegate) does | Blocks | Does not block |
 |---|---|---|---|
-| **H0** | Answers this plan's questions. **Done 2026-09-26** (§1.4) | – | – |
+| **H0** | Answers this plan's questions. The answers are in §1.4 | – | – |
 | **H1** | Listens to about 10 short renders of the service's own texts (a few minutes), to catch text that reads oddly; approves or asks for changes | freezing the corpus as v1 → WP33, WP38, WP39 | all of Wave 1 |
 | **H2** | Marks ~30 cue boundaries on one rendered benchmark (one voice, one seed): where each cue's first word starts and last word ends; about 30–45 min, in Resolve or Audacity (WP38) | the Phase 0 aligner choice and the first error table | everything else: wav2vec2 CTC is the default anyway (Q18) |
 | **H3** | Hand-marks ~240 boundaries (two voices × two seeds) | publishing the full measured error (end of WP38) | the rest of Wave 2 |
@@ -733,14 +711,13 @@ Wave 2             WP30 ─┐   WP22 (GPU, bounded)   WP36 (after WP31)   WP37
 Wave 3             WP40 ─► WP41 (H4) ─► WP42        WP43 ─► WP44 (release only with the owner)
 ```
 
-**First narration (M1), the owner's priority (2026-09-27).** The owner needs to generate narration through
-the MCP as soon as possible, because it blocks other work. M1 is reached when, in a Claude Code session with
-this server configured, a caller measures an allowlisted synthetic clip with `measure_voice`, then submits
-paragraphs of cues with `submit_job`, polls `get_job`, and receives QA'd, cue-aligned takes from
-`get_results`. Its path: WP30 and WP31 (merge), WP22 (QA worker), WP32 (`installed_engine`, the engine
-profile, `engine pin` and the canary), WP33 (`measure_voice`), WP36 (the tools), the corpus frozen after
-gate H1 (WP18), and WP37's daemon and doctor commands. WP32, WP33 and WP36 start stacked on `wp/31-jobs`
-rather than waiting for it to merge. WP34, WP35, WP38, WP39 and Wave 3 follow M1.
+**First narration (M1)** is the milestone at which, in a Claude Code session with this server configured,
+a caller measures an allowlisted synthetic clip with `measure_voice`, then submits paragraphs of cues with
+`submit_job`, polls `get_job`, and receives QA'd, cue-aligned takes from `get_results`. M1 is reached: the
+owner narrates through the MCP. Its path was WP30 and WP31, WP22 (QA worker), WP32 (`installed_engine`,
+the engine profile, `engine pin` and the canary), WP33 (`measure_voice`), WP36 (the tools), the corpus
+frozen after gate H1 (WP18), and WP37's daemon and doctor commands. WP34, WP35, WP38, WP39 and Wave 3
+follow M1.
 
 **Critical path:** WP00 → WP01 → WP16 → WP20 (the Qwen worker) → WP32 / WP31 → WP33 → WP40 → WP41. The
 GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start first within Wave 1.
@@ -749,10 +726,8 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
 
 ## 7. How many agents at once
 
-- **Recommended: up to 6 concurrent Wave 1 agents**, plus the GPU-lane agent, plus the lead. Wave 1 in
-  order of priority: WP16, WP20 (GPU lane), WP12, WP14, WP10, WP17, then WP19, WP13, WP15, WP18 as slots
-  free.
-- The lead (the main session) does not implement WPs once Wave 1 starts. It creates worktrees, answers
+- **Recommended: up to 6 concurrent work-package agents**, plus the GPU-lane agent, plus the lead.
+- The lead (the main session) does not implement WPs. It creates worktrees, answers
   questions, reviews, merges, pushes, and keeps this file and HANDOFF.md current.
 - Each WP agent is briefed with: its WP section from this plan, the design sections it cites, AGENTS.md,
   its worktree path, the contract modules it must not change, and the status-file format.
@@ -844,7 +819,7 @@ GPU lane and the owner's gates are the scarce resources, so WP16 and WP20 start 
     is the Base repo id and it applies NFC itself; `Alignment.model`/`revision` are optional; `JobRecord.request`
     is a dict; `EngineProfile.tier` is unhashed; `QaInputs.hints` are the hints used in the segment.
   - `CHANGELOG.md` now merges with the union driver (`.gitattributes`), since every WP adds a line.
-  - **The owner lifted the GPU hold** ("proceed with a working service"; Avast off, owner at the machine).
+  - **The owner lifted the GPU hold** (the owner said to go ahead with a working service; Avast was off and the owner was at the machine).
     WP20 started, holding the GPU lock in bounded runs.
   - WP12, WP14, WP16 and WP17 reached `review`; one read-only reviewer per branch (WP16 and WP17 share
     one). WP13 and WP15 are running.
