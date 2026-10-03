@@ -234,3 +234,27 @@ Label evidence as the design does: **KNOW** (measured here, with the script and 
 `spikes/` or `tests/`), **BELIEVE** (expected, to be verified), **ASSUME** (a placeholder). Never
 present a guess as a measurement. An ADR states the decision, the evidence (with paths), the
 alternatives, and what would reverse it.
+
+### Evergreen files hold the present, not the history
+
+Some files are what an agent reads to learn how to work: HANDOFF.md, plan.md (except its log, §9),
+`docs/design.md`, this file, `CLAUDE.md`, `AGENTS.local.md`, every `status/WPnn.md`, and any other file of
+that kind. A fresh
+agent with no other context reads them. From them alone it must know where the work stands and how to go
+on, and it needs nothing else from them.
+
+- When something ends or changes, **rewrite or delete its passage**. Do not add to it.
+- Write no "done on <date>", no "(was <old value>)", and no note that something was removed or no longer
+  holds. An agent cannot miss what it was never told.
+- History worth keeping goes in a log (plan.md §9, `CHANGELOG.md`), an ADR, or the commit history. Much
+  of it is not worth keeping at all.
+- Logs and changelogs are exempt: they are logs.
+
+### Paraphrase the owner; do not quote them
+
+Anything committed may be pushed and read by others, and so may commit messages and PR text.
+
+- Record an owner's decision as what was decided, by whom and on which date, in wording the owner would
+  sign. Do not put their sentence in quotation marks.
+- Quote the owner only where the exact words are the decision itself: a name, a number, a caption.
+- When a ruling is subtle, show the owner your wording before you commit it.
